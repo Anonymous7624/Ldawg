@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Live Chat</title>
+  <style>
+    /* Basic reset and dark mode styling */
+    body, html {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      font-family: Arial, sans-serif;
+      background-color: #2c3e50;
+      color: #ecf0f1;
+    }
+    #chat-container {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    #chat-log {
+      flex: 1;
+      padding: 10px;
+      overflow-y: auto;
+      border-bottom: 1px solid #34495e;
+    }
+    .message {
+      margin: 5px 0;
+      padding: 5px 10px;
+      border-radius: 5px;
+      background: #34495e;
+    }
+    .timestamp {
+      font-size: 0.8em;
+      margin-right: 5px;
+      color: #bdc3c7;
+    }
+    #chat-input {
+      display: flex;
+      padding: 10px;
+      gap: 5px;
+      align-items: center;
+    }
+    #chat-input input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 3px;
+      font-size: 1em;
+    }
+    #chat-input button {
+      padding: 10px 20px;
+      border: none;
+      background-color: #e67e22;
+      color: #fff;
+      border-radius: 3px;
+      font-size: 1em;
+      cursor: pointer;
+    }
+    #chat-input button:hover {
+      background-color: #d35400;
+    }
+    /* Fixed width for nickname input */
+    #nickname {
+      width: 150px;
+    }
+  </style>
+</head>
+<body>
+  <div id="chat-container">
+    <div id="chat-log"></div>
+    <div id="chat-input">
+      <input type="text" id="nickname" placeholder="Nickname (optional)" />
+      <input type="text" id="message" placeholder="Type your message..." />
+      <button id="send-btn">Send</button>
+    </div>
+  </div>
+  <script>
+    // Elements
+    const chatLog = document.getElementById('chat-log');
+    const messageInput = document.getElementById('message');
+    const sendBtn = document.getElementById('send-btn');
+    const nicknameInput = document.getElementById('nickname');
+
+    // Load saved nickname from local storage if available
+    if (localStorage.getItem('chatNickname')) {
+      nicknameInput.value = localStorage.getItem('chatNickname');
+    }
+
+    // Connect to the WebSocket server
+    const ws = new WebSocket('wss://game.ldawg7624.com');
+
+    ws.addEventListener('open', () => {
+      console.log('Connected to WebSocket server');
+    });
+
+    ws.addEventListener('message', (event) => {
+      // Assuming server sends messages in JSON format with keys: message, nickname, timestamp
+      const data = JSON.parse(event.data);
+      displayMessage(data);
+    });
+
+    ws.addEventListener('close', () => {
+      console.log('Disconnected from WebSocket server');
+    });
+
+    ws.addEventListener('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+
+    // Function to append a new message to the chat log
+    function displayMessage(data) {
+      const messageEl = document.createElement('div');
+      messageEl.classList.add('message');
+
+      // Create timestamp element
+      const timestampEl = document.createElement('span');
+      timestampEl.classList.add('timestamp');
+      // Use the provided timestamp or create one if not available
+      const time = data.timestamp ? new Date(data.timestamp) : new Date();
+      timestampEl.textContent = '[' + time.toLocaleTimeString() + ']';
+
+      // Determine sender name
+      const sender = data.nickname ? data.nickname : 'Anonymous';
+
+      // Create message content element
+      const contentEl = document.createElement('span');
+      contentEl.textContent = sender + ': ' + data.message;
+
+      messageEl.appendChild(timestampEl);
+      messageEl.appendChild(contentEl);
+      chatLog.appendChild(messageEl);
+
+      // Auto-scroll to the latest message
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    // Function to send a message
+    function sendMessage() {
+      const message = messageInput.value.trim();
+      if (!message) return;
+      // Save nickname locally if provided
+      const nickname = nicknameInput.value.trim() || 'Anonymous';
+      localStorage.setItem('chatNickname', nickname);
+
+      const msgData = {
+        nickname: nickname,
+        message: message,
+        timestamp: new Date().toISOString()
+      };
+
+      // Send message as a JSON string via WebSocket
+      ws.send(JSON.stringify(msgData));
+      messageInput.value = '';
+    }
+
+    // Event listeners for sending messages
+    sendBtn.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        sendMessage();
+      }
+    });
+  </script>
+</body>
+</html>
