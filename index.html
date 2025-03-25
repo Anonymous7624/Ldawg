@@ -5,31 +5,50 @@
   <title>3D Multiplayer Tank Game</title>
   <style>
     body { margin: 0; overflow: hidden; }
+    /* Chat Input (hidden by default) */
     #chatInput {
-      position: absolute;
-      bottom: 20px;
+      position: fixed;
+      bottom: 210px;
       left: 50%;
       transform: translateX(-50%);
       display: none;
       padding: 8px;
       font-size: 16px;
-      z-index: 100;
+      z-index: 110;
     }
+    /* Kill Feed in top-right */
     #killFeed {
-      position: absolute;
+      position: fixed;
       top: 10px;
       right: 10px;
       color: white;
       font-family: sans-serif;
-      z-index: 100;
+      z-index: 110;
     }
+    /* Minimap in top-left */
     #minimap {
-      position: absolute;
+      position: fixed;
       top: 10px;
       left: 10px;
       border: 2px solid #fff;
       background: rgba(0,0,0,0.5);
-      z-index: 100;
+      z-index: 110;
+    }
+    /* Global Chat Log at the bottom */
+    #globalChatLog {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      max-height: 200px;
+      overflow-y: auto;
+      background: rgba(0, 0, 0, 0.7);
+      color: #fff;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      padding: 10px;
+      box-sizing: border-box;
+      z-index: 105;
     }
   </style>
 </head>
@@ -37,6 +56,7 @@
   <input type="text" id="chatInput" placeholder="Type a message and hit Enter">
   <div id="killFeed"></div>
   <canvas id="minimap" width="200" height="200"></canvas>
+  <div id="globalChatLog"></div>
   
   <!-- Three.js from CDN -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
@@ -48,23 +68,21 @@
       // -----------------------
       let scene, camera, renderer, localTank, clock;
       let remoteTanks = {}; // key: player id, value: {mesh, nickname}
-      let chatMessages = []; // kill feed messages
+      let killFeedMessages = []; // kill feed messages
       let ws;
       let cameraMode = 1; // 1: third-person, 2: first-person turret, 3: top-down
       let currentMap = 'desert'; // 'desert', 'grass', 'city'
       let weather = null;
       const controls = { forward: false, backward: false, left: false, right: false, shoot: false };
 
-      // Player metadata (random for demo)
-    // Retrieve the nickname from localStorage, or fall back to a random one if not set.
-const storedNickname = localStorage.getItem('nickname');
-const playerData = {
-  id: Math.floor(Math.random()*1000000).toString(),
-  nickname: storedNickname ? storedNickname : 'Player' + Math.floor(Math.random()*1000),
-  color: '#' + Math.floor(Math.random()*16777215).toString(16),
-  health: 100
-};
-
+      // Retrieve nickname from localStorage (or use a fallback)
+      const storedNickname = localStorage.getItem('nickname');
+      const playerData = {
+        id: Math.floor(Math.random()*1000000).toString(),
+        nickname: storedNickname ? storedNickname : 'Player' + Math.floor(Math.random()*1000),
+        color: '#' + Math.floor(Math.random()*16777215).toString(16),
+        health: 100
+      };
 
       // WebSocket URL – using your Cloudflare Tunnel (secure)
       const WS_URL = "wss://game.ldawg7624.com";
@@ -240,6 +258,11 @@ const playerData = {
       // Keyboard Input
       // -----------------------
       function onKeyDown(e) {
+        // Open chat input when "T" is pressed if not already focused
+        if (e.code === "KeyT" && document.activeElement !== chatInput) {
+          toggleChat();
+          return;
+        }
         // Block movement if chat input is active
         if (document.activeElement === chatInput) return;
         switch(e.code) {
@@ -250,9 +273,6 @@ const playerData = {
           case "Space": 
             controls.shoot = true;
             sendShoot();
-            break;
-          case "KeyT": 
-            toggleChat();
             break;
           case "Digit1": cameraMode = 1; break;
           case "Digit2": cameraMode = 2; break;
@@ -274,14 +294,6 @@ const playerData = {
       // Chat Input Handling
       // -----------------------
       const chatInput = document.getElementById("chatInput");
-      function toggleChat() {
-        if (chatInput.style.display === "none" || chatInput.style.display === "") {
-          chatInput.style.display = "block";
-          chatInput.focus();
-        } else {
-          chatInput.style.display = "none";
-        }
-      }
       chatInput.addEventListener("keydown", function(e) {
         if (e.key === "Enter") {
           if (chatInput.value.trim() !== "") {
@@ -291,6 +303,15 @@ const playerData = {
           chatInput.style.display = "none";
         }
       });
+      
+      function toggleChat() {
+        if (chatInput.style.display === "none" || chatInput.style.display === "") {
+          chatInput.style.display = "block";
+          chatInput.focus();
+        } else {
+          chatInput.style.display = "none";
+        }
+      }
       
       // -----------------------
       // WebSocket Communication
@@ -323,7 +344,9 @@ const playerData = {
             }
             break;
           case "chat":
+            // Show chat bubble and add to global chat log
             displayChatBubble(msg);
+            addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
             break;
           case "shoot":
             addKillFeed(`${msg.nickname} fired!`);
@@ -345,10 +368,6 @@ const playerData = {
               scene.remove(remoteTanks[msg.id].mesh);
               delete remoteTanks[msg.id];
             }
-            break;
-          case "count":
-            const countEl = document.getElementById('count');
-            if (countEl) countEl.textContent = msg.count;
             break;
         }
       }
@@ -385,6 +404,9 @@ const playerData = {
             nickname: playerData.nickname,
             message: message
           }));
+          // Optionally display local chat bubble immediately
+          displayChatBubble({ id: playerData.id, nickname: playerData.nickname, message: message });
+          addGlobalChatMessage(`${playerData.nickname}: ${message}`);
         }
       }
       
@@ -404,32 +426,44 @@ const playerData = {
       // Floating Chat Bubbles & Kill Feed
       // -----------------------
       function displayChatBubble(msg) {
-        let remote = remoteTanks[msg.id];
-        if (remote) {
-          let canvas = document.createElement('canvas');
-          canvas.width = 256;
-          canvas.height = 64;
-          let context = canvas.getContext('2d');
-          context.fillStyle = "rgba(0,0,0,0.6)";
-          context.fillRect(0, 0, canvas.width, canvas.height);
-          context.font = "20px Arial";
-          context.fillStyle = "#ffffff";
-          context.textAlign = "center";
-          context.fillText(msg.message, canvas.width/2, canvas.height/2 + 8);
-          let texture = new THREE.CanvasTexture(canvas);
-          let spriteMat = new THREE.SpriteMaterial({ map: texture });
-          let sprite = new THREE.Sprite(spriteMat);
-          sprite.scale.set(4, 1, 1);
-          sprite.position.set(0, 3, 0);
-          remote.mesh.add(sprite);
-          setTimeout(() => { remote.mesh.remove(sprite); }, 3000);
-        }
+        // Attach the chat bubble to the correct tank (local or remote)
+        let targetTank = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
+        if (!targetTank) return;
+        
+        let canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 64;
+        let context = canvas.getContext('2d');
+        context.fillStyle = "rgba(0,0,0,0.6)";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.font = "20px Arial";
+        context.fillStyle = "#ffffff";
+        context.textAlign = "center";
+        context.fillText(msg.message, canvas.width/2, canvas.height/2 + 8);
+        let texture = new THREE.CanvasTexture(canvas);
+        let spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
+        let sprite = new THREE.Sprite(spriteMat);
+        sprite.scale.set(4, 1, 1);
+        sprite.position.set(0, 3, 0);
+        targetTank.add(sprite);
+        
+        // Remove the bubble after 3 seconds
+        setTimeout(() => { targetTank.remove(sprite); }, 3000);
       }
       
       function addKillFeed(text) {
-        chatMessages.push(text);
+        killFeedMessages.push(text);
         const feedDiv = document.getElementById("killFeed");
-        feedDiv.innerHTML = chatMessages.slice(-5).join("<br>");
+        feedDiv.innerHTML = killFeedMessages.slice(-5).join("<br>");
+      }
+      
+      function addGlobalChatMessage(text) {
+        const chatLog = document.getElementById("globalChatLog");
+        const messageElem = document.createElement("div");
+        messageElem.textContent = text;
+        chatLog.appendChild(messageElem);
+        // Auto-scroll to bottom
+        chatLog.scrollTop = chatLog.scrollHeight;
       }
       
       // -----------------------
@@ -445,18 +479,13 @@ const playerData = {
         if (controls.right) { localTank.rotation.y -= 2 * delta; }
         updateCamera();
         
-        // Make nickname labels face the camera for local tank
+        // Ensure nickname labels face the camera (local and remote)
         localTank.children.forEach(child => {
-          if (child.type === "Sprite") {
-            child.lookAt(camera.position);
-          }
+          if (child.type === "Sprite") { child.lookAt(camera.position); }
         });
-        // Also update remote tank labels if desired
         for (let id in remoteTanks) {
           remoteTanks[id].mesh.children.forEach(child => {
-            if (child.type === "Sprite") {
-              child.lookAt(camera.position);
-            }
+            if (child.type === "Sprite") { child.lookAt(camera.position); }
           });
         }
         
