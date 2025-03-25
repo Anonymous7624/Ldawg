@@ -78,92 +78,86 @@
       <button id="send-btn">Send</button>
     </div>
   </div>
-  <script>
-    // Elements
-    const chatLog = document.getElementById('chat-log');
-    const messageInput = document.getElementById('message');
-    const sendBtn = document.getElementById('send-btn');
-    const nicknameInput = document.getElementById('nickname');
+<script>
+  const chatLog = document.getElementById('chat-log');
+  const messageInput = document.getElementById('message');
+  const sendBtn = document.getElementById('send-btn');
+  const nicknameInput = document.getElementById('nickname');
 
-    // Load saved nickname from local storage if available
-    if (localStorage.getItem('chatNickname')) {
-      nicknameInput.value = localStorage.getItem('chatNickname');
-    }
+  if (localStorage.getItem('chatNickname')) {
+    nicknameInput.value = localStorage.getItem('chatNickname');
+  }
 
-    // Connect to the WebSocket server
-    const ws = new WebSocket('wss://game.ldawg7624.com');
+  const ws = new WebSocket('wss://game.ldawg7624.com');
 
-    ws.addEventListener('open', () => {
-      console.log('Connected to WebSocket server');
-    });
+  ws.addEventListener('open', () => {
+    console.log('Connected to WebSocket server');
+  });
 
-    ws.addEventListener('message', (event) => {
-      // Assuming server sends messages in JSON format with keys: message, nickname, timestamp
-      const data = JSON.parse(event.data);
-      displayMessage(data);
-    });
-
-    ws.addEventListener('close', () => {
-      console.log('Disconnected from WebSocket server');
-    });
-
-    ws.addEventListener('error', (error) => {
-      console.error('WebSocket error:', error);
-    });
-
-    // Function to append a new message to the chat log
-    function displayMessage(data) {
-      const messageEl = document.createElement('div');
-      messageEl.classList.add('message');
-
-      // Create timestamp element
-      const timestampEl = document.createElement('span');
-      timestampEl.classList.add('timestamp');
-      // Use the provided timestamp or create one if not available
-      const time = data.timestamp ? new Date(data.timestamp) : new Date();
-      timestampEl.textContent = '[' + time.toLocaleTimeString() + ']';
-
-      // Determine sender name
-      const sender = data.nickname ? data.nickname : 'Anonymous';
-
-      // Create message content element
-      const contentEl = document.createElement('span');
-      contentEl.textContent = sender + ': ' + data.message;
-
-      messageEl.appendChild(timestampEl);
-      messageEl.appendChild(contentEl);
-      chatLog.appendChild(messageEl);
-
-      // Auto-scroll to the latest message
-      chatLog.scrollTop = chatLog.scrollHeight;
-    }
-
-    // Function to send a message
-    function sendMessage() {
-      const message = messageInput.value.trim();
-      if (!message) return;
-      // Save nickname locally if provided
-      const nickname = nicknameInput.value.trim() || 'Anonymous';
-      localStorage.setItem('chatNickname', nickname);
-
-      const msgData = {
-        nickname: nickname,
-        message: message,
+  ws.addEventListener('message', (event) => {
+    let data;
+    try {
+      data = JSON.parse(event.data);
+    } catch {
+      data = {
+        message: event.data,
+        nickname: 'Server',
         timestamp: new Date().toISOString()
       };
-
-      // Send message as a JSON string via WebSocket
-      ws.send(JSON.stringify(msgData));
-      messageInput.value = '';
     }
+    displayMessage(data);
+  });
 
-    // Event listeners for sending messages
-    sendBtn.addEventListener('click', sendMessage);
-    messageInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        sendMessage();
-      }
-    });
-  </script>
+  ws.addEventListener('close', () => {
+    console.log('Disconnected from WebSocket server');
+  });
+
+  ws.addEventListener('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
+
+  function displayMessage(data) {
+    const messageEl = document.createElement('div');
+    messageEl.classList.add('message');
+
+    const timestampEl = document.createElement('span');
+    timestampEl.classList.add('timestamp');
+    const time = data.timestamp ? new Date(data.timestamp) : new Date();
+    timestampEl.textContent = '[' + time.toLocaleTimeString() + ']';
+
+    const sender = data.nickname ? data.nickname : 'Anonymous';
+
+    const contentEl = document.createElement('span');
+    contentEl.textContent = `${sender}: ${data.message}`;
+
+    messageEl.appendChild(timestampEl);
+    messageEl.appendChild(contentEl);
+    chatLog.appendChild(messageEl);
+
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  function sendMessage() {
+    const message = messageInput.value.trim();
+    if (!message) return;
+
+    const nickname = nicknameInput.value.trim() || 'Anonymous';
+    localStorage.setItem('chatNickname', nickname);
+
+    const msgData = {
+      nickname: nickname,
+      message: message,
+      timestamp: new Date().toISOString()
+    };
+
+    ws.send(JSON.stringify(msgData));
+    messageInput.value = '';
+  }
+
+  sendBtn.addEventListener('click', sendMessage);
+  messageInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') sendMessage();
+  });
+</script>
 </body>
 </html>
