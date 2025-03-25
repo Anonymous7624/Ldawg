@@ -185,7 +185,12 @@
       }
       
       // -----------------------
-      // (Existing) loadMap Function – unchanged from your current version
+    // Paste this once at the top (before loadMap):
+var ImprovedNoise = function () {
+  var p = [/* Perlin noise seed array here... */];
+  // ... rest of ImprovedNoise definition ...
+};
+
       function loadMap(mapType) {
         // Minimal ImprovedNoise implementation (adapted from Three.js examples)
 var ImprovedNoise = function () {
