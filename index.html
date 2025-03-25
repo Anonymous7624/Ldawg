@@ -1,13 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script>
-  // Redirect to join.html if no nickname is stored
-  if (!localStorage.getItem('nickname')) {
-    window.location.href = "join.html";
-  }
-</script>
-
   <meta charset="UTF-8">
   <title>3D Multiplayer Tank Game</title>
   <style>
@@ -96,9 +89,10 @@
   
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // ------------------------------------------------------------------
-      // ImprovedNoise – Single complete definition (adapted from Three.js)
-      // ------------------------------------------------------------------
+
+      // -----------------------
+      // ImprovedNoise – Complete Definition
+      // -----------------------
       var ImprovedNoise = function () {
         var p = [151,160,137,91,90,15,
           131,13,201,95,96,53,194,233,7,225,140,36,103,30,
@@ -153,9 +147,9 @@
         };
       };
 
-      // -----------------------------------------------------
-      // Global Variables, Player Data, WebSocket, Missile Types
-      // -----------------------------------------------------
+      // -----------------------
+      // Global Variables
+      // -----------------------
       let scene, camera, renderer, localTank, clock;
       let remoteTanks = {}; // { id: { mesh, nickname } }
       let killFeedMessages = [];
@@ -163,7 +157,11 @@
       let cameraMode = 1; // 1: third-person, 2: first-person turret, 3: top-down
       let currentMap = 'desert'; // Options: 'desert', 'grass', 'city'
       let weather = null;
-      let missiles = []; // Array to track missiles
+      let missiles = []; // To track missile objects
+      let groundMesh = null; // Reference to the terrain mesh
+      let treeColliders = []; // Array to hold trees for collision detection
+      let prevTankPosition = new THREE.Vector3();
+
       const controls = { forward: false, backward: false, left: false, right: false, shoot: false };
 
       const storedNickname = localStorage.getItem('nickname');
@@ -236,13 +234,17 @@
       }
 
       // -----------------------
-      // loadMap Function with Improved Terrain
+      // loadMap with Expanded Terrain and Objects
       // -----------------------
       function loadMap(mapType) {
+        // Remove previous map and reset tree colliders.
         let mapGroup = scene.getObjectByName("mapGroup");
         if (mapGroup) { scene.remove(mapGroup); }
         mapGroup = new THREE.Group();
         mapGroup.name = "mapGroup";
+        treeColliders = []; // clear previous tree colliders
+
+        // Create terrain: 1000 x 1000 with 200 segments
         const size = 1000;
         const segments = 200;
         const terrainGeometry = new THREE.PlaneGeometry(size, size, segments, segments);
@@ -292,12 +294,13 @@
           default:
             groundMaterial = new THREE.MeshLambertMaterial({ color: 0x999999 });
         }
-        let groundMesh = new THREE.Mesh(terrainGeometry, groundMaterial);
+        groundMesh = new THREE.Mesh(terrainGeometry, groundMaterial);
         groundMesh.receiveShadow = true;
         mapGroup.add(groundMesh);
 
         // Add additional objects based on map type
         if (mapType === 'desert') {
+          // Rocks for desert
           for (let i = 0; i < 20; i++) {
             let rockGeometry = new THREE.DodecahedronGeometry(Math.random() * 2 + 1, 0);
             let rockMaterial = new THREE.MeshLambertMaterial({ color: 0x888888 });
@@ -308,6 +311,7 @@
             mapGroup.add(rock);
           }
         } else if (mapType === 'grass') {
+          // A plain with a central road and trees.
           let roadGeometry = new THREE.PlaneGeometry(size, 20, 1, 1);
           let roadMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
           let road = new THREE.Mesh(roadGeometry, roadMaterial);
@@ -328,6 +332,7 @@
             tree.add(foliage);
             return tree;
           }
+          // Place trees in clusters away from the road.
           for (let i = 0; i < 50; i++) {
             let tree = createTree();
             let x = (Math.random() - 0.5) * size;
@@ -336,8 +341,10 @@
             let y = noise.noise(x / scale, z / scale, 0) * amplitude;
             tree.position.set(x, y, z);
             mapGroup.add(tree);
+            treeColliders.push(tree);  // Store for collision checks.
           }
         } else if (mapType === 'city') {
+          // Roads and buildings grid
           let roadWidth = 30;
           let roadGeometry1 = new THREE.PlaneGeometry(size, roadWidth, 1, 1);
           let road1 = new THREE.Mesh(roadGeometry1, new THREE.MeshLambertMaterial({ color: 0x222222 }));
@@ -403,6 +410,33 @@
         sprite.scale.set(4, 1, 1);
         sprite.position.set(0, 2.5, 0);
         tank.add(sprite);
+      }
+
+      // -----------------------
+      // Collision & Height Updates
+      // -----------------------
+      // Use a raycaster to keep the tank on top of the terrain.
+      function updateTankHeight() {
+        if (!groundMesh) return;
+        let raycaster = new THREE.Raycaster();
+        let origin = new THREE.Vector3(localTank.position.x, 1000, localTank.position.z);
+        raycaster.set(origin, new THREE.Vector3(0, -1, 0));
+        let intersects = raycaster.intersectObject(groundMesh);
+        if (intersects.length > 0) {
+          localTank.position.y = intersects[0].point.y + 0.5; // offset so tank sits on surface
+        }
+      }
+
+      // Simple collision check with trees.
+      function checkTreeCollisions() {
+        for (let tree of treeColliders) {
+          // Use a simple sphere collision: if distance is less than a threshold, revert.
+          let dist = localTank.position.distanceTo(tree.position);
+          if (dist < 10) { // adjust threshold as needed (10 units here)
+            localTank.position.copy(prevTankPosition);
+            break;
+          }
+        }
       }
 
       // -----------------------
@@ -679,24 +713,26 @@
       }
 
       // -----------------------
-      // Animation Loop & Camera, Minimap Updates
+      // Update Loop: Animation, Collision, and Camera
       // -----------------------
       function animate() {
         requestAnimationFrame(animate);
         let delta = clock.getDelta();
         let moveSpeed = 10 * delta;
+        // Store previous position for collision rollback.
+        prevTankPosition.copy(localTank.position);
         if (controls.forward) { localTank.translateZ(moveSpeed); }
         if (controls.backward) { localTank.translateZ(-moveSpeed); }
         if (controls.left) { localTank.rotation.y += 2 * delta; }
         if (controls.right) { localTank.rotation.y -= 2 * delta; }
+        // Check tree collisions (only in maps with trees)
+        checkTreeCollisions();
+        // Update tank height so it rides the terrain
+        updateTankHeight();
         updateCamera();
-        localTank.children.forEach(child => {
-          if (child.type === "Sprite") { child.lookAt(camera.position); }
-        });
+        localTank.children.forEach(child => { if (child.type === "Sprite") { child.lookAt(camera.position); } });
         for (let id in remoteTanks) {
-          remoteTanks[id].mesh.children.forEach(child => {
-            if (child.type === "Sprite") { child.lookAt(camera.position); }
-          });
+          remoteTanks[id].mesh.children.forEach(child => { if (child.type === "Sprite") { child.lookAt(camera.position); } });
         }
         sendUpdate();
         updateMissiles(delta);
@@ -704,6 +740,9 @@
         updateMinimap();
       }
 
+      // -----------------------
+      // Camera Update
+      // -----------------------
       function updateCamera() {
         if (cameraMode === 1) {
           const relativeCameraOffset = new THREE.Vector3(0, 5, -10);
@@ -724,51 +763,66 @@
         }
       }
 
-     function updateMinimap() {
-  let minimap = document.getElementById("minimap");
-  let ctx = minimap.getContext("2d");
-  ctx.clearRect(0, 0, minimap.width, minimap.height);
-  ctx.fillStyle = "rgba(0,0,0,0.5)";
-  ctx.fillRect(0, 0, minimap.width, minimap.height);
+      // -----------------------
+      // Minimap Update (World Coordinates to Canvas)
+      // -----------------------
+      function updateMinimap() {
+        let minimap = document.getElementById("minimap");
+        let ctx = minimap.getContext("2d");
+        ctx.clearRect(0, 0, minimap.width, minimap.height);
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(0, 0, minimap.width, minimap.height);
+        // Full map: 1000 units (world x from -500 to +500)
+        const fullMapSize = 1000;
+        const halfMap = fullMapSize / 2;
+        function worldToMinimap(worldX, worldZ) {
+          let canvasX = (worldX + halfMap) * (minimap.width / fullMapSize);
+          let canvasY = (halfMap - worldZ) * (minimap.height / fullMapSize);
+          return { x: canvasX, y: canvasY };
+        }
+        // Draw local tank.
+        let localPos = localTank.position;
+        let localCanvasPos = worldToMinimap(localPos.x, localPos.z);
+        ctx.fillStyle = playerData.color;
+        ctx.beginPath();
+        ctx.arc(localCanvasPos.x, localCanvasPos.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        // Draw remote tanks.
+        ctx.fillStyle = "#ffffff";
+        for (let id in remoteTanks) {
+          let pos = remoteTanks[id].mesh.position;
+          let canvasPos = worldToMinimap(pos.x, pos.z);
+          ctx.beginPath();
+          ctx.arc(canvasPos.x, canvasPos.y, 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
 
-  // Assuming full map size is 1000 units and world coordinates range from -500 to 500.
-  const fullMapSize = 1000;
-  const halfMap = fullMapSize / 2;
+      // -----------------------
+      // Tree Collision Check
+      // -----------------------
+      function checkTreeCollisions() {
+        for (let tree of treeColliders) {
+          let dist = localTank.position.distanceTo(tree.position);
+          if (dist < 10) { // threshold, adjust as needed
+            localTank.position.copy(prevTankPosition);
+            break;
+          }
+        }
+      }
 
-  // Convert world coordinates (x, z) to minimap canvas coordinates.
-  // We flip the z-axis so that higher z (top of world) appears at y=0 on the canvas.
-  function worldToMinimap(worldX, worldZ) {
-    let canvasX = (worldX + halfMap) * (minimap.width / fullMapSize);
-    let canvasY = (halfMap - worldZ) * (minimap.height / fullMapSize);
-    return { x: canvasX, y: canvasY };
-  }
-
-  // Draw the local tank on the minimap.
-  let localPos = localTank.position;
-  let localCanvasPos = worldToMinimap(localPos.x, localPos.z);
-  ctx.fillStyle = playerData.color;
-  ctx.beginPath();
-  ctx.arc(localCanvasPos.x, localCanvasPos.y, 5, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Draw each remote tank on the minimap.
-  ctx.fillStyle = "#ffffff";
-  for (let id in remoteTanks) {
-    let pos = remoteTanks[id].mesh.position;
-    let canvasPos = worldToMinimap(pos.x, pos.z);
-    ctx.beginPath();
-    ctx.arc(canvasPos.x, canvasPos.y, 5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
-
-
+      // -----------------------
+      // Map Switching (every 3 minutes)
+      // -----------------------
       setInterval(() => {
         const maps = ['desert', 'grass', 'city'];
         currentMap = maps[Math.floor(Math.random() * maps.length)];
         loadMap(currentMap);
       }, 180000);
 
+      // -----------------------
+      // Start Everything
+      // -----------------------
       init();
     });
   </script>
