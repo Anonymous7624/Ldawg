@@ -694,7 +694,45 @@
         sendUpdate();
         updateMissiles(delta);
         renderer.render(scene, camera);
-        updateMinimap();
+        
+        function updateMinimap() {
+  let minimap = document.getElementById("minimap");
+  let ctx = minimap.getContext("2d");
+  ctx.clearRect(0, 0, minimap.width, minimap.height);
+  ctx.fillStyle = "rgba(0,0,0,0.5)";
+  ctx.fillRect(0, 0, minimap.width, minimap.height);
+
+  // Assuming full map size is 1000 units and world coordinates range from -500 to 500.
+  const fullMapSize = 1000;
+  const halfMap = fullMapSize / 2;
+
+  // Convert world coordinates (x, z) to minimap canvas coordinates.
+  // We flip the z-axis so that higher z (top of world) appears at y=0 on the canvas.
+  function worldToMinimap(worldX, worldZ) {
+    let canvasX = (worldX + halfMap) * (minimap.width / fullMapSize);
+    let canvasY = (halfMap - worldZ) * (minimap.height / fullMapSize);
+    return { x: canvasX, y: canvasY };
+  }
+
+  // Draw the local tank on the minimap.
+  let localPos = localTank.position;
+  let localCanvasPos = worldToMinimap(localPos.x, localPos.z);
+  ctx.fillStyle = playerData.color;
+  ctx.beginPath();
+  ctx.arc(localCanvasPos.x, localCanvasPos.y, 5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Draw each remote tank on the minimap.
+  ctx.fillStyle = "#ffffff";
+  for (let id in remoteTanks) {
+    let pos = remoteTanks[id].mesh.position;
+    let canvasPos = worldToMinimap(pos.x, pos.z);
+    ctx.beginPath();
+    ctx.arc(canvasPos.x, canvasPos.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
       }
 
       function updateCamera() {
