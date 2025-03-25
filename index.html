@@ -1,22 +1,16 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script>
-  // Redirect to join.html if no nickname is stored
-  if (!localStorage.getItem('nickname')) {
-    window.location.href = "join.html";
-  }
-</script>
-
   <meta charset="UTF-8">
   <title>3D Multiplayer Tank Game</title>
   <style>
     body { margin: 0; overflow: hidden; }
-    /* Health Bar (top-left overlay) */
+    /* Health Bar at Bottom Center (above the chat log) */
     #healthBarContainer {
       position: fixed;
-      top: 10px;
-      left: 10px;
+      bottom: 220px; /* leaves room for the global chat log at bottom */
+      left: 50%;
+      transform: translateX(-50%);
       width: 200px;
       height: 20px;
       background-color: #555;
@@ -50,16 +44,16 @@
       font-family: sans-serif;
       z-index: 110;
     }
-    /* Minimap in top-right */
+    /* Minimap at top-left */
     #minimap {
       position: fixed;
       top: 10px;
-      right: 10px;
+      left: 10px;
       border: 2px solid #fff;
       background: rgba(0,0,0,0.5);
       z-index: 110;
     }
-    /* Global Chat Log at the bottom */
+    /* Global Chat Log at Bottom */
     #globalChatLog {
       position: fixed;
       bottom: 0;
@@ -187,9 +181,9 @@
       let cameraMode = 1; // 1: third-person, 2: first-person turret, 3: top-down
       let currentMap = 'desert'; // Options: 'desert', 'grass', 'city'
       let weather = null;
-      let missiles = []; // Array to track missile objects
+      let missiles = []; // Array to track missiles
       let groundMesh = null; // Reference to the terrain mesh
-      let treeColliders = []; // Array for tree collisions
+      let treeColliders = []; // Array to hold trees for collision
       let prevTankPosition = new THREE.Vector3();
       let faster = false; // Flag for faster movement
 
@@ -235,11 +229,10 @@
       };
 
       // -----------------------
-      // Health Bar Update
+      // Health Bar Update (reflect playerData.health)
       // -----------------------
       function updateHealthBar() {
         const healthBar = document.getElementById("healthBar");
-        // Assume playerData.health is a percentage (0-100)
         healthBar.style.width = playerData.health + "%";
       }
 
@@ -282,7 +275,6 @@
         mapGroup = new THREE.Group();
         mapGroup.name = "mapGroup";
         treeColliders = [];
-
         const size = 1000;
         const segments = 200;
         const terrainGeometry = new THREE.PlaneGeometry(size, size, segments, segments);
@@ -336,7 +328,6 @@
         groundMesh.receiveShadow = true;
         mapGroup.add(groundMesh);
 
-        // Add additional objects by map type.
         if (mapType === 'desert') {
           for (let i = 0; i < 20; i++) {
             let rockGeometry = new THREE.DodecahedronGeometry(Math.random() * 2 + 1, 0);
@@ -460,16 +451,13 @@
         }
       }
 
-      // Prevent going through trees and off-map.
       function checkCollisions() {
-        // Check tree collisions.
         for (let tree of treeColliders) {
           if (localTank.position.distanceTo(tree.position) < 10) {
             localTank.position.copy(prevTankPosition);
             return;
           }
         }
-        // Check map boundaries (map is 1000x1000, so x,z in [-500, 500])
         const boundary = 500;
         if (
           localTank.position.x < -boundary ||
@@ -491,7 +479,7 @@
       }
 
       // -----------------------
-      // Keyboard Input & Faster Movement
+      // Keyboard Input & Faster Movement (SHIFT for boost)
       // -----------------------
       function onKeyDown(e) {
         if (e.code === "KeyT" && document.activeElement !== chatInput) {
@@ -762,7 +750,6 @@
       function animate() {
         requestAnimationFrame(animate);
         let delta = clock.getDelta();
-        // Save previous position for collision rollback.
         prevTankPosition.copy(localTank.position);
         let speedMultiplier = faster ? 2 : 1;
         let moveSpeed = 10 * delta * speedMultiplier;
@@ -770,9 +757,7 @@
         if (controls.backward) { localTank.translateZ(-moveSpeed); }
         if (controls.left) { localTank.rotation.y += 2 * delta; }
         if (controls.right) { localTank.rotation.y -= 2 * delta; }
-        // Check collisions: trees and map boundaries.
         checkCollisions();
-        // Update tank height over the terrain.
         updateTankHeight();
         updateCamera();
         localTank.children.forEach(child => { if (child.type === "Sprite") { child.lookAt(camera.position); } });
@@ -818,7 +803,6 @@
         ctx.clearRect(0, 0, minimap.width, minimap.height);
         ctx.fillStyle = "rgba(0,0,0,0.5)";
         ctx.fillRect(0, 0, minimap.width, minimap.height);
-        // World: x,z from -500 to 500.
         const fullMapSize = 1000;
         const halfMap = fullMapSize / 2;
         function worldToMinimap(worldX, worldZ) {
@@ -826,14 +810,12 @@
           let canvasY = (halfMap - worldZ) * (minimap.height / fullMapSize);
           return { x: canvasX, y: canvasY };
         }
-        // Draw local tank.
         let localPos = localTank.position;
         let localCanvasPos = worldToMinimap(localPos.x, localPos.z);
         ctx.fillStyle = playerData.color;
         ctx.beginPath();
         ctx.arc(localCanvasPos.x, localCanvasPos.y, 5, 0, Math.PI * 2);
         ctx.fill();
-        // Draw remote tanks.
         ctx.fillStyle = "#ffffff";
         for (let id in remoteTanks) {
           let pos = remoteTanks[id].mesh.position;
@@ -875,7 +857,7 @@
       }, 180000);
 
       // -----------------------
-      // Start the Game
+      // Start Everything
       // -----------------------
       init();
     });
