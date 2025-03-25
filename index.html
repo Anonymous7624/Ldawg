@@ -1,6 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script>
+  // Redirect to join.html if no nickname is stored
+  if (!localStorage.getItem('nickname')) {
+    window.location.href = "join.html";
+  }
+</script>
+
   <meta charset="UTF-8">
   <title>3D Multiplayer Tank Game</title>
   <style>
