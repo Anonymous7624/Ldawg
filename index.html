@@ -89,34 +89,86 @@
   
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // -----------------------
-      // Global Variables & Setup
-      // -----------------------
+      // ------------------------------------------------------------------
+      // ImprovedNoise – Single complete definition (adapted from Three.js)
+      // ------------------------------------------------------------------
+      var ImprovedNoise = function () {
+        var p = [151,160,137,91,90,15,
+          131,13,201,95,96,53,194,233,7,225,140,36,103,30,
+          69,142,8,99,37,240,21,10,23,190,6,148,247,120,234,
+          75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,
+          33,88,237,149,56,87,174,20,125,136,171,168,68,175,
+          74,165,71,134,139,48,27,166,77,146,158,231,83,111,
+          229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,
+          102,143,54,65,25,63,161,1,216,80,73,209,76,132,187,
+          208,89,18,169,200,196,135,130,116,188,159,86,164,100,
+          109,198,173,186,3,64,52,217,226,250,124,123,5,202,38,
+          147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,
+          182,189,28,42,223,183,170,213,119,248,152,2,44,154,
+          163,70,221,153,101,155,167,43,172,9,129,22,39,253,19,
+          98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,
+          251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,
+          235,249,14,239,107,49,192,214,31,181,199,106,157,184,
+          84,204,176,115,121,50,45,127,4,150,254,138,236,205,93,
+          222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180];
+        for (var i = 0; i < 256; i++) {
+          p[256 + i] = p[i];
+        }
+        function fade(t) {
+          return t * t * t * (t * (t * 6 - 15) + 10);
+        }
+        function lerp(t, a, b) {
+          return a + t * (b - a);
+        }
+        function grad(hash, x, y, z) {
+          var h = hash & 15;
+          var u = h < 8 ? x : y;
+          var v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+          return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+        }
+        this.noise = function (x, y, z) {
+          var floorX = Math.floor(x), floorY = Math.floor(y), floorZ = Math.floor(z);
+          var X = floorX & 255, Y = floorY & 255, Z = floorZ & 255;
+          x -= floorX; y -= floorY; z -= floorZ;
+          var u = fade(x), v = fade(y), w = fade(z);
+          var A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
+          var B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+          return lerp(w,
+            lerp(v,
+              lerp(u, grad(p[AA], x, y, z), grad(p[BA], x - 1, y, z)),
+              lerp(u, grad(p[AB], x, y - 1, z), grad(p[BB], x - 1, y - 1, z))
+            ),
+            lerp(v,
+              lerp(u, grad(p[AA + 1], x, y, z - 1), grad(p[BA + 1], x - 1, y, z - 1)),
+              lerp(u, grad(p[AB + 1], x, y - 1, z - 1), grad(p[BB + 1], x - 1, y - 1, z - 1))
+            )
+          );
+        };
+      };
+
+      // -----------------------------------------------------
+      // Global Variables, Player Data, WebSocket, Missile Types
+      // -----------------------------------------------------
       let scene, camera, renderer, localTank, clock;
-      let remoteTanks = {}; // key: player id, value: {mesh, nickname}
-      let killFeedMessages = []; // kill feed messages
+      let remoteTanks = {}; // { id: { mesh, nickname } }
+      let killFeedMessages = [];
       let ws;
       let cameraMode = 1; // 1: third-person, 2: first-person turret, 3: top-down
-      let currentMap = 'desert'; // 'desert', 'grass', 'city'
+      let currentMap = 'desert'; // Options: 'desert', 'grass', 'city'
       let weather = null;
-      // Array to track missiles (local & remote)
-      let missiles = [];
-      
+      let missiles = []; // Array to track missiles
       const controls = { forward: false, backward: false, left: false, right: false, shoot: false };
 
-      // Retrieve nickname from localStorage (or fallback)
       const storedNickname = localStorage.getItem('nickname');
       const playerData = {
-        id: Math.floor(Math.random()*1000000).toString(),
-        nickname: storedNickname ? storedNickname : 'Player' + Math.floor(Math.random()*1000),
-        color: '#' + Math.floor(Math.random()*16777215).toString(16),
+        id: Math.floor(Math.random() * 1000000).toString(),
+        nickname: storedNickname ? storedNickname : 'Player' + Math.floor(Math.random() * 1000),
+        color: '#' + Math.floor(Math.random() * 16777215).toString(16),
         health: 100
       };
 
-      // WebSocket URL – using your Cloudflare Tunnel (secure)
       const WS_URL = "wss://game.ldawg7624.com";
-      
-      // Define different missile types
+
       const missileTypes = {
         bullet: {
           speed: 30,
@@ -154,256 +206,161 @@
         scene = new THREE.Scene();
         scene.background = new THREE.Color(0x87ceeb);
         scene.fog = new THREE.FogExp2(0x87ceeb, 0.002);
-        
-        camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         camera.position.set(0, 5, -10);
-        
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
-        
         const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
         scene.add(ambientLight);
         const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
         directionalLight.position.set(50, 50, -50);
         scene.add(directionalLight);
-        
         loadMap(currentMap);
-        
         localTank = createTank(playerData.color);
         localTank.position.set(0, 0.5, 0);
         scene.add(localTank);
         addNicknameLabel(localTank, playerData.nickname);
-        
         setupWebSocket();
-        
         window.addEventListener('resize', onWindowResize, false);
         window.addEventListener('keydown', onKeyDown, false);
         window.addEventListener('keyup', onKeyUp, false);
-        
         animate();
       }
-      
+
       // -----------------------
-    // Paste this once at the top (before loadMap):
-var ImprovedNoise = function () {
-  var p = [/* Perlin noise seed array here... */];
-  // ... rest of ImprovedNoise definition ...
-};
-
+      // loadMap Function with Improved Terrain
+      // -----------------------
       function loadMap(mapType) {
-        // Minimal ImprovedNoise implementation (adapted from Three.js examples)
-var ImprovedNoise = function () {
-  var p = [151,160,137,91,90,15,
-    131,13,201,95,96,53,194,233,7,225,140,36,103,30,
-    69,142,8,99,37,240,21,10,23,190, 6,148,247,120,234,
-    75,0,26,197,62,94,252,219,203,117,35,11,32,57,177,
-    33,88,237,149,56,87,174,20,125,136,171,168, 68,175,
-    74,165,71,134,139,48,27,166,77,146,158,231,83,111,
-    229,122,60,211,133,230,220,105,92,41,55,46,245,40,244,
-    102,143,54, 65,25,63,161, 1,216,80,73,209,76,132,187,
-    208,89,18,169,200,196,135,130,116,188,159,86,164,100,
-    109,198,173,186, 3,64,52,217,226,250,124,123,5,202,38,
-    147,118,126,255,82,85,212,207,206,59,227,47,16,58,17,
-    182,189,28,42,223,183,170,213,119,248,152, 2,44,154,
-    163,70,221,153,101,155,167, 43,172,9,129,22,39,253, 19,
-    98,108,110,79,113,224,232,178,185,112,104,218,246,97,228,
-    251,34,242,193,238,210,144,12,191,179,162,241, 81,51,145,
-    235,249,14,239,107,49,192,214, 31,181,199,106,157,184,
-    84,204,176,115,121,50,45,127, 4,150,254,138,236,205,93,
-    222,114,67,29,24,72,243,141,128,195,78,66,215,61,156,180
-  ];
-  for (var i = 0; i < 256 ; i++) {
-    p[256+i] = p[i];
-  }
-  function fade(t) {
-    return t*t*t*(t*(t*6-15)+10);
-  }
-  function lerp(t, a, b) {
-    return a + t * (b - a);
-  }
-  function grad(hash, x, y, z) {
-    var h = hash & 15;
-    var u = h<8 ? x : y;
-    var v = h<4 ? y : (h===12||h===14 ? x : z);
-    return ((h&1)===0 ? u : -u) + ((h&2)===0 ? v : -v);
-  }
-  this.noise = function (x, y, z) {
-    var floorX = Math.floor(x), floorY = Math.floor(y), floorZ = Math.floor(z);
-    var X = floorX & 255, Y = floorY & 255, Z = floorZ & 255;
-    x -= floorX; y -= floorY; z -= floorZ;
-    var u = fade(x), v = fade(y), w = fade(z);
-    var A  = p[X]+Y, AA = p[A]+Z, AB = p[A+1]+Z;
-    var B  = p[X+1]+Y, BA = p[B]+Z, BB = p[B+1]+Z;
-    return lerp(w, lerp(v, lerp(u, grad(p[AA  ], x  , y  , z   ),
-                                   grad(p[BA  ], x-1, y  , z   )),
-                           lerp(u, grad(p[AB  ], x  , y-1, z   ),
-                                   grad(p[BB  ], x-1, y-1, z   ))),
-               lerp(v, lerp(u, grad(p[AA+1], x  , y  , z-1 ),
-                                   grad(p[BA+1], x-1, y  , z-1 )),
-                           lerp(u, grad(p[AB+1], x  , y-1, z-1 ),
-                                   grad(p[BB+1], x-1, y-1, z-1 ))));
-  };
-};
+        let mapGroup = scene.getObjectByName("mapGroup");
+        if (mapGroup) { scene.remove(mapGroup); }
+        mapGroup = new THREE.Group();
+        mapGroup.name = "mapGroup";
+        const size = 1000;
+        const segments = 200;
+        const terrainGeometry = new THREE.PlaneGeometry(size, size, segments, segments);
+        terrainGeometry.rotateX(-Math.PI / 2);
+        let amplitude, scale;
+        switch (mapType) {
+          case 'desert':
+            amplitude = 10;
+            scale = 100;
+            break;
+          case 'grass':
+            amplitude = 30;
+            scale = 50;
+            break;
+          case 'city':
+            amplitude = 5;
+            scale = 200;
+            break;
+          default:
+            amplitude = 20;
+            scale = 100;
+        }
+        let noise = new ImprovedNoise();
+        const positions = terrainGeometry.attributes.position;
+        for (let i = 0; i < positions.count; i++) {
+          let x = positions.getX(i);
+          let z = positions.getZ(i);
+          let y = noise.noise(x / scale, z / scale, 0) * amplitude;
+          positions.setY(i, y);
+        }
+        positions.needsUpdate = true;
+        terrainGeometry.computeVertexNormals();
+        let groundMaterial;
+        switch (mapType) {
+          case 'desert':
+            groundMaterial = new THREE.MeshLambertMaterial({ color: 0xEDC9AF });
+            scene.fog.color.setHex(0xEDC9AF);
+            break;
+          case 'grass':
+            groundMaterial = new THREE.MeshLambertMaterial({ color: 0x7CFC00 });
+            scene.fog.color.setHex(0x7CFC00);
+            break;
+          case 'city':
+            groundMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
+            scene.fog.color.setHex(0x808080);
+            break;
+          default:
+            groundMaterial = new THREE.MeshLambertMaterial({ color: 0x999999 });
+        }
+        let groundMesh = new THREE.Mesh(terrainGeometry, groundMaterial);
+        groundMesh.receiveShadow = true;
+        mapGroup.add(groundMesh);
 
-  
-// Updated loadMap function with improved terrain and objects
-function loadMap(mapType) {
-  // Remove previous map if any
-  let mapGroup = scene.getObjectByName("mapGroup");
-  if (mapGroup) {
-    scene.remove(mapGroup);
-  }
-  mapGroup = new THREE.Group();
-  mapGroup.name = "mapGroup";
-  
-  // Create a large terrain geometry: 1000x1000 with many segments
-  const size = 1000;
-  const segments = 200;
-  const terrainGeometry = new THREE.PlaneGeometry(size, size, segments, segments);
-  terrainGeometry.rotateX(-Math.PI/2); // orient horizontally
-  
-  // Set amplitude and scale based on map type
-  let amplitude, scale;
-  switch (mapType) {
-    case 'desert':
-      amplitude = 10;
-      scale = 100;
-      break;
-    case 'grass':
-      amplitude = 30;
-      scale = 50;
-      break;
-    case 'city':
-      amplitude = 5;
-      scale = 200;
-      break;
-    default:
-      amplitude = 20;
-      scale = 100;
-  }
-  
-  // Use Perlin noise to displace the terrain vertices for elevation
-  let noise = new ImprovedNoise();
-  const positions = terrainGeometry.attributes.position;
-  for (let i = 0; i < positions.count; i++) {
-    let x = positions.getX(i);
-    let z = positions.getZ(i);
-    let y = noise.noise(x/scale, z/scale, 0) * amplitude;
-    positions.setY(i, y);
-  }
-  positions.needsUpdate = true;
-  terrainGeometry.computeVertexNormals();
-  
-  // Set the ground material based on map type
-  let groundMaterial;
-  switch (mapType) {
-    case 'desert':
-      groundMaterial = new THREE.MeshLambertMaterial({ color: 0xEDC9AF });
-      scene.fog.color.setHex(0xEDC9AF);
-      break;
-    case 'grass':
-      groundMaterial = new THREE.MeshLambertMaterial({ color: 0x7CFC00 });
-      scene.fog.color.setHex(0x7CFC00);
-      break;
-    case 'city':
-      groundMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
-      scene.fog.color.setHex(0x808080);
-      break;
-    default:
-      groundMaterial = new THREE.MeshLambertMaterial({ color: 0x999999 });
-  }
-  
-  let groundMesh = new THREE.Mesh(terrainGeometry, groundMaterial);
-  groundMesh.receiveShadow = true;
-  mapGroup.add(groundMesh);
-  
-  // Add additional objects logically based on map type
-  if (mapType === 'desert') {
-    // The terrain itself will show dunes; add some rocks at strategic spots
-    for (let i = 0; i < 20; i++) {
-      let rockGeometry = new THREE.DodecahedronGeometry(Math.random()*2 + 1, 0);
-      let rockMaterial = new THREE.MeshLambertMaterial({ color: 0x888888 });
-      let rock = new THREE.Mesh(rockGeometry, rockMaterial);
-      rock.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
-      // Adjust rock height by sampling noise
-      let rockHeight = noise.noise(rock.position.x/scale, rock.position.z/scale, 0) * amplitude;
-      rock.position.y = rockHeight + (Math.random()*2);
-      mapGroup.add(rock);
-    }
-  } else if (mapType === 'grass') {
-    // Add a road along the center and clusters of trees
-    let roadGeometry = new THREE.PlaneGeometry(size, 20, 1, 1);
-    let roadMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
-    let road = new THREE.Mesh(roadGeometry, roadMaterial);
-    road.rotation.x = -Math.PI/2;
-    road.position.y = 0.2; // slightly above ground
-    mapGroup.add(road);
-    
-    // Function to create a simple tree
-    function createTree() {
-      let tree = new THREE.Group();
-      let trunkGeom = new THREE.CylinderGeometry(0.5, 0.5, 5);
-      let trunkMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
-      let trunk = new THREE.Mesh(trunkGeom, trunkMat);
-      trunk.position.y = 2.5;
-      tree.add(trunk);
-      let foliageGeom = new THREE.ConeGeometry(3, 8, 8);
-      let foliageMat = new THREE.MeshLambertMaterial({ color: 0x228B22 });
-      let foliage = new THREE.Mesh(foliageGeom, foliageMat);
-      foliage.position.y = 7;
-      tree.add(foliage);
-      return tree;
-    }
-    
-    // Place trees in clusters away from the road
-    for (let i = 0; i < 50; i++) {
-      let tree = createTree();
-      let x = (Math.random()-0.5)*size;
-      let z = (Math.random()-0.5)*size;
-      if (Math.abs(z) < 20) z += 20 * (z < 0 ? -1 : 1);
-      let y = noise.noise(x/scale, z/scale, 0) * amplitude;
-      tree.position.set(x, y, z);
-      mapGroup.add(tree);
-    }
-  } else if (mapType === 'city') {
-    // Create a simple grid of roads and buildings
-    let roadWidth = 30;
-    // Horizontal road
-    let roadGeometry1 = new THREE.PlaneGeometry(size, roadWidth, 1, 1);
-    let road1 = new THREE.Mesh(roadGeometry1, new THREE.MeshLambertMaterial({ color: 0x222222 }));
-    road1.rotation.x = -Math.PI/2;
-    road1.position.y = 0.2;
-    mapGroup.add(road1);
-    // Vertical road
-    let roadGeometry2 = new THREE.PlaneGeometry(roadWidth, size, 1, 1);
-    let road2 = new THREE.Mesh(roadGeometry2, new THREE.MeshLambertMaterial({ color: 0x222222 }));
-    road2.rotation.x = -Math.PI/2;
-    road2.position.y = 0.2;
-    mapGroup.add(road2);
-    
-    // Place buildings in a grid pattern away from the roads
-    let buildingSize = 40;
-    let spacing = 10;
-    let start = -size/2 + buildingSize/2;
-    let end = size/2 - buildingSize/2;
-    for (let x = start; x <= end; x += buildingSize + spacing) {
-      for (let z = start; z <= end; z += buildingSize + spacing) {
-        if (Math.abs(z) < roadWidth/2 || Math.abs(x) < roadWidth/2) continue;
-        let buildingHeight = Math.random()*100 + 50;
-        let buildingGeometry = new THREE.BoxGeometry(buildingSize, buildingHeight, buildingSize);
-        let buildingMaterial = new THREE.MeshLambertMaterial({ color: 0x888888 });
-        let building = new THREE.Mesh(buildingGeometry, buildingMaterial);
-        building.position.set(x, buildingHeight/2, z);
-        mapGroup.add(building);
+        // Add additional objects based on map type
+        if (mapType === 'desert') {
+          for (let i = 0; i < 20; i++) {
+            let rockGeometry = new THREE.DodecahedronGeometry(Math.random() * 2 + 1, 0);
+            let rockMaterial = new THREE.MeshLambertMaterial({ color: 0x888888 });
+            let rock = new THREE.Mesh(rockGeometry, rockMaterial);
+            rock.position.set((Math.random() - 0.5) * size, 0, (Math.random() - 0.5) * size);
+            let rockHeight = noise.noise(rock.position.x / scale, rock.position.z / scale, 0) * amplitude;
+            rock.position.y = rockHeight + (Math.random() * 2);
+            mapGroup.add(rock);
+          }
+        } else if (mapType === 'grass') {
+          let roadGeometry = new THREE.PlaneGeometry(size, 20, 1, 1);
+          let roadMaterial = new THREE.MeshLambertMaterial({ color: 0x333333 });
+          let road = new THREE.Mesh(roadGeometry, roadMaterial);
+          road.rotation.x = -Math.PI / 2;
+          road.position.y = 0.2;
+          mapGroup.add(road);
+          function createTree() {
+            let tree = new THREE.Group();
+            let trunkGeom = new THREE.CylinderGeometry(0.5, 0.5, 5);
+            let trunkMat = new THREE.MeshLambertMaterial({ color: 0x8B4513 });
+            let trunk = new THREE.Mesh(trunkGeom, trunkMat);
+            trunk.position.y = 2.5;
+            tree.add(trunk);
+            let foliageGeom = new THREE.ConeGeometry(3, 8, 8);
+            let foliageMat = new THREE.MeshLambertMaterial({ color: 0x228B22 });
+            let foliage = new THREE.Mesh(foliageGeom, foliageMat);
+            foliage.position.y = 7;
+            tree.add(foliage);
+            return tree;
+          }
+          for (let i = 0; i < 50; i++) {
+            let tree = createTree();
+            let x = (Math.random() - 0.5) * size;
+            let z = (Math.random() - 0.5) * size;
+            if (Math.abs(z) < 20) z += 20 * (z < 0 ? -1 : 1);
+            let y = noise.noise(x / scale, z / scale, 0) * amplitude;
+            tree.position.set(x, y, z);
+            mapGroup.add(tree);
+          }
+        } else if (mapType === 'city') {
+          let roadWidth = 30;
+          let roadGeometry1 = new THREE.PlaneGeometry(size, roadWidth, 1, 1);
+          let road1 = new THREE.Mesh(roadGeometry1, new THREE.MeshLambertMaterial({ color: 0x222222 }));
+          road1.rotation.x = -Math.PI / 2;
+          road1.position.y = 0.2;
+          mapGroup.add(road1);
+          let roadGeometry2 = new THREE.PlaneGeometry(roadWidth, size, 1, 1);
+          let road2 = new THREE.Mesh(roadGeometry2, new THREE.MeshLambertMaterial({ color: 0x222222 }));
+          road2.rotation.x = -Math.PI / 2;
+          road2.position.y = 0.2;
+          mapGroup.add(road2);
+          let buildingSize = 40;
+          let spacing = 10;
+          let start = -size / 2 + buildingSize / 2;
+          let end = size / 2 - buildingSize / 2;
+          for (let x = start; x <= end; x += buildingSize + spacing) {
+            for (let z = start; z <= end; z += buildingSize + spacing) {
+              if (Math.abs(z) < roadWidth / 2 || Math.abs(x) < roadWidth / 2) continue;
+              let buildingHeight = Math.random() * 100 + 50;
+              let buildingGeometry = new THREE.BoxGeometry(buildingSize, buildingHeight, buildingSize);
+              let buildingMaterial = new THREE.MeshLambertMaterial({ color: 0x888888 });
+              let building = new THREE.Mesh(buildingGeometry, buildingMaterial);
+              building.position.set(x, buildingHeight / 2, z);
+              mapGroup.add(building);
+            }
+          }
+        }
+        scene.add(mapGroup);
       }
-    }
-  }
-  
-  scene.add(mapGroup);
-}
 
-      
       // -----------------------
       // Tank Creation & Labels
       // -----------------------
@@ -421,7 +378,7 @@ function loadMap(mapType) {
         tankGroup.add(turret);
         return tankGroup;
       }
-      
+
       function addNicknameLabel(tank, nickname) {
         let canvas = document.createElement('canvas');
         canvas.width = 256;
@@ -432,7 +389,7 @@ function loadMap(mapType) {
         context.font = "30px Arial";
         context.fillStyle = "#ffffff";
         context.textAlign = "center";
-        context.fillText(nickname, canvas.width/2, canvas.height/2 + 10);
+        context.fillText(nickname, canvas.width / 2, canvas.height / 2 + 10);
         let texture = new THREE.CanvasTexture(canvas);
         let spriteMat = new THREE.SpriteMaterial({ map: texture });
         let sprite = new THREE.Sprite(spriteMat);
@@ -440,7 +397,7 @@ function loadMap(mapType) {
         sprite.position.set(0, 2.5, 0);
         tank.add(sprite);
       }
-      
+
       // -----------------------
       // Window Resize
       // -----------------------
@@ -449,35 +406,30 @@ function loadMap(mapType) {
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
       }
-      
+
       // -----------------------
       // Keyboard Input
       // -----------------------
       function onKeyDown(e) {
-        // Open chat input when "T" is pressed if not already focused
         if (e.code === "KeyT" && document.activeElement !== chatInput) {
           toggleChat();
           return;
         }
-        // Block movement if chat input is active
         if (document.activeElement === chatInput) return;
-        switch(e.code) {
+        switch (e.code) {
           case "KeyW": controls.forward = true; break;
           case "KeyS": controls.backward = true; break;
           case "KeyA": controls.left = true; break;
           case "KeyD": controls.right = true; break;
-          case "Space": 
-            controls.shoot = true;
-            sendShoot();
-            break;
+          case "Space": controls.shoot = true; sendShoot(); break;
           case "Digit1": cameraMode = 1; break;
           case "Digit2": cameraMode = 2; break;
           case "Digit3": cameraMode = 3; break;
         }
       }
-      
+
       function onKeyUp(e) {
-        switch(e.code) {
+        switch (e.code) {
           case "KeyW": controls.forward = false; break;
           case "KeyS": controls.backward = false; break;
           case "KeyA": controls.left = false; break;
@@ -485,12 +437,9 @@ function loadMap(mapType) {
           case "Space": controls.shoot = false; break;
         }
       }
-      
-      // -----------------------
-      // Chat Input Handling
-      // -----------------------
+
       const chatInput = document.getElementById("chatInput");
-      chatInput.addEventListener("keydown", function(e) {
+      chatInput.addEventListener("keydown", function (e) {
         if (e.key === "Enter") {
           if (chatInput.value.trim() !== "") {
             sendChat(chatInput.value.trim());
@@ -499,7 +448,7 @@ function loadMap(mapType) {
           chatInput.style.display = "none";
         }
       });
-      
+
       function toggleChat() {
         if (chatInput.style.display === "none" || chatInput.style.display === "") {
           chatInput.style.display = "block";
@@ -508,7 +457,7 @@ function loadMap(mapType) {
           chatInput.style.display = "none";
         }
       }
-      
+
       // -----------------------
       // WebSocket Communication
       // -----------------------
@@ -527,13 +476,11 @@ function loadMap(mapType) {
           let msg = JSON.parse(event.data);
           handleServerMessage(msg);
         };
-        ws.onclose = () => {
-          console.log("Disconnected from server.");
-        };
+        ws.onclose = () => { console.log("Disconnected from server."); };
       }
-      
+
       function handleServerMessage(msg) {
-        switch(msg.type) {
+        switch (msg.type) {
           case "update":
             if (msg.id !== playerData.id) {
               updateRemoteTank(msg);
@@ -569,7 +516,7 @@ function loadMap(mapType) {
             break;
         }
       }
-      
+
       function updateRemoteTank(data) {
         if (!remoteTanks[data.id]) {
           let tank = createTank(data.color);
@@ -582,7 +529,7 @@ function loadMap(mapType) {
           remoteTanks[data.id].mesh.rotation.y = data.rotation;
         }
       }
-      
+
       function sendUpdate() {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
@@ -593,7 +540,7 @@ function loadMap(mapType) {
           }));
         }
       }
-      
+
       function sendChat(message) {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
@@ -606,51 +553,36 @@ function loadMap(mapType) {
           addGlobalChatMessage(`${playerData.nickname}: ${message}`);
         }
       }
-      
+
       // -----------------------
       // Missile Logic: Launching & Creation
       // -----------------------
       function launchMissile() {
-        // Get the currently selected missile type from the selector
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
         let missileProps = missileTypes[selectedMissileType];
-        
-        // Determine tank's forward direction
         let direction = new THREE.Vector3();
         localTank.getWorldDirection(direction);
-        
-        // Compute spawn position, slightly ahead of the tank
         let spawnPos = localTank.position.clone().add(direction.clone().multiplyScalar(2));
-        
-        // Create a new missile using the selected type's geometry and material
         let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
         missileMesh.position.copy(spawnPos);
         missileMesh.quaternion.copy(localTank.quaternion);
-        
-        // Set missile velocity based on selected type's speed
         let velocity = direction.multiplyScalar(missileProps.speed);
-        
-        // Add missile to our array and scene
         missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType });
         scene.add(missileMesh);
       }
-      
-      // Create a missile for remote tanks based on shoot message data
+
       function createRemoteMissile(data) {
         let missileType = data.missileType || "bullet";
         let missileProps = missileTypes[missileType];
         let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
         missileMesh.position.set(data.position.x, data.position.y, data.position.z);
         missileMesh.rotation.y = data.rotation;
-        
-        let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0,1,0), data.rotation);
+        let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), data.rotation);
         let velocity = direction.multiplyScalar(missileProps.speed);
-        
         missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: missileType });
         scene.add(missileMesh);
       }
-      
-      // Update sendShoot to include missile type
+
       function sendShoot() {
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
         if (ws && ws.readyState === WebSocket.OPEN) {
@@ -665,8 +597,7 @@ function loadMap(mapType) {
         }
         launchMissile();
       }
-      
-      // Update missile positions each frame
+
       function updateMissiles(delta) {
         for (let i = missiles.length - 1; i >= 0; i--) {
           let missile = missiles[i];
@@ -679,16 +610,14 @@ function loadMap(mapType) {
           }
         }
       }
-      
-      // Create a simple explosion effect using a fading sphere
+
       function createExplosion(position, radius) {
         let explosionGeometry = new THREE.SphereGeometry(radius, 16, 16);
         let explosionMaterial = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
         let explosionMesh = new THREE.Mesh(explosionGeometry, explosionMaterial);
         explosionMesh.position.copy(position);
         scene.add(explosionMesh);
-        
-        let explosionLife = 0.5; // seconds
+        let explosionLife = 0.5;
         let explosionStart = performance.now();
         function animateExplosion() {
           let elapsed = (performance.now() - explosionStart) / 1000;
@@ -702,14 +631,13 @@ function loadMap(mapType) {
         }
         animateExplosion();
       }
-      
+
       // -----------------------
       // Floating Chat Bubbles & Kill Feed
       // -----------------------
       function displayChatBubble(msg) {
         let targetTank = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
         if (!targetTank) return;
-        
         let canvas = document.createElement('canvas');
         canvas.width = 256;
         canvas.height = 64;
@@ -719,23 +647,22 @@ function loadMap(mapType) {
         context.font = "20px Arial";
         context.fillStyle = "#ffffff";
         context.textAlign = "center";
-        context.fillText(msg.message, canvas.width/2, canvas.height/2 + 8);
+        context.fillText(msg.message, canvas.width / 2, canvas.height / 2 + 8);
         let texture = new THREE.CanvasTexture(canvas);
         let spriteMat = new THREE.SpriteMaterial({ map: texture, transparent: true });
         let sprite = new THREE.Sprite(spriteMat);
         sprite.scale.set(4, 1, 1);
         sprite.position.set(0, 3, 0);
         targetTank.add(sprite);
-        
         setTimeout(() => { targetTank.remove(sprite); }, 3000);
       }
-      
+
       function addKillFeed(text) {
         killFeedMessages.push(text);
         const feedDiv = document.getElementById("killFeed");
         feedDiv.innerHTML = killFeedMessages.slice(-5).join("<br>");
       }
-      
+
       function addGlobalChatMessage(text) {
         const chatLog = document.getElementById("globalChatLog");
         const messageElem = document.createElement("div");
@@ -743,9 +670,9 @@ function loadMap(mapType) {
         chatLog.appendChild(messageElem);
         chatLog.scrollTop = chatLog.scrollHeight;
       }
-      
+
       // -----------------------
-      // Animation Loop & Controls
+      // Animation Loop & Camera, Minimap Updates
       // -----------------------
       function animate() {
         requestAnimationFrame(animate);
@@ -756,7 +683,6 @@ function loadMap(mapType) {
         if (controls.left) { localTank.rotation.y += 2 * delta; }
         if (controls.right) { localTank.rotation.y -= 2 * delta; }
         updateCamera();
-        
         localTank.children.forEach(child => {
           if (child.type === "Sprite") { child.lookAt(camera.position); }
         });
@@ -765,13 +691,12 @@ function loadMap(mapType) {
             if (child.type === "Sprite") { child.lookAt(camera.position); }
           });
         }
-        
         sendUpdate();
         updateMissiles(delta);
         renderer.render(scene, camera);
         updateMinimap();
       }
-      
+
       function updateCamera() {
         if (cameraMode === 1) {
           const relativeCameraOffset = new THREE.Vector3(0, 5, -10);
@@ -791,17 +716,17 @@ function loadMap(mapType) {
           camera.lookAt(localTank.position);
         }
       }
-      
+
       function updateMinimap() {
         let minimap = document.getElementById("minimap");
         let ctx = minimap.getContext("2d");
         ctx.fillStyle = "rgba(0,0,0,0.5)";
         ctx.fillRect(0, 0, minimap.width, minimap.height);
-        let centerX = minimap.width/2;
-        let centerY = minimap.height/2;
+        let centerX = minimap.width / 2;
+        let centerY = minimap.height / 2;
         ctx.fillStyle = playerData.color;
         ctx.beginPath();
-        ctx.arc(centerX, centerY, 5, 0, Math.PI*2);
+        ctx.arc(centerX, centerY, 5, 0, Math.PI * 2);
         ctx.fill();
         const scale = 0.5;
         for (let id in remoteTanks) {
@@ -810,23 +735,17 @@ function loadMap(mapType) {
           let dz = (pos.z - localTank.position.z) * scale;
           ctx.fillStyle = "#ffffff";
           ctx.beginPath();
-          ctx.arc(centerX + dx, centerY + dz, 5, 0, Math.PI*2);
+          ctx.arc(centerX + dx, centerY + dz, 5, 0, Math.PI * 2);
           ctx.fill();
         }
       }
-      
-      // -----------------------
-      // Map Switching (every 3 minutes)
-      // -----------------------
+
       setInterval(() => {
         const maps = ['desert', 'grass', 'city'];
-        currentMap = maps[Math.floor(Math.random()*maps.length)];
+        currentMap = maps[Math.floor(Math.random() * maps.length)];
         loadMap(currentMap);
       }, 180000);
-      
-      // -----------------------
-      // Start Everything
-      // -----------------------
+
       init();
     });
   </script>
