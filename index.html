@@ -1,13 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script>
-  // Redirect to join.html if no nickname is stored
-  if (!localStorage.getItem('nickname')) {
-    window.location.href = "join.html";
-  }
-</script>
-
   <meta charset="UTF-8">
   <title>3D Multiplayer Tank Game</title>
   <style>
@@ -80,6 +73,9 @@
       let cameraMode = 1; // 1: third-person, 2: first-person turret, 3: top-down
       let currentMap = 'desert'; // 'desert', 'grass', 'city'
       let weather = null;
+      // Array to track missiles (local & remote)
+      let missiles = [];
+      
       const controls = { forward: false, backward: false, left: false, right: false, shoot: false };
 
       // Retrieve nickname from localStorage (or use a fallback)
@@ -351,12 +347,15 @@
             }
             break;
           case "chat":
-            // Show chat bubble and add to global chat log
             displayChatBubble(msg);
             addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
             break;
           case "shoot":
             addKillFeed(`${msg.nickname} fired!`);
+            // Create a missile for remote tanks
+            if (msg.id !== playerData.id) {
+              createRemoteMissile(msg);
+            }
             break;
           case "kill":
             addKillFeed(`${msg.killer} eliminated ${msg.victim}`);
@@ -417,6 +416,54 @@
         }
       }
       
+      // -----------------------
+      // Missile Logic
+      // -----------------------
+      // Create a missile for the local tank when shooting
+      function launchMissile() {
+        // Get the tank's forward direction (assumes tank and turret share same direction)
+        let direction = new THREE.Vector3();
+        localTank.getWorldDirection(direction);
+        
+        // Compute the spawn position by offsetting a bit from the tank's position
+        let spawnPos = localTank.position.clone().add(direction.clone().multiplyScalar(2));
+        
+        // Create missile geometry (a thin cylinder) and rotate it so its length is along the Z axis
+        let geometry = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
+        geometry.rotateX(Math.PI / 2);
+        let material = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        let missileMesh = new THREE.Mesh(geometry, material);
+        missileMesh.position.copy(spawnPos);
+        missileMesh.quaternion.copy(localTank.quaternion);
+        
+        // Define missile speed and its velocity vector
+        let missileSpeed = 20; // adjust speed as needed
+        let velocity = direction.multiplyScalar(missileSpeed);
+        
+        missiles.push({ mesh: missileMesh, velocity: velocity, life: 5 });
+        scene.add(missileMesh);
+      }
+      
+      // Create a missile for remote tanks based on shoot message data
+      function createRemoteMissile(data) {
+        // Use the shoot message position and rotation
+        let missileSpeed = 20;
+        let geometry = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
+        geometry.rotateX(Math.PI / 2);
+        let material = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+        let missileMesh = new THREE.Mesh(geometry, material);
+        missileMesh.position.set(data.position.x, data.position.y, data.position.z);
+        missileMesh.rotation.y = data.rotation;
+        
+        // Calculate forward direction from rotation (assuming rotation around Y)
+        let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0,1,0), data.rotation);
+        let velocity = direction.multiplyScalar(missileSpeed);
+        
+        missiles.push({ mesh: missileMesh, velocity: velocity, life: 5 });
+        scene.add(missileMesh);
+      }
+      
+      // Call launchMissile() when shooting locally and keep the WebSocket shoot message intact.
       function sendShoot() {
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
@@ -427,6 +474,46 @@
             rotation: localTank.rotation.y
           }));
         }
+        // Launch missile locally
+        launchMissile();
+      }
+      
+      // Update missile positions each frame
+      function updateMissiles(delta) {
+        for (let i = missiles.length - 1; i >= 0; i--) {
+          let missile = missiles[i];
+          missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
+          missile.life -= delta;
+          if (missile.life <= 0) {
+            // Create explosion effect at missile's position
+            createExplosion(missile.mesh.position);
+            scene.remove(missile.mesh);
+            missiles.splice(i, 1);
+          }
+        }
+      }
+      
+      // Create a simple explosion effect using a fading sphere
+      function createExplosion(position) {
+        let explosionGeometry = new THREE.SphereGeometry(0.5, 16, 16);
+        let explosionMaterial = new THREE.MeshBasicMaterial({ color: 0xffaa00 });
+        let explosionMesh = new THREE.Mesh(explosionGeometry, explosionMaterial);
+        explosionMesh.position.copy(position);
+        scene.add(explosionMesh);
+        
+        let explosionLife = 0.5; // seconds
+        let explosionStart = performance.now();
+        function animateExplosion() {
+          let elapsed = (performance.now() - explosionStart) / 1000;
+          if (elapsed < explosionLife) {
+            explosionMesh.material.opacity = 1 - (elapsed / explosionLife);
+            explosionMesh.material.transparent = true;
+            requestAnimationFrame(animateExplosion);
+          } else {
+            scene.remove(explosionMesh);
+          }
+        }
+        animateExplosion();
       }
       
       // -----------------------
@@ -497,6 +584,7 @@
         }
         
         sendUpdate();
+        updateMissiles(delta);
         renderer.render(scene, camera);
         updateMinimap();
       }
