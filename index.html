@@ -8,7 +8,7 @@
     /* Health Bar at Bottom Center (above the chat log) */
     #healthBarContainer {
       position: fixed;
-      bottom: 220px; /* leaves room for global chat log */
+      bottom: 220px; /* leaves room for the global chat log */
       left: 50%;
       transform: translateX(-50%);
       width: 200px;
@@ -85,6 +85,8 @@
     #missileMenu label, #missileMenu select {
       font-size: 16px;
     }
+    /* Fullscreen canvas (Three.js) */
+    canvas { display: block; }
   </style>
 </head>
 <body>
@@ -113,6 +115,11 @@
   
   <script>
     document.addEventListener('DOMContentLoaded', () => {
+
+      // Request pointer lock on click so the mouse is centered/fullscreen.
+      document.body.addEventListener("click", () => {
+        document.body.requestPointerLock();
+      });
 
       // -----------------------------------------------------
       // ImprovedNoise – Complete Definition (for terrain)
@@ -186,7 +193,7 @@
       let treeColliders = [];
       let prevTankPosition = new THREE.Vector3();
       let faster = false;
-      // Global variable for turret rotation offset.
+      // Global turret rotation offset (accumulated via pointer lock)
       let turretRotationOffset = 0;
 
       const controls = { forward: false, backward: false, left: false, right: false, shoot: false };
@@ -202,11 +209,11 @@
       const WS_URL = "wss://game.ldawg7624.com";
 
       // -----------------------
-      // Missile Types (Updated Speeds: lower than tank's boost)
+      // Missile Types – Updated: bullets now go way faster than the tank
       // -----------------------
       const missileTypes = {
         bullet: {
-          speed: 8,  // slower than tank speed
+          speed: 50,  // much faster than the tank's boosted speed
           geometry: () => {
             let geom = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
             geom.rotateX(Math.PI / 2);
@@ -216,13 +223,13 @@
           explosionRadius: 1
         },
         splash: {
-          speed: 10,
+          speed: 45,
           geometry: () => new THREE.SphereGeometry(0.3, 8, 8),
           material: new THREE.MeshBasicMaterial({ color: 0xff4500 }),
           explosionRadius: 5
         },
         rocket: {
-          speed: 7,
+          speed: 40,
           geometry: () => {
             let geom = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
             geom.rotateX(Math.PI / 2);
@@ -242,7 +249,7 @@
       }
 
       // -----------------------
-      // Create Tank (Store turret reference for mouse aiming)
+      // Create Tank – storing turret for mouse aiming
       // -----------------------
       function createTank(color) {
         let tankGroup = new THREE.Group();
@@ -256,7 +263,7 @@
         let turret = new THREE.Mesh(turretGeom, turretMat);
         turret.position.y = 1;
         tankGroup.add(turret);
-        tankGroup.userData.turret = turret;  // store turret for aiming
+        tankGroup.userData.turret = turret;
         return tankGroup;
       }
 
@@ -280,14 +287,16 @@
       }
 
       // -----------------------
-      // Mousemove Event for Turret Aiming
+      // Pointer Lock & Turret Aiming
       // -----------------------
       document.addEventListener("mousemove", (event) => {
-        // Calculate offset from center (-1 to 1)
-        let offset = (event.clientX - window.innerWidth / 2) / (window.innerWidth / 2);
-        turretRotationOffset = offset * (Math.PI / 4); // ±45° max rotation
-        if (localTank && localTank.userData.turret) {
-          localTank.userData.turret.rotation.y = turretRotationOffset;
+        if (document.pointerLockElement === document.body) {
+          // Use relative movement to update turret rotation offset.
+          turretRotationOffset += event.movementX * 0.002; // sensitivity factor
+          // No need to clamp unless desired; turret can rotate freely.
+          if (localTank && localTank.userData.turret) {
+            localTank.userData.turret.rotation.y = turretRotationOffset;
+          }
         }
       });
 
@@ -646,7 +655,7 @@
       }
 
       // -----------------------
-      // Missile Logic: Launching & Creation (Updated Speeds)
+      // Missile Logic: Launching & Creation
       // -----------------------
       function launchMissile() {
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
@@ -777,6 +786,10 @@
         if (controls.right) { localTank.rotation.y -= 2 * delta; }
         checkCollisions();
         updateTankHeight();
+        // Update turret: make sure turret rotation is relative to tank.
+        if (localTank.userData.turret) {
+          localTank.userData.turret.rotation.y = turretRotationOffset;
+        }
         updateCamera();
         localTank.children.forEach(child => { if (child.type === "Sprite") { child.lookAt(camera.position); } });
         for (let id in remoteTanks) {
@@ -873,17 +886,6 @@
         currentMap = maps[Math.floor(Math.random() * maps.length)];
         loadMap(currentMap);
       }, 180000);
-
-      // -----------------------
-      // Mousemove for Turret Aiming
-      // -----------------------
-      document.addEventListener("mousemove", (event) => {
-        let offset = (event.clientX - window.innerWidth / 2) / (window.innerWidth / 2);
-        turretRotationOffset = offset * (Math.PI / 4); // ±45° max
-        if (localTank && localTank.userData.turret) {
-          localTank.userData.turret.rotation.y = turretRotationOffset;
-        }
-      });
 
       // -----------------------
       // Start Everything
