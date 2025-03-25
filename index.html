@@ -56,12 +56,15 @@
       const controls = { forward: false, backward: false, left: false, right: false, shoot: false };
 
       // Player metadata (random for demo)
-      const playerData = {
-        id: Math.floor(Math.random()*1000000).toString(),
-        nickname: 'Player' + Math.floor(Math.random()*1000),
-        color: '#' + Math.floor(Math.random()*16777215).toString(16),
-        health: 100
-      };
+    // Retrieve the nickname from localStorage, or fall back to a random one if not set.
+const storedNickname = localStorage.getItem('nickname');
+const playerData = {
+  id: Math.floor(Math.random()*1000000).toString(),
+  nickname: storedNickname ? storedNickname : 'Player' + Math.floor(Math.random()*1000),
+  color: '#' + Math.floor(Math.random()*16777215).toString(16),
+  health: 100
+};
+
 
       // WebSocket URL – using your Cloudflare Tunnel (secure)
       const WS_URL = "wss://game.ldawg7624.com";
