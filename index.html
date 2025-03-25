@@ -1,115 +1,115 @@
 <script>
-  const chatLog = document.getElementById('chat-log');
-  const messageInput = document.getElementById('message');
-  const sendBtn = document.getElementById('send-btn');
-  const nicknameInput = document.getElementById('nickname');
+  document.addEventListener('DOMContentLoaded', () => {
+    const chatLog = document.getElementById('chat-log');
+    const messageInput = document.getElementById('message');
+    const sendBtn = document.getElementById('send-btn');
+    const nicknameInput = document.getElementById('nickname');
 
-  const MAX_CHARS = 200;
-  const MAX_PER_MINUTE = 5;
-  const MAX_PER_DAY = 50;
+    const MAX_CHARS = 200;
+    const MAX_PER_MINUTE = 5;
+    const MAX_PER_DAY = 50;
 
-  let messageTimestamps = [];
+    let messageTimestamps = [];
 
-  if (localStorage.getItem('chatNickname')) {
-    nicknameInput.value = localStorage.getItem('chatNickname');
-  }
+    if (localStorage.getItem('chatNickname')) {
+      nicknameInput.value = localStorage.getItem('chatNickname');
+    }
 
-  const ws = new WebSocket('wss://game.ldawg7624.com');
+    const ws = new WebSocket('wss://game.ldawg7624.com');
 
-  ws.addEventListener('open', () => {
-    console.log('Connected to WebSocket server');
-  });
+    ws.addEventListener('open', () => {
+      console.log('Connected to WebSocket server');
+    });
 
-  ws.addEventListener('message', (event) => {
-    let data;
-    try {
-      data = JSON.parse(event.data);
-    } catch {
-      data = {
-        message: event.data,
-        nickname: 'Server',
+    ws.addEventListener('message', (event) => {
+      let data;
+      try {
+        data = JSON.parse(event.data);
+      } catch {
+        data = {
+          message: event.data,
+          nickname: 'Server',
+          timestamp: new Date().toISOString()
+        };
+      }
+      displayMessage(data);
+    });
+
+    ws.addEventListener('close', () => {
+      console.log('Disconnected from WebSocket server');
+    });
+
+    ws.addEventListener('error', (error) => {
+      console.error('WebSocket error:', error);
+    });
+
+    function displayMessage(data) {
+      const messageEl = document.createElement('div');
+      messageEl.classList.add('message');
+
+      const timestampEl = document.createElement('span');
+      timestampEl.classList.add('timestamp');
+      const time = data.timestamp ? new Date(data.timestamp) : new Date();
+      timestampEl.textContent = '[' + time.toLocaleTimeString() + ']';
+
+      const sender = data.nickname ? data.nickname : 'Anonymous';
+
+      const contentEl = document.createElement('span');
+      contentEl.textContent = `${sender}: ${data.message}`;
+
+      messageEl.appendChild(timestampEl);
+      messageEl.appendChild(contentEl);
+      chatLog.appendChild(messageEl);
+
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function getTodayKey() {
+      const today = new Date().toISOString().slice(0, 10);
+      return `messagesSent-${today}`;
+    }
+
+    function sendMessage() {
+      const now = Date.now();
+      const message = messageInput.value.trim();
+      const nickname = nicknameInput.value.trim() || 'Anonymous';
+
+      if (!message) return;
+      if (message.length > MAX_CHARS) {
+        alert(`Message too long! Max ${MAX_CHARS} characters.`);
+        return;
+      }
+
+      messageTimestamps = messageTimestamps.filter(t => now - t < 60000);
+      if (messageTimestamps.length >= MAX_PER_MINUTE) {
+        alert(`Too many messages! Max ${MAX_PER_MINUTE} per minute.`);
+        return;
+      }
+
+      const todayKey = getTodayKey();
+      let dailyCount = parseInt(localStorage.getItem(todayKey) || '0');
+      if (dailyCount >= MAX_PER_DAY) {
+        alert(`Daily limit reached! Max ${MAX_PER_DAY} messages per day.`);
+        return;
+      }
+
+      const msgData = {
+        nickname: nickname,
+        message: message,
         timestamp: new Date().toISOString()
       };
-    }
-    displayMessage(data);
-  });
 
-  ws.addEventListener('close', () => {
-    console.log('Disconnected from WebSocket server');
-  });
+      ws.send(JSON.stringify(msgData));
+      messageInput.value = '';
 
-  ws.addEventListener('error', (error) => {
-    console.error('WebSocket error:', error);
-  });
-
-  function displayMessage(data) {
-    const messageEl = document.createElement('div');
-    messageEl.classList.add('message');
-
-    const timestampEl = document.createElement('span');
-    timestampEl.classList.add('timestamp');
-    const time = data.timestamp ? new Date(data.timestamp) : new Date();
-    timestampEl.textContent = '[' + time.toLocaleTimeString() + ']';
-
-    const sender = data.nickname ? data.nickname : 'Anonymous';
-
-    const contentEl = document.createElement('span');
-    contentEl.textContent = `${sender}: ${data.message}`;
-
-    messageEl.appendChild(timestampEl);
-    messageEl.appendChild(contentEl);
-    chatLog.appendChild(messageEl);
-
-    chatLog.scrollTop = chatLog.scrollHeight;
-  }
-
-  function getTodayKey() {
-    const today = new Date().toISOString().slice(0, 10);
-    return `messagesSent-${today}`;
-  }
-
-  function sendMessage() {
-    const now = Date.now();
-    const message = messageInput.value.trim();
-    const nickname = nicknameInput.value.trim() || 'Anonymous';
-
-    if (!message) return;
-    if (message.length > MAX_CHARS) {
-      alert(`Message too long! Max ${MAX_CHARS} characters.`);
-      return;
+      messageTimestamps.push(now);
+      localStorage.setItem(todayKey, dailyCount + 1);
+      localStorage.setItem('chatNickname', nickname);
     }
 
-    // Clean timestamps (older than 1 min)
-    messageTimestamps = messageTimestamps.filter(t => now - t < 60000);
-    if (messageTimestamps.length >= MAX_PER_MINUTE) {
-      alert(`Too many messages! Max ${MAX_PER_MINUTE} per minute.`);
-      return;
-    }
-
-    // Daily limit
-    const todayKey = getTodayKey();
-    let dailyCount = parseInt(localStorage.getItem(todayKey) || '0');
-    if (dailyCount >= MAX_PER_DAY) {
-      alert(`Daily limit reached! Max ${MAX_PER_DAY} messages per day.`);
-      return;
-    }
-
-    const msgData = {
-      nickname: nickname,
-      message: message,
-      timestamp: new Date().toISOString()
-    };
-
-    ws.send(JSON.stringify(msgData));
-    messageInput.value = '';
-
-    messageTimestamps.push(now);
-    localStorage.setItem(todayKey, dailyCount + 1);
-    localStorage.setItem('chatNickname', nickname);
-  }
-
-  sendBtn.addEventListener('click', sendMessage);
-  messageInput.addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') sendMessage();
+    sendBtn.addEventListener('click', sendMessage);
+    messageInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') sendMessage();
+    });
   });
 </script>
