@@ -85,7 +85,7 @@
     #missileMenu label, #missileMenu select {
       font-size: 16px;
     }
-    /* Fullscreen canvas (Three.js) */
+    /* Fullscreen canvas */
     canvas { display: block; }
   </style>
 </head>
@@ -116,7 +116,7 @@
   <script>
     document.addEventListener('DOMContentLoaded', () => {
 
-      // Request pointer lock on click so the mouse is centered/fullscreen.
+      // Request pointer lock on click so the mouse stays centered/fullscreen.
       document.body.addEventListener("click", () => {
         document.body.requestPointerLock();
       });
@@ -209,11 +209,11 @@
       const WS_URL = "wss://game.ldawg7624.com";
 
       // -----------------------
-      // Missile Types – Updated: bullets now go way faster than the tank
+      // Missile Types – Bullets now go way faster
       // -----------------------
       const missileTypes = {
         bullet: {
-          speed: 50,  // much faster than the tank's boosted speed
+          speed: 50,
           geometry: () => {
             let geom = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
             geom.rotateX(Math.PI / 2);
@@ -249,7 +249,7 @@
       }
 
       // -----------------------
-      // Create Tank – storing turret for mouse aiming
+      // Create Tank – Store turret reference for aiming
       // -----------------------
       function createTank(color) {
         let tankGroup = new THREE.Group();
@@ -263,7 +263,7 @@
         let turret = new THREE.Mesh(turretGeom, turretMat);
         turret.position.y = 1;
         tankGroup.add(turret);
-        tankGroup.userData.turret = turret;
+        tankGroup.userData.turret = turret; // store turret for aiming
         return tankGroup;
       }
 
@@ -291,9 +291,8 @@
       // -----------------------
       document.addEventListener("mousemove", (event) => {
         if (document.pointerLockElement === document.body) {
-          // Use relative movement to update turret rotation offset.
-          turretRotationOffset += event.movementX * 0.002; // sensitivity factor
-          // No need to clamp unless desired; turret can rotate freely.
+          // Invert movementX so turret rotates in the same direction as mouse.
+          turretRotationOffset -= event.movementX * 0.002;
           if (localTank && localTank.userData.turret) {
             localTank.userData.turret.rotation.y = turretRotationOffset;
           }
@@ -660,13 +659,19 @@
       function launchMissile() {
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
         let missileProps = missileTypes[selectedMissileType];
-        let direction = new THREE.Vector3();
-        localTank.getWorldDirection(direction);
-        let spawnPos = localTank.position.clone().add(direction.clone().multiplyScalar(2));
+        // Use the turret's world position and world direction for firing.
+        let turret = localTank.userData.turret;
+        let turretDirection = new THREE.Vector3();
+        turret.getWorldDirection(turretDirection);
+        let turretPos = new THREE.Vector3();
+        turret.getWorldPosition(turretPos);
+        // Offset the spawn position slightly in front of the turret.
+        let spawnPos = turretPos.clone().add(turretDirection.clone().multiplyScalar(1));
         let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
         missileMesh.position.copy(spawnPos);
-        missileMesh.quaternion.copy(localTank.quaternion);
-        let velocity = direction.multiplyScalar(missileProps.speed);
+        // Copy turret quaternion so missile is oriented like the turret.
+        missileMesh.quaternion.copy(turret.quaternion);
+        let velocity = turretDirection.multiplyScalar(missileProps.speed);
         missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType });
         scene.add(missileMesh);
       }
@@ -786,11 +791,8 @@
         if (controls.right) { localTank.rotation.y -= 2 * delta; }
         checkCollisions();
         updateTankHeight();
-        // Update turret: make sure turret rotation is relative to tank.
-        if (localTank.userData.turret) {
-          localTank.userData.turret.rotation.y = turretRotationOffset;
-        }
         updateCamera();
+        // Ensure nickname labels face the camera.
         localTank.children.forEach(child => { if (child.type === "Sprite") { child.lookAt(camera.position); } });
         for (let id in remoteTanks) {
           remoteTanks[id].mesh.children.forEach(child => { if (child.type === "Sprite") { child.lookAt(camera.position); } });
@@ -886,6 +888,13 @@
         currentMap = maps[Math.floor(Math.random() * maps.length)];
         loadMap(currentMap);
       }, 180000);
+
+      // -----------------------
+      // Pointer Lock: Request on click for fullscreen controls.
+      // -----------------------
+      document.body.addEventListener("click", () => {
+        document.body.requestPointerLock();
+      });
 
       // -----------------------
       // Start Everything
