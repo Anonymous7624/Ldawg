@@ -1,211 +1,564 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Live Chat</title>
+  <meta charset="UTF-8">
+  <title>3D Multiplayer Tank Game</title>
   <style>
-    body, html {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      font-family: Arial, sans-serif;
-      background-color: #2c3e50;
-      color: #ecf0f1;
+    body { margin: 0; overflow: hidden; }
+    #chatInput {
+      position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      padding: 8px;
+      font-size: 16px;
+      z-index: 100;
     }
-    #chat-container {
-      display: flex;
-      flex-direction: column;
-      height: 100%;
-      max-width: 800px;
-      margin: 0 auto;
+    #killFeed {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: white;
+      font-family: sans-serif;
+      z-index: 100;
     }
-    #visitor-count {
-      padding: 10px;
-      font-size: 0.9em;
-      color: #bdc3c7;
-    }
-    #chat-log {
-      flex: 1;
-      padding: 10px;
-      overflow-y: auto;
-      border-bottom: 1px solid #34495e;
-    }
-    .message {
-      margin: 5px 0;
-      padding: 5px 10px;
-      border-radius: 5px;
-      background: #34495e;
-    }
-    .timestamp {
-      font-size: 0.8em;
-      margin-right: 5px;
-      color: #bdc3c7;
-    }
-    #chat-input {
-      display: flex;
-      padding: 10px;
-      gap: 5px;
-      align-items: center;
-    }
-    #chat-input input[type="text"] {
-      flex: 1;
-      padding: 10px;
-      border: none;
-      border-radius: 3px;
-      font-size: 1em;
-    }
-    #chat-input button {
-      padding: 10px 20px;
-      border: none;
-      background-color: #e67e22;
-      color: #fff;
-      border-radius: 3px;
-      font-size: 1em;
-      cursor: pointer;
-    }
-    #chat-input button:hover {
-      background-color: #d35400;
-    }
-    #nickname {
-      width: 150px;
+    #minimap {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      border: 2px solid #fff;
+      background: rgba(0,0,0,0.5);
+      z-index: 100;
     }
   </style>
 </head>
 <body>
-  <div id="chat-container">
-    <div id="visitor-count">
-      Active users: <span id="count">0</span>
-    </div>
-    <div id="chat-log"></div>
-    <div id="chat-input">
-      <input type="text" id="nickname" placeholder="Nickname (optional)" />
-      <input type="text" id="message" placeholder="Type your message..." />
-      <button id="send-btn">Send</button>
-    </div>
-  </div>
-
+  <input type="text" id="chatInput" placeholder="Type a message and hit Enter">
+  <div id="killFeed"></div>
+  <canvas id="minimap" width="200" height="200"></canvas>
+  
+  <!-- Three.js from CDN -->
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+  <!-- Optionally include additional Three.js libraries if needed -->
   <script>
-    document.addEventListener('DOMContentLoaded', () => {
-      const chatLog = document.getElementById('chat-log');
-      const messageInput = document.getElementById('message');
-      const sendBtn = document.getElementById('send-btn');
-      const nicknameInput = document.getElementById('nickname');
-      const countEl = document.getElementById('count');
+    // -----------------------
+    // Global Variables & Setup
+    // -----------------------
+    let scene, camera, renderer, localTank, clock;
+    let remoteTanks = {}; // Key: player id, value: {mesh, nickname, chatBubble, lastUpdate}
+    let chatMessages = []; // For kill feed messages
+    let ws;
+    let cameraMode = 1; // 1: third-person (default), 2: first-person turret, 3: top-down
+    let currentMap = 'desert'; // Options: 'desert', 'grass', 'city'
+    let weather = null; // Options: 'rain', 'fog', 'sandstorm', null
 
-      const MAX_CHARS = 200;
-      const MAX_PER_MINUTE = 5;
-      const MAX_PER_DAY = 50;
+    // Player controls
+    const controls = {
+      forward: false,
+      backward: false,
+      left: false,
+      right: false,
+      shoot: false
+    };
 
-      let messageTimestamps = [];
+    // Basic player metadata (for demo purposes, assign a random nickname and color)
+    const playerData = {
+      id: Math.floor(Math.random()*1000000).toString(),
+      nickname: 'Player' + Math.floor(Math.random()*1000),
+      color: '#' + Math.floor(Math.random()*16777215).toString(16),
+      health: 100
+    };
 
-      if (localStorage.getItem('chatNickname')) {
-        nicknameInput.value = localStorage.getItem('chatNickname');
+    // WebSocket URL – update this with your actual URL (e.g., Cloudflare Tunnel URL)
+    const WS_URL = "ws://YOUR_PI_IP:8080";
+
+    // -----------------------
+    // Initialization
+    // -----------------------
+    function init() {
+      clock = new THREE.Clock();
+
+      // Scene
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87ceeb);
+      // Set up default fog (could change with weather)
+      scene.fog = new THREE.FogExp2(0x87ceeb, 0.002);
+
+      // Camera
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+      camera.position.set(0, 5, -10);
+
+      // Renderer
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      // Lights
+      const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+      scene.add(ambientLight);
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+      directionalLight.position.set(50, 50, -50);
+      scene.add(directionalLight);
+
+      // Load the map environment
+      loadMap(currentMap);
+
+      // Create the local tank
+      localTank = createTank(playerData.color);
+      localTank.position.set(0, 0.5, 0);
+      scene.add(localTank);
+      addNicknameLabel(localTank, playerData.nickname);
+
+      // Set up WebSocket connection
+      setupWebSocket();
+
+      // Event listeners for window resize and keyboard
+      window.addEventListener('resize', onWindowResize, false);
+      window.addEventListener('keydown', onKeyDown, false);
+      window.addEventListener('keyup', onKeyUp, false);
+
+      animate();
+    }
+
+    // -----------------------
+    // Map Loading & Weather
+    // -----------------------
+    function loadMap(mapType) {
+      // Clear previous map (if any)
+      // For simplicity we assume obstacles are added to a "mapGroup"
+      let mapGroup = scene.getObjectByName("mapGroup");
+      if (mapGroup) {
+        scene.remove(mapGroup);
+      }
+      mapGroup = new THREE.Group();
+      mapGroup.name = "mapGroup";
+      
+      // Ground
+      let groundGeometry, groundMaterial;
+      switch(mapType) {
+        case 'desert':
+          groundGeometry = new THREE.PlaneGeometry(200, 200, 10, 10);
+          groundMaterial = new THREE.MeshLambertMaterial({ color: 0xEDC9AF });
+          scene.fog.color.setHex(0xEDC9AF);
+          break;
+        case 'grass':
+          groundGeometry = new THREE.PlaneGeometry(200, 200, 10, 10);
+          groundMaterial = new THREE.MeshLambertMaterial({ color: 0x7CFC00 });
+          scene.fog.color.setHex(0x7CFC00);
+          break;
+        case 'city':
+          groundGeometry = new THREE.PlaneGeometry(200, 200, 10, 10);
+          groundMaterial = new THREE.MeshLambertMaterial({ color: 0x808080 });
+          scene.fog.color.setHex(0x808080);
+          break;
+        default:
+          groundGeometry = new THREE.PlaneGeometry(200, 200);
+          groundMaterial = new THREE.MeshLambertMaterial({ color: 0x999999 });
+      }
+      let ground = new THREE.Mesh(groundGeometry, groundMaterial);
+      ground.rotation.x = -Math.PI/2;
+      ground.receiveShadow = true;
+      mapGroup.add(ground);
+
+      // Add some placeholder structures
+      for (let i = 0; i < 10; i++) {
+        let boxGeom = new THREE.BoxGeometry(5, 3, 5);
+        let boxMat = new THREE.MeshLambertMaterial({ color: 0x555555 });
+        let box = new THREE.Mesh(boxGeom, boxMat);
+        box.position.set((Math.random()-0.5)*150, 1.5, (Math.random()-0.5)*150);
+        mapGroup.add(box);
       }
 
-      const ws = new WebSocket('wss://game.ldawg7624.com');
+      scene.add(mapGroup);
 
-      ws.addEventListener('open', () => {
-        console.log('Connected to WebSocket server');
-      });
-
-      ws.addEventListener('message', (event) => {
-        let data;
-        try {
-          data = JSON.parse(event.data);
-        } catch {
-          data = {
-            message: event.data,
-            nickname: 'Server',
-            timestamp: new Date().toISOString()
-          };
-        }
-
-        if (data.type === "count") {
-          if (countEl) countEl.textContent = data.count;
-          return;
-        }
-
-        displayMessage(data);
-      });
-
-      ws.addEventListener('close', () => {
-        console.log('Disconnected from WebSocket server');
-      });
-
-      ws.addEventListener('error', (error) => {
-        console.error('WebSocket error:', error);
-      });
-
-      function displayMessage(data) {
-        const messageEl = document.createElement('div');
-        messageEl.classList.add('message');
-
-        const timestampEl = document.createElement('span');
-        timestampEl.classList.add('timestamp');
-        const time = data.timestamp ? new Date(data.timestamp) : new Date();
-        timestampEl.textContent = '[' + time.toLocaleTimeString() + ']';
-
-        const sender = data.nickname ? data.nickname : 'Anonymous';
-
-        const contentEl = document.createElement('span');
-        contentEl.textContent = `${sender}: ${data.message}`;
-
-        messageEl.appendChild(timestampEl);
-        messageEl.appendChild(contentEl);
-        chatLog.appendChild(messageEl);
-
-        chatLog.scrollTop = chatLog.scrollHeight;
+      // Randomly set weather (for demo, 30% chance to have an effect)
+      let weatherRoll = Math.random();
+      if (weatherRoll < 0.3) {
+        weather = ['rain','fog','sandstorm'][Math.floor(Math.random()*3)];
+        applyWeather(weather);
+      } else {
+        weather = null;
+        scene.fog.density = 0.002;
       }
+    }
 
-      function getTodayKey() {
-        const today = new Date().toISOString().slice(0, 10);
-        return `messagesSent-${today}`;
+    function applyWeather(type) {
+      switch(type) {
+        case 'rain':
+          // For rain, we could add particle effects (omitted for brevity) and adjust fog
+          scene.fog.density = 0.005;
+          break;
+        case 'fog':
+          scene.fog.density = 0.01;
+          break;
+        case 'sandstorm':
+          scene.fog.density = 0.02;
+          break;
       }
+    }
 
-      function sendMessage() {
-        const now = Date.now();
-        const message = messageInput.value.trim();
-        const nickname = nicknameInput.value.trim() || 'Anonymous';
+    // -----------------------
+    // Tank Creation & Labels
+    // -----------------------
+    function createTank(color) {
+      // For simplicity, a tank is represented as a box with a turret (smaller box)
+      let tankGroup = new THREE.Group();
 
-        if (!message) return;
-        if (message.length > MAX_CHARS) {
-          alert(`Message too long! Max ${MAX_CHARS} characters.`);
-          return;
-        }
+      let bodyGeom = new THREE.BoxGeometry(2, 1, 3);
+      let bodyMat = new THREE.MeshLambertMaterial({ color: color });
+      let body = new THREE.Mesh(bodyGeom, bodyMat);
+      body.position.y = 0.5;
+      tankGroup.add(body);
 
-        messageTimestamps = messageTimestamps.filter(t => now - t < 60000);
-        if (messageTimestamps.length >= MAX_PER_MINUTE) {
-          alert(`Too many messages! Max ${MAX_PER_MINUTE} per minute.`);
-          return;
-        }
+      let turretGeom = new THREE.BoxGeometry(1, 0.5, 1.5);
+      let turretMat = new THREE.MeshLambertMaterial({ color: color });
+      let turret = new THREE.Mesh(turretGeom, turretMat);
+      turret.position.y = 1;
+      tankGroup.add(turret);
 
-        const todayKey = getTodayKey();
-        let dailyCount = parseInt(localStorage.getItem(todayKey) || '0');
-        if (dailyCount >= MAX_PER_DAY) {
-          alert(`Daily limit reached! Max ${MAX_PER_DAY} messages per day.`);
-          return;
-        }
+      // Optionally add more detail...
 
-        const msgData = {
-          nickname: nickname,
-          message: message,
-          timestamp: new Date().toISOString()
-        };
+      return tankGroup;
+    }
 
-        ws.send(JSON.stringify(msgData));
-        messageInput.value = '';
+    function addNicknameLabel(tank, nickname) {
+      // Create a simple canvas texture to show nickname above the tank.
+      let canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 64;
+      let context = canvas.getContext('2d');
+      context.fillStyle = "rgba(0,0,0,0.5)";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.font = "30px Arial";
+      context.fillStyle = "#ffffff";
+      context.textAlign = "center";
+      context.fillText(nickname, canvas.width/2, canvas.height/2 + 10);
+      let texture = new THREE.CanvasTexture(canvas);
+      let spriteMat = new THREE.SpriteMaterial({ map: texture });
+      let sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(4, 1, 1);
+      sprite.position.set(0, 2.5, 0);
+      tank.add(sprite);
+    }
 
-        messageTimestamps.push(now);
-        localStorage.setItem(todayKey, dailyCount + 1);
-        localStorage.setItem('chatNickname', nickname);
+    // -----------------------
+    // Window Resize
+    // -----------------------
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    // -----------------------
+    // Keyboard Input
+    // -----------------------
+    function onKeyDown(e) {
+      switch(e.code) {
+        case "KeyW": controls.forward = true; break;
+        case "KeyS": controls.backward = true; break;
+        case "KeyA": controls.left = true; break;
+        case "KeyD": controls.right = true; break;
+        case "Space": 
+          controls.shoot = true;
+          sendShoot();
+          break;
+        case "KeyT": 
+          toggleChat();
+          break;
+        case "Digit1": cameraMode = 1; break;
+        case "Digit2": cameraMode = 2; break;
+        case "Digit3": cameraMode = 3; break;
       }
+    }
+    function onKeyUp(e) {
+      switch(e.code) {
+        case "KeyW": controls.forward = false; break;
+        case "KeyS": controls.backward = false; break;
+        case "KeyA": controls.left = false; break;
+        case "KeyD": controls.right = false; break;
+        case "Space": controls.shoot = false; break;
+      }
+    }
 
-      sendBtn.addEventListener('click', sendMessage);
-      messageInput.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') sendMessage();
-      });
+    // -----------------------
+    // Chat Input Handling
+    // -----------------------
+    const chatInput = document.getElementById("chatInput");
+    function toggleChat() {
+      if (chatInput.style.display === "none" || chatInput.style.display === "") {
+        chatInput.style.display = "block";
+        chatInput.focus();
+      } else {
+        chatInput.style.display = "none";
+      }
+    }
+    chatInput.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") {
+        if (chatInput.value.trim() !== "") {
+          sendChat(chatInput.value.trim());
+          chatInput.value = "";
+        }
+        chatInput.style.display = "none";
+      }
     });
+
+    // -----------------------
+    // WebSocket Communication
+    // -----------------------
+    function setupWebSocket() {
+      ws = new WebSocket(WS_URL);
+      ws.onopen = () => {
+        // Send join message with initial metadata
+        ws.send(JSON.stringify({
+          type: "join",
+          id: playerData.id,
+          nickname: playerData.nickname,
+          color: playerData.color,
+          position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z }
+        }));
+      };
+
+      ws.onmessage = (event) => {
+        let msg = JSON.parse(event.data);
+        handleServerMessage(msg);
+      };
+
+      ws.onclose = () => {
+        console.log("Disconnected from server.");
+      };
+    }
+
+    function handleServerMessage(msg) {
+      switch(msg.type) {
+        case "update":
+          // msg contains id, position, rotation, etc.
+          if (msg.id !== playerData.id) {
+            updateRemoteTank(msg);
+          }
+          break;
+        case "chat":
+          // Display chat message as floating text above sender’s tank (if available)
+          displayChatBubble(msg);
+          break;
+        case "shoot":
+          // For now, we can simply log shooting events
+          addKillFeed(`${msg.nickname} fired!`);
+          break;
+        case "kill":
+          addKillFeed(`${msg.killer} eliminated ${msg.victim}`);
+          break;
+        case "join":
+          // Create a remote tank if not exists
+          if (msg.id !== playerData.id && !remoteTanks[msg.id]) {
+            let tank = createTank(msg.color);
+            tank.position.set(msg.position.x, msg.position.y, msg.position.z);
+            scene.add(tank);
+            addNicknameLabel(tank, msg.nickname);
+            remoteTanks[msg.id] = { mesh: tank, nickname: msg.nickname };
+          }
+          break;
+        case "leave":
+          if (remoteTanks[msg.id]) {
+            scene.remove(remoteTanks[msg.id].mesh);
+            delete remoteTanks[msg.id];
+          }
+          break;
+      }
+    }
+
+    function updateRemoteTank(data) {
+      if (!remoteTanks[data.id]) {
+        // Create new remote tank
+        let tank = createTank(data.color);
+        tank.position.set(data.position.x, data.position.y, data.position.z);
+        scene.add(tank);
+        addNicknameLabel(tank, data.nickname);
+        remoteTanks[data.id] = { mesh: tank, nickname: data.nickname };
+      } else {
+        // Update position and rotation
+        remoteTanks[data.id].mesh.position.set(data.position.x, data.position.y, data.position.z);
+        remoteTanks[data.id].mesh.rotation.y = data.rotation;
+      }
+    }
+
+    function sendUpdate() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "update",
+          id: playerData.id,
+          position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+          rotation: localTank.rotation.y
+        }));
+      }
+    }
+
+    function sendChat(message) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "chat",
+          id: playerData.id,
+          nickname: playerData.nickname,
+          message: message
+        }));
+      }
+    }
+
+    function sendShoot() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "shoot",
+          id: playerData.id,
+          nickname: playerData.nickname,
+          position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+          rotation: localTank.rotation.y
+        }));
+      }
+      // For now, you might want to display a simple projectile locally or play a sound.
+    }
+
+    // -----------------------
+    // Floating Chat Bubbles & Kill Feed
+    // -----------------------
+    function displayChatBubble(msg) {
+      // For simplicity, if the sender is a remote tank, add a temporary sprite above it.
+      let remote = remoteTanks[msg.id];
+      if (remote) {
+        // Create a simple canvas texture for the chat bubble.
+        let canvas = document.createElement('canvas');
+        canvas.width = 256;
+        canvas.height = 64;
+        let context = canvas.getContext('2d');
+        context.fillStyle = "rgba(0,0,0,0.6)";
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.font = "20px Arial";
+        context.fillStyle = "#ffffff";
+        context.textAlign = "center";
+        context.fillText(msg.message, canvas.width/2, canvas.height/2 + 8);
+        let texture = new THREE.CanvasTexture(canvas);
+        let spriteMat = new THREE.SpriteMaterial({ map: texture });
+        let sprite = new THREE.Sprite(spriteMat);
+        sprite.scale.set(4, 1, 1);
+        sprite.position.set(0, 3, 0);
+        remote.mesh.add(sprite);
+        // Remove the chat bubble after 3 seconds
+        setTimeout(() => {
+          remote.mesh.remove(sprite);
+        }, 3000);
+      }
+    }
+
+    function addKillFeed(text) {
+      chatMessages.push(text);
+      const feedDiv = document.getElementById("killFeed");
+      feedDiv.innerHTML = chatMessages.slice(-5).join("<br>");
+    }
+
+    // -----------------------
+    // Animation Loop & Controls
+    // -----------------------
+    function animate() {
+      requestAnimationFrame(animate);
+      let delta = clock.getDelta();
+
+      // Move local tank based on controls
+      let moveSpeed = 10 * delta;
+      if (controls.forward) {
+        localTank.translateZ(moveSpeed);
+      }
+      if (controls.backward) {
+        localTank.translateZ(-moveSpeed);
+      }
+      if (controls.left) {
+        localTank.rotation.y += 2 * delta;
+      }
+      if (controls.right) {
+        localTank.rotation.y -= 2 * delta;
+      }
+
+      // Update camera based on cameraMode
+      updateCamera();
+
+      // Periodically send update to server
+      sendUpdate();
+
+      // Render scene
+      renderer.render(scene, camera);
+
+      // Update minimap (simple top-down view)
+      updateMinimap();
+    }
+
+    function updateCamera() {
+      // Default third-person: behind the tank
+      if (cameraMode === 1) {
+        // Position camera behind and above localTank
+        const relativeCameraOffset = new THREE.Vector3(0, 5, -10);
+        const cameraOffset = relativeCameraOffset.applyMatrix4(localTank.matrixWorld);
+        camera.position.lerp(cameraOffset, 0.1);
+        camera.lookAt(localTank.position);
+      } else if (cameraMode === 2) {
+        // First-person turret view: camera at tank position looking forward
+        let offset = new THREE.Vector3(0, 2, 0);
+        let pos = localTank.localToWorld(offset.clone());
+        camera.position.lerp(pos, 0.1);
+        let lookAtPos = new THREE.Vector3(0, 2, 10).applyMatrix4(localTank.matrixWorld);
+        camera.lookAt(lookAtPos);
+      } else if (cameraMode === 3) {
+        // Top-down view: directly above the tank
+        let pos = localTank.position.clone();
+        pos.y += 30;
+        camera.position.lerp(pos, 0.1);
+        camera.lookAt(localTank.position);
+      }
+    }
+
+    // -----------------------
+    // Minimap Update
+    // -----------------------
+    function updateMinimap() {
+      let minimap = document.getElementById("minimap");
+      let ctx = minimap.getContext("2d");
+      // Clear minimap
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(0, 0, minimap.width, minimap.height);
+      
+      // Draw local tank position (centered)
+      let centerX = minimap.width/2;
+      let centerY = minimap.height/2;
+      ctx.fillStyle = playerData.color;
+      ctx.beginPath();
+      ctx.arc(centerX, centerY, 5, 0, Math.PI*2);
+      ctx.fill();
+
+      // Draw remote tanks relative to local tank (scaling factor for demo)
+      const scale = 0.5;
+      for (let id in remoteTanks) {
+        let pos = remoteTanks[id].mesh.position;
+        let dx = (pos.x - localTank.position.x) * scale;
+        let dz = (pos.z - localTank.position.z) * scale;
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(centerX + dx, centerY + dz, 5, 0, Math.PI*2);
+        ctx.fill();
+      }
+    }
+
+    // -----------------------
+    // Map Switching (every 3 minutes for demo)
+    // -----------------------
+    setInterval(() => {
+      const maps = ['desert', 'grass', 'city'];
+      currentMap = maps[Math.floor(Math.random()*maps.length)];
+      loadMap(currentMap);
+      // Optionally notify server/players about the map change.
+    }, 180000);
+
+    // -----------------------
+    // Start Everything
+    // -----------------------
+    init();
   </script>
 </body>
 </html>
