@@ -105,7 +105,7 @@
       position: fixed;
       top: 10px;
       right: 10px;
-      background: rgba(0,0,0,0.6);
+      background: rgba(0, 0, 0, 0.6);
       color: #ffdd00;
       padding: 10px;
       border-radius: 5px;
@@ -144,8 +144,7 @@
   <div id="globalChatLog"></div>
   <!-- Info Bar -->
   <div id="infoBar">
-    <strong>Controls:</strong> W/A/S/D = move, SPACE = shoot, SHIFT = sprint,<br>
-    1–3 = camera modes, T = chat, I = toggle info<br>
+    <strong>Controls:</strong> W/A/S/D = move, SPACE = shoot, SHIFT = sprint, 1–3 = camera, T = chat, I = toggle info<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --
@@ -261,7 +260,7 @@
       let explosionSound = new THREE.Audio(listener);
       let engineSound = new THREE.Audio(listener);
       let audioLoader = new THREE.AudioLoader();
-      // Replace with your actual audio file URLs
+      // Replace these URLs with your actual audio files
       audioLoader.load('https://example.com/explosion.mp3', function(buffer) {
         explosionSound.setBuffer(buffer);
         explosionSound.setVolume(0.5);
@@ -288,22 +287,22 @@
         } else if (type === "snow") {
           createSnowParticles();
         }
-        // Adjust ambient intensity and fog color based on weather
+        // Adjust ambient and fog based on weather
         if (type === "sunny") {
-          ambient.intensity = 0.8;
+          ambientLight.intensity = 0.8;
           scene.fog.color.setHex(0x87ceeb);
         } else if (type === "cloudy") {
-          ambient.intensity = 0.5;
+          ambientLight.intensity = 0.5;
           scene.fog.color.setHex(0xb0b0b0);
         } else if (type === "storm") {
-          ambient.intensity = 0.3;
+          ambientLight.intensity = 0.3;
           scene.fog.color.setHex(0x555555);
         }
         updateInfoBar();
       }
       function createRainParticles() {
         weatherParticles = new THREE.Group();
-        for (let i = 0; i < 200; i++) {
+        for (let i = 0; i < 100; i++) {  // Reduced particle count for performance
           let dropGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.5, 4);
           let dropMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.6 });
           let drop = new THREE.Mesh(dropGeom, dropMat);
@@ -314,7 +313,7 @@
       }
       function createSnowParticles() {
         weatherParticles = new THREE.Group();
-        for (let i = 0; i < 200; i++) {
+        for (let i = 0; i < 100; i++) {  // Reduced particle count
           let flakeGeom = new THREE.SphereGeometry(0.1, 6, 6);
           let flakeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
           let flake = new THREE.Mesh(flakeGeom, flakeMat);
@@ -327,11 +326,8 @@
       // -----------------------
       // Split Map into Biomes: Desert + City (Prompt 5)
       // -----------------------
-      // We'll build a new map group that holds two biomes:
-      // Desert biome: left half (500x500) centered at (-250,0) 
+      // Desert biome: left half (500x500) centered at (-250,0)
       // City biome: right half (500x500) centered at (250,0)
-      // Overall map spans 1000 (width) x 500 (depth); Z coordinates from -250 to 250.
-      const loader = new THREE.TextureLoader();
       function loadMap() {
         let mapGroup = scene.getObjectByName("mapGroup");
         if (mapGroup) { scene.remove(mapGroup); }
@@ -341,7 +337,6 @@
         // Desert Biome
         let desertGeom = new THREE.PlaneGeometry(500, 500, 100, 100);
         desertGeom.rotateX(-Math.PI/2);
-        // Offset desert so its center is at (-250,0)
         desertGeom.translate(-250, 0, 0);
         let amplitude = 8, scale = 150;
         const noise = new ImprovedNoise();
@@ -354,20 +349,18 @@
         }
         desertPos.needsUpdate = true;
         desertGeom.computeVertexNormals();
-        let sandTexture = loader.load('https://example.com/highres_sand_texture.jpg'); // Replace with your sand texture URL
+        let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg'); // Use a high-res texture if available
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
         sandTexture.repeat.set(50, 50);
         let desertMat = new THREE.MeshStandardMaterial({ map: sandTexture });
         let desertMesh = new THREE.Mesh(desertGeom, desertMat);
         desertMesh.receiveShadow = true;
         mapGroup.add(desertMesh);
-
+        
         // City Biome
         let cityGeom = new THREE.PlaneGeometry(500, 500, 50, 50);
         cityGeom.rotateX(-Math.PI/2);
-        // Offset city so its center is at (250,0)
         cityGeom.translate(250, 0, 0);
-        // Slight noise for variation
         const cityPos = cityGeom.attributes.position;
         for (let i = 0; i < cityPos.count; i++) {
           let x = cityPos.getX(i);
@@ -377,14 +370,14 @@
         }
         cityPos.needsUpdate = true;
         cityGeom.computeVertexNormals();
-        let concreteTexture = loader.load('https://example.com/concrete_texture.jpg'); // Replace with your concrete texture URL
+        let concreteTexture = loader.load('https://threejs.org/examples/textures/brick_diffuse.jpg'); // Replace with a city texture
         concreteTexture.wrapS = concreteTexture.wrapT = THREE.RepeatWrapping;
         concreteTexture.repeat.set(20, 20);
         let cityMat = new THREE.MeshStandardMaterial({ map: concreteTexture });
         let cityMesh = new THREE.Mesh(cityGeom, cityMat);
         cityMesh.receiveShadow = true;
         mapGroup.add(cityMesh);
-
+        
         // Divider between biomes (a wall)
         let dividerGeom = new THREE.BoxGeometry(2, 20, 500);
         let dividerMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
@@ -393,8 +386,10 @@
         divider.castShadow = true;
         divider.receiveShadow = true;
         mapGroup.add(divider);
-
+        
         scene.add(mapGroup);
+        // Store the ground mesh for height updates (we use the desert mesh as reference)
+        groundMesh = desertMesh;
       }
 
       // -----------------------
@@ -456,7 +451,7 @@
             return;
           }
         }
-        // Overall boundaries: X from -500 to 500, Z from -250 to 250
+        // Boundaries: x from -500 to 500, z from -250 to 250
         if (localTank.position.x < -500 || localTank.position.x > 500 ||
             localTank.position.z < -250 || localTank.position.z > 250) {
           localTank.position.copy(prevTankPosition);
@@ -859,7 +854,7 @@
             if (flake.position.y < 0) flake.position.y = Math.random() * 50 + 50;
           });
         }
-        // For storm, trigger occasional lightning flash
+        // For storm weather, trigger occasional lightning flash
         if (currentWeather === "storm" && Math.random() < 0.01) {
           let overlay = document.getElementById("damageOverlay");
           overlay.style.background = "rgba(255,255,255,0.8)";
@@ -892,8 +887,8 @@
         ctx.clearRect(0, 0, minimap.width, minimap.height);
         ctx.fillStyle = "rgba(0,0,0,0.5)";
         ctx.fillRect(0, 0, minimap.width, minimap.height);
-        // Overall map: x from -500 to 500, z from -250 to 250
         function worldToMinimap(x, z) {
+          // Overall map: x from -500 to 500, z from -250 to 250
           return { x: (x + 500) * (minimap.width / 1000), y: (250 - z) * (minimap.height / 500) };
         }
         let pos = worldToMinimap(localTank.position.x, localTank.position.z);
@@ -929,9 +924,9 @@
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
-        let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
-        window.ambient = ambient;
-        scene.add(ambient);
+        // Warm ambient light (store as ambientLight for weather adjustments)
+        ambientLight = new THREE.AmbientLight(0xfff4e5, 0.6);
+        scene.add(ambientLight);
         let dirLight = new THREE.DirectionalLight(0xffcc99, 1.2);
         dirLight.position.set(80, 100, -60);
         dirLight.castShadow = true;
@@ -942,8 +937,7 @@
         scene.add(dirLight);
         loadMap();
         localTank = createTank(playerData.color);
-        // Randomly place local tank in one of the two biomes:
-        // For example, randomly choose x between -500 and 500, and z between -250 and 250.
+        // Randomly place local tank anywhere within the overall map
         localTank.position.set(
           Math.random() * 1000 - 500,
           0,
@@ -952,7 +946,7 @@
         scene.add(localTank);
         addNicknameLabel(localTank, playerData.nickname);
         setupWebSocket();
-        // Apply randomized weather
+        // Apply randomized weather and update info bar
         currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
         applyWeather(currentWeather);
         window.addEventListener('resize', onWindowResize, false);
