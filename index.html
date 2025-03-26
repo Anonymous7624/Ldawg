@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.0.5</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.6</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -148,7 +148,7 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.0.5
+    <strong>Version:</strong> 1.0.6
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -158,6 +158,9 @@
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
   
   <script>
+    // Global variable for current map
+    let currentMap = "desert";
+
     // Define ImprovedNoise for terrain generation
     var ImprovedNoise = function () {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
@@ -205,7 +208,7 @@
       };
     };
 
-    // High-res skybox textures for each weather type
+    // High-res skybox textures for weather
     const skyboxTextures = {
       sunny: [
         "https://threejs.org/examples/textures/cube/skyboxsun25deg/posx.jpg",
@@ -271,17 +274,15 @@
       }
     };
 
-    // Generate a simple camo texture via canvas
+    // Simple camo texture generator
     function createCamoTexture() {
       let size = 256;
       let canvas = document.createElement("canvas");
       canvas.width = size;
       canvas.height = size;
       let ctx = canvas.getContext("2d");
-      // Base green background
       ctx.fillStyle = "#2E8B57";
       ctx.fillRect(0, 0, size, size);
-      // Draw random blotches of a darker green
       for (let i = 0; i < 10; i++) {
         let x = Math.random() * size;
         let y = Math.random() * size;
@@ -294,16 +295,13 @@
       return new THREE.CanvasTexture(canvas);
     }
 
-    // Create tanks using only green shades; half plain, half camo
+    // Create tanks using only green shades (plain or camo)
     function createTank(colorOverride) {
-      // Choose a random green shade if no override provided
       const greenShades = [0x228B22, 0x2E8B57, 0x556B2F, 0x6B8E23];
       let baseColor = colorOverride || greenShades[Math.floor(Math.random() * greenShades.length)];
-      // 50% chance to use camo texture instead of plain color
       let useCamo = Math.random() < 0.5;
       let chassisMatOpts = useCamo ? { map: createCamoTexture() } : { color: baseColor };
       let tank = new THREE.Group();
-      // Chassis
       let chassisGeom = new THREE.BoxGeometry(3.5, 1.2, 6);
       let chassisMat = new THREE.MeshStandardMaterial(Object.assign({ metalness: 0.6, roughness: 0.4 }, chassisMatOpts));
       let chassis = new THREE.Mesh(chassisGeom, chassisMat);
@@ -311,7 +309,6 @@
       chassis.receiveShadow = true;
       chassis.position.y = 0.6;
       tank.add(chassis);
-      // Wheels
       const wheelGeom = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
       const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
       for (let side of [1, -1]) {
@@ -324,7 +321,6 @@
           tank.add(wheel);
         }
       }
-      // Hatch
       let hatchGeom = new THREE.BoxGeometry(1, 0.2, 1);
       let hatchMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
       let hatch = new THREE.Mesh(hatchGeom, hatchMat);
@@ -332,7 +328,6 @@
       hatch.castShadow = true;
       hatch.receiveShadow = true;
       tank.add(hatch);
-      // Turret with barrel aligned parallel to tank
       let turret = new THREE.Group();
       let turretBaseGeom = new THREE.BoxGeometry(2.5, 1, 3);
       let turretBaseMat = new THREE.MeshStandardMaterial(Object.assign({ metalness: 0.7, roughness: 0.3 }, chassisMatOpts));
@@ -341,14 +336,12 @@
       turretBase.receiveShadow = true;
       turretBase.position.y = 0.5;
       turret.add(turretBase);
-      // Cannon: built along Y-axis by default. To have it point forward (+Z), rotate about X-axis.
       let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
       let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
       let cannon = new THREE.Mesh(cannonGeom, cannonMat);
       cannon.castShadow = true;
       cannon.receiveShadow = true;
-      cannon.rotation.x = Math.PI / 2; // rotate so that it points along positive Z
-      // Position the cannon so that its base is at the center of the turret.
+      cannon.rotation.x = Math.PI / 2;
       cannon.position.set(0, 0, 1.5);
       turret.add(cannon);
       turret.position.set(0, 1.4, 0);
@@ -357,7 +350,8 @@
       tank.userData.cannon = cannon;
       return tank;
     }
-    // Raise nametag higher for readability
+
+    // Raise nametag higher
     function addNicknameLabel(tank, nickname) {
       tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
       let canvas = document.createElement('canvas');
@@ -377,9 +371,7 @@
       tank.add(sprite);
     }
 
-    // -----------------------
-    // Pointer Lock & Input (add mouse click to shoot)
-    // -----------------------
+    // Input: mouse movement for turret, left-click for shooting
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body) {
         turretRotationOffset -= e.movementX * 0.002;
@@ -388,14 +380,11 @@
         }
       }
     });
-    // Also allow left-click shooting
     document.addEventListener("mousedown", (e) => {
       if (e.button === 0) { sendShoot(); }
     });
 
-    // -----------------------
-    // Update Tank Height and Slope Alignment
-    // -----------------------
+    // Align tank with terrain slope and update its height
     function updateTankHeight() {
       if (!groundMesh) return;
       let origin = new THREE.Vector3(localTank.position.x, 1000, localTank.position.z);
@@ -404,7 +393,6 @@
       if (intersects.length > 0) {
         let intersect = intersects[0];
         localTank.position.y = intersect.point.y + 0.6;
-        // Align tank with the ground slope:
         let normal = intersect.face.normal.clone();
         normal.transformDirection(groundMesh.matrixWorld);
         let currentEuler = new THREE.Euler().setFromQuaternion(localTank.quaternion, 'YXZ');
@@ -419,153 +407,82 @@
       }
     }
 
-    // -----------------------
-    // Environment: Desert Terrain & Warm Lighting
-    // -----------------------
-    function setupTerrainTexture() {
-      const loader = new THREE.TextureLoader();
-      // Use a moderate-res sand texture with a beige tint
-      let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg');
-      sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
-      sandTexture.repeat.set(50, 50);
-      return sandTexture;
-    }
-    function createBush() {
-      let bush = new THREE.Group();
-      let bushGeom = new THREE.SphereGeometry(1, 8, 8);
-      let bushMat = new THREE.MeshStandardMaterial({ color: 0x775533 });
-      let bushMesh = new THREE.Mesh(bushGeom, bushMat);
-      bushMesh.castShadow = true;
-      bushMesh.receiveShadow = true;
-      bush.add(bushMesh);
-      return bush;
-    }
-    function createCactusVariety() {
-      let cactus = new THREE.Group();
-      let scale = Math.random() * 0.5 + 0.8;
-      let stem = new THREE.Mesh(new THREE.CylinderGeometry(0.3 * scale, 0.3 * scale, 4 * scale, 8),
-        new THREE.MeshStandardMaterial({ color: 0x228B22 }));
-      stem.position.y = 2 * scale;
-      cactus.add(stem);
-      if (Math.random() > 0.5) {
-        let arm = new THREE.Mesh(new THREE.CylinderGeometry(0.2 * scale, 0.2 * scale, 2 * scale, 8),
-          new THREE.MeshStandardMaterial({ color: 0x228B22 }));
-        arm.rotation.z = Math.PI / 4;
-        arm.position.set(0.5 * scale, 3 * scale, 0);
-        cactus.add(arm);
-        let arm2 = arm.clone();
-        arm2.rotation.z = -Math.PI / 4;
-        arm2.position.set(-0.5 * scale, 3 * scale, 0);
-        cactus.add(arm2);
-      }
-      return cactus;
-    }
-    function loadMap(mapType) {
-      let mapGroup = scene.getObjectByName("mapGroup");
-      if (mapGroup) { scene.remove(mapGroup); }
-      mapGroup = new THREE.Group();
-      mapGroup.name = "mapGroup";
-      treeColliders = [];
-      const size = 1000, segments = 200;
-      const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
-      geometry.rotateX(-Math.PI / 2);
-      let amplitude = 8, scale = 150;
-      const noise = new ImprovedNoise();
-      const positions = geometry.attributes.position;
-      for (let i = 0; i < positions.count; i++) {
-        let x = positions.getX(i), z = positions.getZ(i);
-        let y = noise.noise(x / scale, z / scale, 0) * amplitude;
-        positions.setY(i, y);
-      }
-      positions.needsUpdate = true;
-      geometry.computeVertexNormals();
-      const material = new THREE.MeshStandardMaterial({ map: setupTerrainTexture(), color: 0xF5DEB3 });
-      groundMesh = new THREE.Mesh(geometry, material);
-      groundMesh.receiveShadow = true;
-      mapGroup.add(groundMesh);
-      for (let i = 0; i < 70; i++) {
-        let rockSize = Math.random() * 2 + 0.5;
-        let rockGeom = new THREE.DodecahedronGeometry(rockSize, 0);
-        let rockMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
-        let rock = new THREE.Mesh(rockGeom, rockMat);
-        rock.castShadow = true;
-        rock.receiveShadow = true;
-        rock.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
-        let rockHeight = noise.noise(rock.position.x / scale, rock.position.z / scale, 0) * amplitude;
-        rock.position.y = rockHeight + rockSize/2;
-        rock.rotation.y = Math.random() * Math.PI * 2;
-        mapGroup.add(rock);
-      }
-      for (let i = 0; i < 10; i++) {
-        let cactus = createCactusVariety();
-        cactus.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
-        cactus.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
-        let y = noise.noise(cactus.position.x / scale, cactus.position.z / scale, 0) * amplitude;
-        cactus.position.y = y;
-        mapGroup.add(cactus);
-      }
-      for (let i = 0; i < 20; i++) {
-        let bush = createBush();
-        bush.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
-        bush.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
-        let y = noise.noise(bush.position.x / scale, bush.position.z / scale, 0) * amplitude;
-        bush.position.y = y;
-        mapGroup.add(bush);
-      }
-      scene.add(mapGroup);
-    }
-
-    // Cloud layer functions for storm/snow/cloudy weather
-    let cloudMesh = null;
-    function startClouds() {
-      if (cloudMesh) return;
-      const loader = new THREE.TextureLoader();
-      loader.load('https://threejs.org/examples/textures/cloud.png', function(texture){
-        let geometry = new THREE.SphereGeometry(1200, 32, 32);
-        let material = new THREE.MeshBasicMaterial({
-          map: texture,
-          transparent: true,
-          opacity: 0.5,
-          side: THREE.BackSide
-        });
-        cloudMesh = new THREE.Mesh(geometry, material);
-        scene.add(cloudMesh);
-      });
-    }
-    function removeClouds() {
-      if (cloudMesh) { scene.remove(cloudMesh); cloudMesh = null; }
-    }
-
-    // Dust particles for desert atmosphere
-    let dustParticles;
-    function startDust() {
-      let dustCount = 200;
-      let dustGeometry = new THREE.BufferGeometry();
-      let dustPositions = new Float32Array(dustCount * 3);
-      for (let i = 0; i < dustCount; i++) {
-        dustPositions[i * 3] = Math.random() * 1000 - 500;
-        dustPositions[i * 3 + 1] = Math.random() * 100 + 50;
-        dustPositions[i * 3 + 2] = Math.random() * 1000 - 500;
-      }
-      dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
-      let dustMaterial = new THREE.PointsMaterial({ color: 0xffccaa, size: 1, transparent: true, opacity: 0.3 });
-      dustParticles = new THREE.Points(dustGeometry, dustMaterial);
-      scene.add(dustParticles);
-    }
-    function updateDust(delta) {
-      if (dustParticles) {
-        let positions = dustParticles.geometry.attributes.position.array;
-        for (let i = 0; i < positions.length; i += 3) {
-          positions[i + 1] += 0.5 * delta;
-          if (positions[i + 1] > 200) { positions[i + 1] = 50; }
+    function checkCollisions() {
+      for (let obs of treeColliders) {
+        if (localTank.position.distanceTo(obs.position) < 10) {
+          localTank.position.copy(prevTankPosition);
+          return;
         }
-        dustParticles.geometry.attributes.position.needsUpdate = true;
+      }
+      const boundary = 500;
+      if (localTank.position.x < -boundary || localTank.position.x > boundary ||
+          localTank.position.z < -boundary || localTank.position.z > boundary) {
+        localTank.position.copy(prevTankPosition);
       }
     }
 
-    // -----------------------
-    // WebSocket Setup (for multiplayer, if connected)
-    // -----------------------
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function onKeyDown(e) {
+      if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
+      if (e.code === "KeyI") { toggleInfoBar(); return; }
+      if (document.activeElement === chatInput) return;
+      switch (e.code) {
+        case "KeyW": controls.forward = true; break;
+        case "KeyS": controls.backward = true; break;
+        case "KeyA": controls.left = true; break;
+        case "KeyD": controls.right = true; break;
+        case "Space": controls.shoot = true; sendShoot(); break;
+        case "ShiftLeft": faster = true; break;
+        case "Digit1": cameraMode = 1; break;
+        case "Digit2": cameraMode = 2; break;
+        case "Digit3": cameraMode = 3; break;
+      }
+    }
+    function onKeyUp(e) {
+      switch (e.code) {
+        case "KeyW": controls.forward = false; break;
+        case "KeyS": controls.backward = false; break;
+        case "KeyA": controls.left = false; break;
+        case "KeyD": controls.right = false; break;
+        case "Space": controls.shoot = false; break;
+        case "ShiftLeft": faster = false; break;
+      }
+    }
+
+    const chatInput = document.getElementById("chatInput");
+    chatInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        if (chatInput.value.trim() !== "") { sendChat(chatInput.value.trim()); chatInput.value = ""; }
+        chatInput.style.display = "none";
+      }
+    });
+    function toggleChat() {
+      chatInput.style.display = (chatInput.style.display === "none" || chatInput.style.display === "") ? "block" : "none";
+      if (chatInput.style.display === "block") chatInput.focus();
+    }
+    let isDragging = false, offsetX = 0, offsetY = 0;
+    const infoBar = document.getElementById("infoBar");
+    infoBar.addEventListener("mousedown", function(e) {
+      isDragging = true;
+      offsetX = e.clientX - infoBar.offsetLeft;
+      offsetY = e.clientY - infoBar.offsetTop;
+    });
+    document.addEventListener("mousemove", function(e) {
+      if (isDragging) { infoBar.style.left = (e.clientX - offsetX) + "px"; infoBar.style.top = (e.clientY - offsetY) + "px"; }
+    });
+    document.addEventListener("mouseup", function() { isDragging = false; });
+    let infoVisible = true;
+    function toggleInfoBar() {
+      infoVisible = !infoVisible;
+      infoBar.style.display = infoVisible ? "block" : "none";
+    }
+
+    // WebSocket Setup
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
@@ -647,9 +564,7 @@
       }
     }
 
-    // -----------------------
     // Chat and Shooting Functions
-    // -----------------------
     function sendChat(message) {
       let now = Date.now();
       if (now - lastChatTime < chatCooldown) return;
@@ -714,9 +629,7 @@
       launchMissile();
     }
 
-    // -----------------------
     // Missile and Trail Updates
-    // -----------------------
     function updateMissiles(delta) {
       for (let i = missiles.length - 1; i >= 0; i--) {
         let missile = missiles[i];
@@ -799,9 +712,7 @@
       animateExplosion();
     }
 
-    // -----------------------
     // Chat Display
-    // -----------------------
     function displayChatBubble(msg) {
       let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
       if (!target) return;
@@ -831,9 +742,7 @@
       chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    // -----------------------
     // Animation Loop
-    // -----------------------
     function animate() {
       requestAnimationFrame(animate);
       let delta = clock.getDelta();
@@ -903,9 +812,7 @@
     }
     setInterval(() => { currentMap = 'desert'; loadMap(currentMap); }, 180000);
 
-    // -----------------------
     // Initialization
-    // -----------------------
     function init() {
       clock = new THREE.Clock();
       scene = new THREE.Scene();
@@ -915,7 +822,6 @@
       let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
       ambient.name = "ambientLight";
       scene.add(ambient);
-      // Warm directional light
       let dirLight = new THREE.DirectionalLight(0xffaa66, 1.5);
       dirLight.position.set(80, 100, -60);
       dirLight.castShadow = true;
