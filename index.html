@@ -1,14 +1,23 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Prevent Tab Switch Glitch: if the player leaves the tab, kick them out -->
   <script>
-    // Redirect to join.html if no nickname is stored
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === 'hidden') {
+        localStorage.removeItem("nickname");
+        window.location.href = "join.html";
+      }
+    });
+  </script>
+  <!-- Redirect to join.html if no nickname is stored -->
+  <script>
     if (!localStorage.getItem('nickname')) {
       window.location.href = "join.html";
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - True Desert & Health System</title>
+  <title>3D Multiplayer Tank Game - True Desert, Health & Detailed Tanks</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -91,13 +100,13 @@
     #missileMenu label, #missileMenu select {
       font-size: 16px;
     }
-    /* Info Bar (default visible, draggable) */
+    /* Info Bar (draggable, toggled with "I") */
     #infoBar {
       position: fixed;
       top: 10px;
       right: 10px;
       background: rgba(0, 0, 0, 0.6);
-      color: #fff;
+      color: #ffdd00;
       padding: 10px;
       border-radius: 5px;
       font-family: Arial, sans-serif;
@@ -105,7 +114,7 @@
       cursor: move;
       z-index: 200;
     }
-    /* Damage Overlay (for red flash when taking damage) */
+    /* Damage Overlay: red flash when taking damage */
     #damageOverlay {
       position: fixed;
       top: 0; left: 0;
@@ -136,7 +145,7 @@
   <!-- Info Bar -->
   <div id="infoBar">
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
-    <strong>Connection:</strong> -- (<span id="latencyDisplay">--</span> ms)<br>
+    <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --
   </div>
   <!-- Damage Overlay -->
@@ -145,17 +154,15 @@
   <!-- Three.js and GLTFLoader -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
-  
+
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // Request pointer lock on click
+      // Request pointer lock
       document.body.addEventListener("click", () => {
         document.body.requestPointerLock();
       });
 
-      // -----------------------
-      // ImprovedNoise for Terrain Heightmap
-      // -----------------------
+      // --------------- Terrain Generation ---------------
       var ImprovedNoise = function () {
         var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
                  140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -210,9 +217,7 @@
       let groundMesh = null, treeColliders = [], prevTankPosition = new THREE.Vector3();
       let faster = false, turretRotationOffset = 0;
       let trailParticles = [];
-      // For connection quality (latency in ms)
-      let latency = 100;
-      // For camera shake on explosion
+      let latency = 100;  // in ms
       let cameraShakeTime = 0;
       let cameraShakeIntensity = 0.5;
       const controls = { forward: false, backward: false, left: false, right: false, shoot: false };
@@ -226,14 +231,14 @@
       const WS_URL = "wss://game.ldawg7624.com";
 
       // -----------------------
-      // Missile Types (with increased speeds)
+      // Missile Types (Increased Speeds) – Rotate geometry with rotateZ to align with cannon's forward (X) direction
       // -----------------------
       const missileTypes = {
         bullet: {
           speed: 60,
           geometry: () => {
             let geom = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
-            geom.rotateX(Math.PI / 2);
+            geom.rotateZ(Math.PI / 2);
             return geom;
           },
           material: new THREE.MeshStandardMaterial({ color: 0xffff00 }),
@@ -241,7 +246,11 @@
         },
         splash: {
           speed: 54,
-          geometry: () => new THREE.SphereGeometry(0.3, 8, 8),
+          geometry: () => {
+            let geom = new THREE.SphereGeometry(0.3, 8, 8);
+            // For splash missiles, no extra rotation is needed
+            return geom;
+          },
           material: new THREE.MeshStandardMaterial({ color: 0xff4500 }),
           explosionRadius: 5
         },
@@ -249,7 +258,7 @@
           speed: 48,
           geometry: () => {
             let geom = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
-            geom.rotateX(Math.PI / 2);
+            geom.rotateZ(Math.PI / 2);
             return geom;
           },
           material: new THREE.MeshStandardMaterial({ color: 0xffa500 }),
@@ -279,7 +288,7 @@
           <strong>Players:</strong> ${activePlayers}
         `;
       }
-      // Draggable infoBar
+      // Make infoBar draggable
       let isDragging = false, offsetX = 0, offsetY = 0;
       const infoBar = document.getElementById("infoBar");
       infoBar.addEventListener("mousedown", function(e) {
@@ -301,47 +310,62 @@
       }
 
       // -----------------------
-      // Create a More Realistic Tank Model
+      // Create a Detailed Tank Model
       // -----------------------
       function createTank(color) {
         let tank = new THREE.Group();
         // Chassis
         let chassisGeom = new THREE.BoxGeometry(3.5, 1.2, 6);
-        let chassisMat = new THREE.MeshStandardMaterial({ color: color });
+        let chassisMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.6, roughness: 0.4 });
         let chassis = new THREE.Mesh(chassisGeom, chassisMat);
         chassis.castShadow = true;
         chassis.receiveShadow = true;
         chassis.position.y = 0.6;
         tank.add(chassis);
-        // Turret
+        // Extra detail: Add side wheels for tracks
+        const wheelGeom = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
+        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+        for (let side of [1, -1]) {  // 1 for right, -1 for left
+          for (let i = -1; i <= 1; i++) {
+            let wheel = new THREE.Mesh(wheelGeom, wheelMat);
+            wheel.rotation.z = Math.PI / 2;
+            wheel.castShadow = true;
+            wheel.receiveShadow = true;
+            wheel.position.set( (side * 2.1), 0.3, i * 2 );
+            tank.add(wheel);
+          }
+        }
+        // Add a hatch on top (a small box)
+        let hatchGeom = new THREE.BoxGeometry(1, 0.2, 1);
+        let hatchMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
+        let hatch = new THREE.Mesh(hatchGeom, hatchMat);
+        hatch.position.set(0, 1.1, -0.5);
+        hatch.castShadow = true;
+        hatch.receiveShadow = true;
+        tank.add(hatch);
+        // Turret (with a more detailed cannon)
         let turret = new THREE.Group();
         let turretBaseGeom = new THREE.BoxGeometry(2.5, 1, 3);
-        let turretBase = new THREE.Mesh(turretBaseGeom, new THREE.MeshStandardMaterial({ color: color }));
+        let turretBaseMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.7, roughness: 0.3 });
+        let turretBase = new THREE.Mesh(turretBaseGeom, turretBaseMat);
         turretBase.castShadow = true;
         turretBase.receiveShadow = true;
         turretBase.position.y = 0.5;
         turret.add(turretBase);
-        // Extended Cannon Barrel
+        // Extended Cannon Barrel – aligned like the chassis cannon
         let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
-        let cannon = new THREE.Mesh(cannonGeom, new THREE.MeshStandardMaterial({ color: 0x333333 }));
+        let cannonMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.2 });
+        let cannon = new THREE.Mesh(cannonGeom, cannonMat);
         cannon.castShadow = true;
         cannon.receiveShadow = true;
-        cannon.rotation.z = Math.PI / 2;
+        cannon.rotateZ(Math.PI / 2);  // Align so its length points along the X-axis
         cannon.position.set(0, 0.5, 2.5);
         turret.add(cannon);
         turret.position.set(0, 1.4, 0);
         tank.add(turret);
+        // Store cannon for recoil animation
         tank.userData.turret = turret;
-        // Simulated Tracks
-        let trackGeom = new THREE.BoxGeometry(0.5, 0.5, 6.2);
-        let trackMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
-        let leftTrack = new THREE.Mesh(trackGeom, trackMat);
-        leftTrack.castShadow = true;
-        leftTrack.receiveShadow = true;
-        leftTrack.position.set(2, 0.3, 0);
-        let rightTrack = leftTrack.clone();
-        rightTrack.position.set(-2, 0.3, 0);
-        tank.add(leftTrack); tank.add(rightTrack);
+        tank.userData.cannon = cannon;
         return tank;
       }
       function addNicknameLabel(tank, nickname) {
@@ -378,7 +402,7 @@
       // -----------------------
       function setupTerrainTexture() {
         const loader = new THREE.TextureLoader();
-        // Replace with your high-quality desert sand texture if available.
+        // Replace this URL with your high-quality desert sand texture if available.
         let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg');
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
         sandTexture.repeat.set(20, 20);
@@ -440,7 +464,7 @@
         const size = 1000, segments = 200;
         const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
         geometry.rotateX(-Math.PI / 2);
-        // Gentle dunes
+        // Gentle dunes using noise
         let amplitude = 8, scale = 150;
         const noise = new ImprovedNoise();
         const positions = geometry.attributes.position;
@@ -455,7 +479,7 @@
         groundMesh = new THREE.Mesh(geometry, material);
         groundMesh.receiveShadow = true;
         mapGroup.add(groundMesh);
-        // Add rocks
+        // Rocks
         for (let i = 0; i < 70; i++) {
           let rockSize = Math.random() * 2 + 0.5;
           let rockGeom = new THREE.DodecahedronGeometry(rockSize, 0);
@@ -469,7 +493,7 @@
           rock.rotation.y = Math.random() * Math.PI * 2;
           mapGroup.add(rock);
         }
-        // Add 10 varied cacti
+        // Varied cacti
         for (let i = 0; i < 10; i++) {
           let cactus = createCactusVariety();
           cactus.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
@@ -478,7 +502,7 @@
           cactus.position.y = y;
           mapGroup.add(cactus);
         }
-        // Add 20 dry bushes
+        // Dry bushes
         for (let i = 0; i < 20; i++) {
           let bush = createBush();
           bush.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
@@ -493,13 +517,12 @@
       // -----------------------
       // Health System on Hit
       // -----------------------
-      // Show a red flash overlay when taking damage
       function showDamageFlash() {
         const overlay = document.getElementById("damageOverlay");
         overlay.style.background = "rgba(255, 0, 0, 0.5)";
         setTimeout(() => { overlay.style.background = "rgba(255, 0, 0, 0)"; }, 150);
       }
-      // In updateMissiles, when a missile expires, check if it hits the player
+      // Check if an explosion hits the local tank
       function checkExplosionDamage(explosionPos, missileType) {
         let distance = explosionPos.distanceTo(localTank.position);
         let explosionRadius = missileTypes[missileType].explosionRadius;
@@ -512,7 +535,7 @@
           updateHealthBar();
           showDamageFlash();
           if (playerData.health <= 0) {
-            // Mini explosion effect on death
+            // Mini explosion effect on death and redirect
             createExplosion(localTank.position, 2);
             setTimeout(() => { window.location.href = "join.html"; }, 1000);
           }
@@ -701,18 +724,26 @@
       function launchMissile() {
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
         let missileProps = missileTypes[selectedMissileType];
-        let turret = localTank.userData.turret;
-        let turretDirection = new THREE.Vector3();
-        turret.getWorldDirection(turretDirection);
-        let turretPos = new THREE.Vector3();
-        turret.getWorldPosition(turretPos);
-        let spawnPos = turretPos.clone().add(turretDirection.clone().multiplyScalar(1));
+        // Use the cannon (not turret) so that missile follows the barrel's forward
+        let cannon = localTank.userData.cannon;
+        let direction = new THREE.Vector3();
+        cannon.getWorldDirection(direction);
+        let position = new THREE.Vector3();
+        cannon.getWorldPosition(position);
+        // Offset spawn slightly in front of the cannon
+        let spawnPos = position.clone().add(direction.clone().multiplyScalar(1));
         let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
         missileMesh.position.copy(spawnPos);
-        missileMesh.quaternion.copy(turret.quaternion);
-        let velocity = turretDirection.multiplyScalar(missileProps.speed);
+        missileMesh.quaternion.copy(cannon.getWorldQuaternion(new THREE.Quaternion()));
+        let velocity = direction.multiplyScalar(missileProps.speed);
         missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType });
         scene.add(missileMesh);
+        // Animate cannon recoil
+        let originalPos = cannon.position.clone();
+        cannon.position.z -= 0.2;
+        setTimeout(() => {
+          cannon.position.copy(originalPos);
+        }, 100);
       }
       function createRemoteMissile(data) {
         let missileType = data.missileType || "bullet";
@@ -744,10 +775,9 @@
           let missile = missiles[i];
           missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
           missile.life -= delta;
-          // Create missile trail particle
+          // Create trail particle
           createMissileTrail(missile.mesh.position);
           if (missile.life <= 0) {
-            // Before explosion, check if local tank is hit
             checkExplosionDamage(missile.mesh.position, missile.type);
             createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
             scene.remove(missile.mesh);
@@ -755,7 +785,6 @@
           }
         }
       }
-      // Missile Trail Particles
       function createMissileTrail(position) {
         const particleGeom = new THREE.SphereGeometry(0.1, 6, 6);
         const particleMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.5 });
@@ -776,7 +805,6 @@
           }
         }
       }
-      // Explosion with Camera Shake
       function createExplosion(position, radius) {
         let explosionGeom = new THREE.SphereGeometry(radius, 16, 16);
         let explosionMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true });
@@ -791,9 +819,7 @@
           if (elapsed < explosionLife) {
             explosionMesh.material.opacity = 1 - (elapsed / explosionLife);
             requestAnimationFrame(animateExplosion);
-          } else {
-            scene.remove(explosionMesh);
-          }
+          } else { scene.remove(explosionMesh); }
         }
         animateExplosion();
       }
@@ -837,7 +863,7 @@
         requestAnimationFrame(animate);
         let delta = clock.getDelta();
         prevTankPosition.copy(localTank.position);
-        // Increased movement speed (from 10 to 15)
+        // Increased movement speed from 10 to 15
         let speed = 15 * delta * (faster ? 2 : 1);
         if (controls.forward) localTank.translateZ(speed);
         if (controls.backward) localTank.translateZ(-speed);
@@ -868,7 +894,6 @@
         } else if (cameraMode === 3) {
           targetPos = localTank.position.clone().add(new THREE.Vector3(0, 30, 0));
         }
-        // Apply camera shake if active
         if (cameraShakeTime > 0) {
           targetPos.x += (Math.random()-0.5) * cameraShakeIntensity;
           targetPos.y += (Math.random()-0.5) * cameraShakeIntensity;
@@ -899,9 +924,6 @@
           ctx.fill();
         }
       }
-      // -----------------------
-      // Map Switching (every 3 minutes; remains desert)
-      // -----------------------
       setInterval(() => {
         currentMap = 'desert';
         loadMap(currentMap);
