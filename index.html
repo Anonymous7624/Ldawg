@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.0.11</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.12</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -135,7 +135,6 @@
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
 
   <script>
-    // Wrap all code in DOMContentLoaded to ensure proper load order
     document.addEventListener('DOMContentLoaded', function() {
 
       // ----------------- Global Variables -----------------
@@ -292,14 +291,13 @@
 
       // ----------------- Biomes Map: Desert + City -----------------
       function loadBiomesMap() {
-        // Remove any existing map group
         let mapGroup = scene.getObjectByName("mapGroup");
         if (mapGroup) { scene.remove(mapGroup); }
         mapGroup = new THREE.Group();
         mapGroup.name = "mapGroup";
+        // Overall map dimensions: width=1000, depth=500.
+        // Desert: left half (x from -500 to 0), City: right half (x from 0 to 500).
 
-        // Overall map: width=1000, depth=500.
-        // Desert biome: x from -500 to 0, City biome: x from 0 to 500.
         // DESERT BIOME
         let desertGroup = new THREE.Group();
         let desertGeometry = new THREE.PlaneGeometry(500, 500, 50, 50);
@@ -324,7 +322,6 @@
 
         // CITY BIOME
         let cityGroup = new THREE.Group();
-        // Create a flat road plane for the city
         let cityGeometry = new THREE.PlaneGeometry(500, 500);
         cityGeometry.rotateX(-Math.PI / 2);
         let cityMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
@@ -344,7 +341,6 @@
           let building = new THREE.Mesh(buildingGeom, buildingMat);
           building.castShadow = true;
           building.receiveShadow = true;
-          // Random position within city biome (x from 0 to 500, z from -250 to 250)
           building.position.set(250 + (Math.random()-0.5)*400, bHeight/2, (Math.random()-0.5)*500);
           cityGroup.add(building);
         }
@@ -605,4 +601,348 @@
         }
       }
       function updateHealthBar() {
-        document.getElementById("healthBar").style.width =
+        document.getElementById("healthBar").style.width = playerData.health + "%";
+      }
+      function showDamageFlash() {
+        const overlay = document.getElementById("damageOverlay");
+        overlay.style.background = "rgba(255, 0, 0, 0.5)";
+        setTimeout(() => { overlay.style.background = "rgba(255, 0, 0, 0)"; }, 150);
+      }
+
+      // ----------------- Tank Slope Alignment -----------------
+      function updateTankHeight() {
+        if (!groundMesh) return;
+        let origin = new THREE.Vector3(localTank.position.x, 1000, localTank.position.z);
+        let raycaster = new THREE.Raycaster(origin, new THREE.Vector3(0, -1, 0));
+        let intersects = raycaster.intersectObject(groundMesh);
+        if (intersects.length > 0) {
+          let intersect = intersects[0];
+          localTank.position.y = intersect.point.y + 0.6;
+          let normal = intersect.face.normal.clone();
+          normal.transformDirection(groundMesh.matrixWorld);
+          let currentEuler = new THREE.Euler().setFromQuaternion(localTank.quaternion, 'YXZ');
+          let yaw = currentEuler.y;
+          let forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+          let projectedForward = forward.clone().projectOnPlane(normal).normalize();
+          if (projectedForward.length() < 0.001) { projectedForward = new THREE.Vector3(0, 0, 1); }
+          let right = new THREE.Vector3().crossVectors(normal, projectedForward).normalize();
+          let m = new THREE.Matrix4();
+          m.makeBasis(right, normal, projectedForward);
+          localTank.quaternion.setFromRotationMatrix(m);
+        }
+      }
+
+      // ----------------- Input Handlers -----------------
+      function checkCollisions() {
+        for (let obs of treeColliders) {
+          if (localTank.position.distanceTo(obs.position) < 10) {
+            localTank.position.copy(prevTankPosition);
+            return;
+          }
+        }
+        const boundaryX = 500, boundaryZ = 250;
+        if (localTank.position.x < -500 || localTank.position.x > 500 ||
+            localTank.position.z < -250 || localTank.position.z > 250) {
+          localTank.position.copy(prevTankPosition);
+        }
+      }
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+      function onKeyDown(e) {
+        if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
+        if (e.code === "KeyI") { toggleInfoBar(); return; }
+        if (document.activeElement === chatInput) return;
+        switch (e.code) {
+          case "KeyW": controls.forward = true; break;
+          case "KeyS": controls.backward = true; break;
+          case "KeyA": controls.left = true; break;
+          case "KeyD": controls.right = true; break;
+          case "Space": controls.shoot = true; sendShoot(); break;
+          case "ShiftLeft": faster = true; break;
+          case "Digit1": cameraMode = 1; break;
+          case "Digit2": cameraMode = 2; break;
+          case "Digit3": cameraMode = 3; break;
+        }
+      }
+      function onKeyUp(e) {
+        switch (e.code) {
+          case "KeyW": controls.forward = false; break;
+          case "KeyS": controls.backward = false; break;
+          case "KeyA": controls.left = false; break;
+          case "KeyD": controls.right = false; break;
+          case "Space": controls.shoot = false; break;
+          case "ShiftLeft": faster = false; break;
+        }
+      }
+      const chatInput = document.getElementById("chatInput");
+      chatInput.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          if (chatInput.value.trim() !== "") { sendChat(chatInput.value.trim()); chatInput.value = ""; }
+          chatInput.style.display = "none";
+        }
+      });
+      function toggleChat() {
+        chatInput.style.display = (chatInput.style.display === "none" || chatInput.style.display === "") ? "block" : "none";
+        if (chatInput.style.display === "block") chatInput.focus();
+      }
+      let isDragging = false, offsetX = 0, offsetY = 0;
+      const infoBar = document.getElementById("infoBar");
+      infoBar.addEventListener("mousedown", function(e) {
+        isDragging = true;
+        offsetX = e.clientX - infoBar.offsetLeft;
+        offsetY = e.clientY - infoBar.offsetTop;
+      });
+      document.addEventListener("mousemove", function(e) {
+        if (isDragging) { infoBar.style.left = (e.clientX - offsetX) + "px"; infoBar.style.top = (e.clientY - offsetY) + "px"; }
+      });
+      document.addEventListener("mouseup", function() { isDragging = false; });
+      function toggleInfoBar() {
+        infoBar.style.display = (infoBar.style.display === "none" || infoBar.style.display === "") ? "block" : "none";
+      }
+
+      // ----------------- Minimap Update -----------------
+      function updateMinimap() {
+        let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
+        ctx.clearRect(0, 0, minimap.width, minimap.height);
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(0, 0, minimap.width, minimap.height);
+        // Map dimensions: width=1000, depth=500. x in [-500,500], z in [-250,250]
+        function worldToMinimap(x, z) {
+          return { x: (x + 500) * (minimap.width / 1000), y: ((250) - z) * (minimap.height / 500) };
+        }
+        let pos = worldToMinimap(localTank.position.x, localTank.position.z);
+        ctx.fillStyle = playerData.color;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#fff";
+        for (let id in remoteTanks) {
+          let pos2 = worldToMinimap(remoteTanks[id].mesh.position.x, remoteTanks[id].mesh.position.z);
+          ctx.beginPath();
+          ctx.arc(pos2.x, pos2.y, 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      // ----------------- Animation Loop -----------------
+      function animate() {
+        requestAnimationFrame(animate);
+        let delta = clock.getDelta();
+        prevTankPosition.copy(localTank.position);
+        let speed = 15 * delta * (faster ? 2 : 1);
+        if (controls.forward) localTank.translateZ(speed);
+        if (controls.backward) localTank.translateZ(-speed);
+        if (controls.left) localTank.rotation.y += 2 * delta;
+        if (controls.right) localTank.rotation.y -= 2 * delta;
+        checkCollisions();
+        updateTankHeight();
+        // Update camera position
+        let targetPos;
+        if (cameraMode === 1) {
+          targetPos = new THREE.Vector3(0, 5, -10).applyMatrix4(localTank.matrixWorld);
+        } else if (cameraMode === 2) {
+          targetPos = localTank.localToWorld(new THREE.Vector3(0, 2, 0));
+        } else if (cameraMode === 3) {
+          targetPos = localTank.position.clone().add(new THREE.Vector3(0, 30, 0));
+        }
+        if (cameraShakeTime > 0) {
+          targetPos.x += (Math.random()-0.5) * cameraShakeIntensity;
+          targetPos.y += (Math.random()-0.5) * cameraShakeIntensity;
+          cameraShakeTime -= clock.getDelta();
+        }
+        camera.position.lerp(targetPos, 0.1);
+        camera.lookAt(localTank.position);
+        sendUpdate();
+        updateMissiles(delta);
+        updateTrailParticles(delta);
+        // (Update weather-specific animations if needed: updateRain, updateSnow, updateStorm)
+        updateDust(delta);
+        updateSky();
+        renderer.render(scene, camera);
+        updateMinimap();
+        updateInfoBar();
+      }
+
+      // ----------------- WebSocket Setup -----------------
+      function setupWebSocket() {
+        ws = new WebSocket(WS_URL);
+        ws.onopen = () => {
+          ws.send(JSON.stringify({
+            type: "join",
+            id: playerData.id,
+            nickname: playerData.nickname,
+            color: playerData.color,
+            position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z }
+          }));
+          setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "ping", timestamp: performance.now() }));
+            }
+          }, 2000);
+        };
+        ws.onmessage = (event) => {
+          let msg = JSON.parse(event.data);
+          if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
+          handleServerMessage(msg);
+        };
+        ws.onclose = () => { console.log("Disconnected from server."); };
+      }
+      function handleServerMessage(msg) {
+        switch (msg.type) {
+          case "update":
+            if (msg.id !== playerData.id) { updateRemoteTank(msg); }
+            break;
+          case "chat":
+            displayChatBubble(msg);
+            addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
+            break;
+          case "shoot":
+            addKillFeed(`${msg.nickname} fired!`);
+            if (msg.id !== playerData.id) { createRemoteMissile(msg); }
+            break;
+          case "kill":
+            addKillFeed(`${msg.killer} eliminated ${msg.victim}`);
+            break;
+          case "join":
+            if (msg.id !== playerData.id && !remoteTanks[msg.id]) {
+              let tank = createTank();
+              tank.position.set(msg.position.x, msg.position.y, msg.position.z);
+              scene.add(tank);
+              addNicknameLabel(tank, msg.nickname);
+              remoteTanks[msg.id] = { mesh: tank, nickname: msg.nickname, health: 100 };
+            }
+            break;
+          case "leave":
+            if (remoteTanks[msg.id]) {
+              scene.remove(remoteTanks[msg.id].mesh);
+              delete remoteTanks[msg.id];
+            }
+            break;
+        }
+      }
+      function updateRemoteTank(data) {
+        if (!remoteTanks[data.id]) {
+          let tank = createTank();
+          tank.position.set(data.position.x, data.position.y, data.position.z);
+          scene.add(tank);
+          addNicknameLabel(tank, data.nickname);
+          remoteTanks[data.id] = { mesh: tank, nickname: data.nickname, health: 100 };
+        } else {
+          let currentPos = remoteTanks[data.id].mesh.position;
+          let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
+          currentPos.lerp(targetPos, 0.1);
+          remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1);
+        }
+      }
+      function sendUpdate() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: "update",
+            id: playerData.id,
+            position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+            rotation: localTank.rotation.y
+          }));
+        }
+      }
+      function sendChat(message) {
+        let now = Date.now();
+        if (now - lastChatTime < chatCooldown) return;
+        lastChatTime = now;
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: "chat",
+            id: playerData.id,
+            nickname: playerData.nickname,
+            message: message
+          }));
+          displayChatBubble({ id: playerData.id, nickname: playerData.nickname, message: message });
+          addGlobalChatMessage(`${playerData.nickname}: ${message}`);
+        }
+      }
+      function displayChatBubble(msg) {
+        let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
+        if (!target) return;
+        let canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
+        let ctx = canvas.getContext('2d');
+        ctx.fillStyle = "rgba(0,0,0,0.5)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.font = "20px Arial";
+        ctx.fillStyle = "#fff";
+        ctx.textAlign = "center";
+        ctx.fillText(msg.message, canvas.width / 2, canvas.height / 2 + 8);
+        let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+        sprite.scale.set(4, 1, 1);
+        sprite.position.set(0, 3, 0);
+        target.add(sprite);
+        setTimeout(() => { target.remove(sprite); }, 3000);
+      }
+      function addKillFeed(text) {
+        killFeedMessages.push(text);
+        document.getElementById("killFeed").innerHTML = killFeedMessages.slice(-5).join("<br>");
+      }
+      function addGlobalChatMessage(text) {
+        let chatLog = document.getElementById("globalChatLog");
+        let messageElem = document.createElement("div");
+        messageElem.textContent = text;
+        chatLog.appendChild(messageElem);
+        chatLog.scrollTop = chatLog.scrollHeight;
+      }
+
+      // ----------------- Initialization -----------------
+      function init() {
+        try {
+          clock = new THREE.Clock();
+          scene = new THREE.Scene();
+          // Remove fog to avoid washed-out white appearance
+          // scene.fog = new THREE.FogExp2(0xEDC9AF, 0.002);
+          camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+          camera.position.set(0, 5, -10);
+          let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
+          ambient.name = "ambientLight";
+          scene.add(ambient);
+          let dirLight = new THREE.DirectionalLight(0xffaa66, 1.5);
+          dirLight.position.set(80, 100, -60);
+          dirLight.castShadow = true;
+          dirLight.shadow.camera.left = -200;
+          dirLight.shadow.camera.right = 200;
+          dirLight.shadow.camera.top = 200;
+          dirLight.shadow.camera.bottom = -200;
+          scene.add(dirLight);
+          renderer = new THREE.WebGLRenderer({ antialias: true });
+          renderer.setClearColor(0x000000, 1);
+          renderer.shadowMap.enabled = true;
+          renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          document.body.appendChild(renderer.domElement);
+          initSky();
+          loadBiomesMap();
+          localTank = createTank();
+          // Spawn tank randomly in either biome
+          if (Math.random() < 0.5) {
+            localTank.position.set(Math.random() * 500 - 500, 0, Math.random() * 500 - 250);
+          } else {
+            localTank.position.set(Math.random() * 500, 0, Math.random() * 500 - 250);
+          }
+          scene.add(localTank);
+          addNicknameLabel(localTank, playerData.nickname);
+          setupWebSocket();
+          const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
+          currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
+          applyWeather(currentWeather);
+          startDust();
+          window.addEventListener('resize', onWindowResize, false);
+          window.addEventListener('keydown', onKeyDown, false);
+          window.addEventListener('keyup', onKeyUp, false);
+          animate();
+        } catch (error) {
+          console.error("Initialization error:", error);
+        }
+      }
+      init();
+    });
+  </script>
+</body>
+</html>
