@@ -146,7 +146,8 @@
   <div id="infoBar">
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
-    <strong>Players:</strong> --
+    <strong>Players:</strong> --<br>
+    <strong>Weather:</strong> --
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -162,55 +163,7 @@
         document.body.requestPointerLock();
       });
 
-      // ------------- Terrain Generation (ImprovedNoise) -------------
-      var ImprovedNoise = function () {
-        var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
-                 140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
-                 247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,
-                 57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,
-                 74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,
-                 60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,
-                 65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,
-                 196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,
-                 217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,
-                 206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,
-                 152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,
-                 253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,
-                 228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,
-                 235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,
-                 176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,
-                 24,72,243,141,128,195,78,66,215,61,156,180];
-        for (var i = 0; i < 256; i++) { p[256 + i] = p[i]; }
-        function fade(t) { return t*t*t*(t*(t*6-15)+10); }
-        function lerp(t, a, b) { return a + t*(b-a); }
-        function grad(hash, x, y, z) {
-          var h = hash & 15;
-          var u = h < 8 ? x : y, v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
-          return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
-        }
-        this.noise = function(x, y, z) {
-          var floorX = Math.floor(x), floorY = Math.floor(y), floorZ = Math.floor(z);
-          var X = floorX & 255, Y = floorY & 255, Z = floorZ & 255;
-          x -= floorX; y -= floorY; z -= floorZ;
-          var u = fade(x), v = fade(y), w = fade(z);
-          var A = p[X] + Y, AA = p[A] + Z, AB = p[A+1] + Z;
-          var B = p[X+1] + Y, BA = p[B] + Z, BB = p[B+1] + Z;
-          return lerp(w,
-            lerp(v,
-              lerp(u, grad(p[AA], x, y, z), grad(p[BA], x-1, y, z)),
-              lerp(u, grad(p[AB], x, y-1, z), grad(p[BB], x-1, y-1, z))
-            ),
-            lerp(v,
-              lerp(u, grad(p[AA+1], x, y, z-1), grad(p[BA+1], x-1, y, z-1)),
-              lerp(u, grad(p[AB+1], x, y-1, z-1), grad(p[BB+1], x-1, y-1, z-1))
-            )
-          );
-        };
-      };
-
-      // -----------------------
       // Global Variables & Player Data
-      // -----------------------
       let scene, camera, renderer, localTank, clock;
       let remoteTanks = {}, killFeedMessages = [];
       let ws, cameraMode = 1, currentMap = 'desert', missiles = [];
@@ -232,23 +185,194 @@
       let lastChatTime = 0;
       const chatCooldown = 2000; // ms
 
+      // Audio Setup (commented out to avoid loading non-existent files)
+//      let listener = new THREE.AudioListener();
+//      let explosionSound = new THREE.Audio(listener);
+//      let engineSound = new THREE.Audio(listener);
+//      let audioLoader = new THREE.AudioLoader();
+//      audioLoader.load('https://example.com/explosion.mp3', function(buffer) {
+//        explosionSound.setBuffer(buffer);
+//        explosionSound.setVolume(0.5);
+//      });
+//      audioLoader.load('https://example.com/engine.mp3', function(buffer) {
+//        engineSound.setBuffer(buffer);
+//        engineSound.setLoop(true);
+//        engineSound.setVolume(0.3);
+//      });
+
+      // Weather globals
+      let currentWeather = "sunny"; // default
+      let rainParticles, snowParticles;
+      let stormLightningTime = 0;
+
       // -----------------------
-      // Audio Setup
+      // Weather Functions
       // -----------------------
-      let listener = new THREE.AudioListener();
-      let explosionSound = new THREE.Audio(listener);
-      let engineSound = new THREE.Audio(listener);
-      let audioLoader = new THREE.AudioLoader();
-      // Replace with your own sound URLs
-      audioLoader.load('https://example.com/explosion.mp3', function(buffer) {
-        explosionSound.setBuffer(buffer);
-        explosionSound.setVolume(0.5);
-      });
-      audioLoader.load('https://example.com/engine.mp3', function(buffer) {
-        engineSound.setBuffer(buffer);
-        engineSound.setLoop(true);
-        engineSound.setVolume(0.3);
-      });
+      function removeWeatherParticles() {
+        if (rainParticles) {
+          scene.remove(rainParticles);
+          rainParticles = null;
+        }
+        if (snowParticles) {
+          scene.remove(snowParticles);
+          snowParticles = null;
+        }
+      }
+      function startRain() {
+        removeWeatherParticles();
+        let rainCount = 1000;
+        let rainGeometry = new THREE.BufferGeometry();
+        let rainPositions = new Float32Array(rainCount * 3);
+        for (let i = 0; i < rainCount; i++) {
+          rainPositions[i * 3] = Math.random() * 1000 - 500;
+          rainPositions[i * 3 + 1] = Math.random() * 500;
+          rainPositions[i * 3 + 2] = Math.random() * 1000 - 500;
+        }
+        rainGeometry.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3));
+        let rainMaterial = new THREE.PointsMaterial({ color: 0xaaaaaa, size: 0.1, transparent: true });
+        rainParticles = new THREE.Points(rainGeometry, rainMaterial);
+        scene.add(rainParticles);
+      }
+      function updateRain(delta) {
+        if (rainParticles) {
+          let positions = rainParticles.geometry.attributes.position.array;
+          for (let i = 0; i < positions.length; i += 3) {
+            positions[i + 1] -= 50 * delta; // fall speed
+            if (positions[i + 1] < 0) {
+              positions[i + 1] = 500;
+            }
+          }
+          rainParticles.geometry.attributes.position.needsUpdate = true;
+        }
+      }
+      function startSnow() {
+        removeWeatherParticles();
+        let snowCount = 1000;
+        let snowGeometry = new THREE.BufferGeometry();
+        let snowPositions = new Float32Array(snowCount * 3);
+        for (let i = 0; i < snowCount; i++) {
+          snowPositions[i * 3] = Math.random() * 1000 - 500;
+          snowPositions[i * 3 + 1] = Math.random() * 500;
+          snowPositions[i * 3 + 2] = Math.random() * 1000 - 500;
+        }
+        snowGeometry.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3));
+        let snowMaterial = new THREE.PointsMaterial({ color: 0xffffff, size: 0.5, transparent: true });
+        snowParticles = new THREE.Points(snowGeometry, snowMaterial);
+        scene.add(snowParticles);
+      }
+      function updateSnow(delta) {
+        if (snowParticles) {
+          let positions = snowParticles.geometry.attributes.position.array;
+          for (let i = 0; i < positions.length; i += 3) {
+            positions[i + 1] -= 10 * delta; // slow fall speed
+            if (positions[i + 1] < 0) {
+              positions[i + 1] = 500;
+            }
+          }
+          snowParticles.geometry.attributes.position.needsUpdate = true;
+        }
+      }
+      function startStorm() {
+        removeWeatherParticles();
+        startRain(); // Storm includes heavy rain
+        stormLightningTime = 0;
+      }
+      function updateStorm(delta) {
+        updateRain(delta);
+        stormLightningTime -= delta;
+        if (stormLightningTime <= 0) {
+          let lightning = new THREE.PointLight(0xffffff, 2, 200);
+          lightning.position.set(Math.random()*1000 - 500, 300, Math.random()*1000 - 500);
+          scene.add(lightning);
+          setTimeout(() => { scene.remove(lightning); }, 100);
+          stormLightningTime = Math.random() * 5;
+        }
+      }
+      function applyWeather(weather) {
+        currentWeather = weather;
+        // Update Info Bar with weather info
+        const infoBar = document.getElementById("infoBar");
+        let weatherText = "Weather: " + weather.charAt(0).toUpperCase() + weather.slice(1);
+        infoBar.innerHTML = `<strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
+          <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
+          <strong>Players:</strong> --<br>
+          <strong>${weatherText}</strong>`;
+        
+        // Update skybox and lighting based on weather
+        const loader = new THREE.CubeTextureLoader();
+        let textureURLs;
+        let ambientLightIntensity = 0.6;
+        switch(weather) {
+          case "sunny":
+            textureURLs = [
+              'https://threejs.org/examples/textures/cube/skybox/px.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/py.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
+            ];
+            ambientLightIntensity = 0.6;
+            removeWeatherParticles();
+            break;
+          case "rain":
+            textureURLs = [
+              'https://threejs.org/examples/textures/cube/skybox/px.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/py.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
+            ];
+            ambientLightIntensity = 0.4;
+            startRain();
+            break;
+          case "snow":
+            textureURLs = [
+              'https://threejs.org/examples/textures/cube/skybox/px.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/py.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
+            ];
+            ambientLightIntensity = 0.5;
+            startSnow();
+            break;
+          case "cloudy":
+            textureURLs = [
+              'https://threejs.org/examples/textures/cube/skybox/px.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/py.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
+            ];
+            ambientLightIntensity = 0.5;
+            removeWeatherParticles();
+            break;
+          case "storm":
+            textureURLs = [
+              'https://threejs.org/examples/textures/cube/skybox/px.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/py.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
+              'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
+            ];
+            ambientLightIntensity = 0.3;
+            startStorm();
+            break;
+        }
+        let newTexture = loader.load(textureURLs);
+        scene.background = newTexture;
+        
+        // Update ambient light if present
+        let ambient = scene.getObjectByName("ambientLight");
+        if (ambient) {
+          ambient.intensity = ambientLightIntensity;
+        }
+      }
 
       // -----------------------
       // Detailed Tank Model with Correct Cannon Alignment
@@ -293,14 +417,14 @@
         turretBase.receiveShadow = true;
         turretBase.position.y = 0.5;
         turret.add(turretBase);
-        // Cannon: centered on turret (X=0), pointing forward (positive Z)
+        // Cannon: center-mounted and properly aligned
         let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
-        let cannonMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.2 });
+        let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         let cannon = new THREE.Mesh(cannonGeom, cannonMat);
         cannon.castShadow = true;
         cannon.receiveShadow = true;
-        cannon.rotation.z = Math.PI / 2;  // make it point forward
-        cannon.position.set(0, 0.4, 1.5);  // centered and low enough so projectiles exit at tank level
+        cannon.rotation.z = Math.PI / 2;  // Forward direction along positive Z-axis
+        cannon.position.set(0, 0.4, 1.5);  // Dead-center on X, low Y for tank level
         turret.add(cannon);
         turret.position.set(0, 1.4, 0);
         tank.add(turret);
@@ -309,7 +433,6 @@
         return tank;
       }
       function addNicknameLabel(tank, nickname) {
-        // Remove any existing label to prevent overlap
         tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
         let canvas = document.createElement('canvas');
         canvas.width = 256; canvas.height = 64;
@@ -345,12 +468,13 @@
       // -----------------------
       function setupTerrainTexture() {
         const loader = new THREE.TextureLoader();
-        let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg'); // high-quality sand texture
+        let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg');
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
         sandTexture.repeat.set(20, 20);
         return sandTexture;
       }
       function setupSkybox() {
+        // This function is now controlled by applyWeather
         const loader = new THREE.CubeTextureLoader();
         const texture = loader.load([
           'https://threejs.org/examples/textures/cube/skybox/px.jpg',
@@ -362,7 +486,6 @@
         ]);
         scene.background = texture;
       }
-      // Additional details: Dry bushes and varied cacti
       function createBush() {
         let bush = new THREE.Group();
         let bushGeom = new THREE.SphereGeometry(1, 8, 8);
@@ -393,10 +516,6 @@
         }
         return cactus;
       }
-
-      // -----------------------
-      // Load Desert Map with Enhanced Details
-      // -----------------------
       function loadMap(mapType) {
         let mapGroup = scene.getObjectByName("mapGroup");
         if (mapGroup) { scene.remove(mapGroup); }
@@ -406,7 +525,6 @@
         const size = 1000, segments = 200;
         const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
         geometry.rotateX(-Math.PI / 2);
-        // Gentle dunes using noise
         let amplitude = 8, scale = 150;
         const noise = new ImprovedNoise();
         const positions = geometry.attributes.position;
@@ -421,7 +539,6 @@
         groundMesh = new THREE.Mesh(geometry, material);
         groundMesh.receiveShadow = true;
         mapGroup.add(groundMesh);
-        // Rocks
         for (let i = 0; i < 70; i++) {
           let rockSize = Math.random() * 2 + 0.5;
           let rockGeom = new THREE.DodecahedronGeometry(rockSize, 0);
@@ -435,7 +552,6 @@
           rock.rotation.y = Math.random() * Math.PI * 2;
           mapGroup.add(rock);
         }
-        // Varied cacti
         for (let i = 0; i < 10; i++) {
           let cactus = createCactusVariety();
           cactus.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
@@ -444,7 +560,6 @@
           cactus.position.y = y;
           mapGroup.add(cactus);
         }
-        // Dry bushes
         for (let i = 0; i < 20; i++) {
           let bush = createBush();
           bush.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
@@ -455,10 +570,6 @@
         }
         scene.add(mapGroup);
       }
-
-      // -----------------------
-      // Health System on Hit & Damage Feedback
-      // -----------------------
       function showDamageFlash() {
         const overlay = document.getElementById("damageOverlay");
         overlay.style.background = "rgba(255, 0, 0, 0.5)";
@@ -492,10 +603,6 @@
           }
         }
       }
-
-      // -----------------------
-      // Update Tank Height & Collision Detection
-      // -----------------------
       function updateTankHeight() {
         if (!groundMesh) return;
         let raycaster = new THREE.Raycaster(
@@ -520,19 +627,11 @@
           localTank.position.copy(prevTankPosition);
         }
       }
-
-      // -----------------------
-      // Window Resize Handler
-      // -----------------------
       function onWindowResize() {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
       }
-
-      // -----------------------
-      // Keyboard Controls & Info Toggle ("I")
-      // -----------------------
       function onKeyDown(e) {
         if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
         if (e.code === "KeyI") { toggleInfoBar(); return; }
@@ -570,10 +669,6 @@
         chatInput.style.display = (chatInput.style.display === "none" || chatInput.style.display === "") ? "block" : "none";
         if (chatInput.style.display === "block") chatInput.focus();
       }
-
-      // -----------------------
-      // Info Bar & Draggable Panel
-      // -----------------------
       let isDragging = false, offsetX = 0, offsetY = 0;
       const infoBar = document.getElementById("infoBar");
       infoBar.addEventListener("mousedown", function(e) {
@@ -593,10 +688,6 @@
         infoVisible = !infoVisible;
         infoBar.style.display = infoVisible ? "block" : "none";
       }
-
-      // -----------------------
-      // WebSocket Communication with Ping-Pong for Latency
-      // -----------------------
       function setupWebSocket() {
         ws = new WebSocket(WS_URL);
         ws.onopen = () => {
@@ -680,7 +771,6 @@
           }));
         }
       }
-      // Chat with cooldown
       function sendChat(message) {
         let now = Date.now();
         if (now - lastChatTime < chatCooldown) return;
@@ -696,14 +786,9 @@
           addGlobalChatMessage(`${playerData.nickname}: ${message}`);
         }
       }
-
-      // -----------------------
-      // Missile Logic with Collision Detection, Trails, & Cannon Recoil
-      // -----------------------
       function launchMissile() {
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
         let missileProps = missileTypes[selectedMissileType];
-        // Use the cannon (so missile follows the barrel's forward direction)
         let cannon = localTank.userData.cannon;
         let direction = new THREE.Vector3();
         cannon.getWorldDirection(direction);
@@ -714,12 +799,10 @@
         missileMesh.position.copy(spawnPos);
         missileMesh.quaternion.copy(cannon.getWorldQuaternion(new THREE.Quaternion()));
         let velocity = direction.multiplyScalar(missileProps.speed);
-        // Set lastTrailTime to throttle particle creation
         missileMesh.userData.lastTrailTime = 0;
         missileMesh.userData.owner = playerData.id;
         missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
         scene.add(missileMesh);
-        // Cannon recoil animation
         let originalPos = cannon.position.clone();
         cannon.position.z -= 0.2;
         setTimeout(() => { cannon.position.copy(originalPos); }, 100);
@@ -756,12 +839,10 @@
           let missile = missiles[i];
           missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
           missile.life -= delta;
-          // Throttle missile trail creation to once every 50ms per missile
           if (performance.now() - missile.mesh.userData.lastTrailTime > 50) {
             createMissileTrail(missile.mesh.position);
             missile.mesh.userData.lastTrailTime = performance.now();
           }
-          // Collision detection: Only check local missiles vs remote tanks and vice versa.
           if (missile.owner === playerData.id) {
             for (let id in remoteTanks) {
               let remoteTank = remoteTanks[id].mesh;
@@ -823,8 +904,6 @@
         let explosionMesh = new THREE.Mesh(explosionGeom, explosionMat);
         explosionMesh.position.copy(position);
         scene.add(explosionMesh);
-        if (explosionSound.isPlaying) explosionSound.stop();
-        explosionSound.play();
         cameraShakeTime = 0.3;
         let explosionLife = 0.5, start = performance.now();
         function animateExplosion() {
@@ -838,10 +917,6 @@
         }
         animateExplosion();
       }
-
-      // -----------------------
-      // Chat and Kill Feed UI
-      // -----------------------
       function displayChatBubble(msg) {
         let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
         if (!target) return;
@@ -870,10 +945,6 @@
         chatLog.appendChild(messageElem);
         chatLog.scrollTop = chatLog.scrollHeight;
       }
-
-      // -----------------------
-      // Animation Loop & Camera Shake
-      // -----------------------
       function animate() {
         requestAnimationFrame(animate);
         let delta = clock.getDelta();
@@ -893,6 +964,14 @@
         sendUpdate();
         updateMissiles(delta);
         updateTrailParticles(delta);
+        // Weather updates
+        if (currentWeather === "rain") {
+          updateRain(delta);
+        } else if (currentWeather === "snow") {
+          updateSnow(delta);
+        } else if (currentWeather === "storm") {
+          updateStorm(delta);
+        }
         renderer.render(scene, camera);
         updateMinimap();
         updateHealthBar();
@@ -941,10 +1020,6 @@
         currentMap = 'desert';
         loadMap(currentMap);
       }, 180000);
-
-      // -----------------------
-      // Initialization with Warm Desert Lighting & Audio
-      // -----------------------
       function init() {
         clock = new THREE.Clock();
         scene = new THREE.Scene();
@@ -952,15 +1027,18 @@
         scene.fog = new THREE.FogExp2(0xEDC9AF, 0.002);
         camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         camera.position.set(0, 5, -10);
-        camera.add(listener);
-        engineSound.play();
+        // Attach audio listener if needed (commented out)
+//        camera.add(listener);
+        // Add ambient light with a name for weather adjustments
+        let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
+        ambient.name = "ambientLight";
+        scene.add(ambient);
+        // engineSound.play(); // commented out to avoid errors
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
-        let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
-        scene.add(ambient);
         let dirLight = new THREE.DirectionalLight(0xffcc99, 1.2);
         dirLight.position.set(80, 100, -60);
         dirLight.castShadow = true;
@@ -975,6 +1053,10 @@
         scene.add(localTank);
         addNicknameLabel(localTank, playerData.nickname);
         setupWebSocket();
+        // Randomize and apply weather
+        const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
+        currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
+        applyWeather(currentWeather);
         window.addEventListener('resize', onWindowResize, false);
         window.addEventListener('keydown', onKeyDown, false);
         window.addEventListener('keyup', onKeyUp, false);
