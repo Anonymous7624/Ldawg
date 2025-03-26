@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <!-- Version: 1.0.0 - Updated 2025-03-25 -->
   <!-- Prevent Tab Switch Glitch -->
   <script>
     document.addEventListener("visibilitychange", () => {
@@ -17,7 +18,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game – Biomes, Weather & Camera Shake</title>
+  <title>3D Multiplayer Tank Game – Final Polish (v1.0.0)</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -151,17 +152,21 @@
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
 
-  <!-- Three.js and GLTFLoader -->
+  <!-- Three.js (Using non-module version) -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+  <!-- GLTFLoader (if needed) -->
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
   
   <script>
-    // --- Global Helper: updateHealthBar ---
+    // Global helper: updateHealthBar
     function updateHealthBar() {
       document.getElementById("healthBar").style.width = playerData.health + "%";
     }
 
-    // --- Define Missile Types ---
+    // Define weatherTypes at the top so they are available
+    const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
+
+    // Define missileTypes
     const missileTypes = {
       bullet: {
         speed: 60,
@@ -193,7 +198,7 @@
       }
     };
 
-    // --- Camera Shake Function (Prompt 5) ---
+    // --- Camera Shake Function (Prompt 1) ---
     function cameraShake(intensity = 0.5, duration = 200) {
       const originalPos = camera.position.clone();
       const start = performance.now();
@@ -212,13 +217,14 @@
       shake();
     }
 
+    // Begin main code
     document.addEventListener('DOMContentLoaded', () => {
       // Request pointer lock
       document.body.addEventListener("click", () => {
         document.body.requestPointerLock();
       });
 
-      // ------------- ImprovedNoise for Terrain -------------
+      // ------------ ImprovedNoise for Terrain ------------
       var ImprovedNoise = function () {
         var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
                  140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -273,7 +279,7 @@
       let groundMesh = null, treeColliders = [], prevTankPosition = new THREE.Vector3();
       let faster = false, turretRotationOffset = 0;
       let trailParticles = [];
-      let latency = 100;  // in ms
+      let latency = 100;  // in milliseconds
       let cameraShakeTime = 0;
       let cameraShakeIntensity = 0.5;
       let weatherParticles = null;
@@ -295,168 +301,32 @@
       const loader = new THREE.TextureLoader();
 
       // -----------------------
-      // Audio Setup
+      // Remove all sound code (no audio)
       // -----------------------
-      let listener = new THREE.AudioListener();
-      let explosionSound = new THREE.Audio(listener);
-      let engineSound = new THREE.Audio(listener);
-      let audioLoader = new THREE.AudioLoader();
-      // Replace these URLs with your actual audio files that allow CORS
-      audioLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/sounds/explosion.mp3', function(buffer) {
-        explosionSound.setBuffer(buffer);
-        explosionSound.setVolume(0.5);
-      });
-      audioLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/sounds/engine.ogg', function(buffer) {
-        engineSound.setBuffer(buffer);
-        engineSound.setLoop(true);
-        engineSound.setVolume(0.3);
-      });
 
       // -----------------------
-      // Define Missile Types
-      // -----------------------
-      const missileTypes = {
-        bullet: {
-          speed: 60,
-          geometry: function() {
-            let geom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
-            geom.rotateZ(Math.PI / 2);
-            return geom;
-          },
-          material: new THREE.MeshStandardMaterial({ color: 0xffff00 }),
-          explosionRadius: 3
-        },
-        splash: {
-          speed: 54,
-          geometry: function() {
-            return new THREE.SphereGeometry(0.3, 8, 8);
-          },
-          material: new THREE.MeshStandardMaterial({ color: 0xff4500 }),
-          explosionRadius: 5
-        },
-        rocket: {
-          speed: 48,
-          geometry: function() {
-            let geom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
-            geom.rotateZ(Math.PI / 2);
-            return geom;
-          },
-          material: new THREE.MeshStandardMaterial({ color: 0xffa500 }),
-          explosionRadius: 7
-        }
-      };
-
-      // -----------------------
-      // Detailed Tank Model with Correct Cannon Alignment
-      // -----------------------
-      function createTank(color) {
-        let tank = new THREE.Group();
-        // Chassis
-        let chassisGeom = new THREE.BoxGeometry(3.5, 1.2, 6);
-        let chassisMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.6, roughness: 0.4 });
-        let chassis = new THREE.Mesh(chassisGeom, chassisMat);
-        chassis.castShadow = true;
-        chassis.receiveShadow = true;
-        chassis.position.y = 0.6;
-        tank.add(chassis);
-        // Side wheels (simulate tracks)
-        const wheelGeom = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
-        const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
-        for (let side of [1, -1]) {
-          for (let i = -1; i <= 1; i++) {
-            let wheel = new THREE.Mesh(wheelGeom, wheelMat);
-            wheel.rotation.z = Math.PI / 2;
-            wheel.castShadow = true;
-            wheel.receiveShadow = true;
-            wheel.position.set(side * 2.1, 0.3, i * 2);
-            tank.add(wheel);
-          }
-        }
-        // Hatch on top
-        let hatchGeom = new THREE.BoxGeometry(1, 0.2, 1);
-        let hatchMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
-        let hatch = new THREE.Mesh(hatchGeom, hatchMat);
-        hatch.position.set(0, 1.1, -0.5);
-        hatch.castShadow = true;
-        hatch.receiveShadow = true;
-        tank.add(hatch);
-        // Turret with cannon
-        let turret = new THREE.Group();
-        let turretBaseGeom = new THREE.BoxGeometry(2.5, 1, 3);
-        let turretBaseMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.7, roughness: 0.3 });
-        let turretBase = new THREE.Mesh(turretBaseGeom, turretBaseMat);
-        turretBase.castShadow = true;
-        turretBase.receiveShadow = true;
-        turretBase.position.y = 0.5;
-        turret.add(turretBase);
-        // Cannon: centered on turret, pointing forward (positive Z)
-        let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
-        let cannonMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.2 });
-        let cannon = new THREE.Mesh(cannonGeom, cannonMat);
-        cannon.castShadow = true;
-        cannon.receiveShadow = true;
-        cannon.rotation.z = Math.PI / 2; // point along +Z
-        cannon.position.set(0, 0.4, 1.5); // adjust so projectiles exit at tank level
-        turret.add(cannon);
-        turret.position.set(0, 1.4, 0);
-        tank.add(turret);
-        tank.userData.turret = turret;
-        tank.userData.cannon = cannon;
-        return tank;
-      }
-      function addNicknameLabel(tank, nickname) {
-        tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
-        let canvas = document.createElement('canvas');
-        canvas.width = 256; canvas.height = 64;
-        let ctx = canvas.getContext('2d');
-        ctx.fillStyle = "rgba(0,0,0,0.5)";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.font = "30px Arial";
-        ctx.fillStyle = "#fff";
-        ctx.textAlign = "center";
-        ctx.fillText(nickname, canvas.width / 2, canvas.height / 2 + 10);
-        let texture = new THREE.CanvasTexture(canvas);
-        let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture }));
-        sprite.name = "nicknameLabel";
-        sprite.scale.set(4, 1, 1);
-        sprite.position.set(0, 2.5, 0);
-        tank.add(sprite);
-      }
-
-      // -----------------------
-      // Pointer Lock & Turret Aiming
-      // -----------------------
-      document.addEventListener("mousemove", (e) => {
-        if (document.pointerLockElement === document.body) {
-          turretRotationOffset -= e.movementX * 0.002;
-          if (localTank && localTank.userData.turret) {
-            localTank.userData.turret.rotation.y = turretRotationOffset;
-          }
-        }
-      });
-
-      // -----------------------
-      // Environment: Desert Terrain & Skybox (Prompt 4)
+      // Skybox & Terrain Textures (using Three.js r152 assets)
       // -----------------------
       function setupTerrainTexture() {
-        let sandTexture = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/sand.jpg');
+        let sandTexture = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/r152/examples/textures/sand.jpg');
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
         sandTexture.repeat.set(50, 50);
         return sandTexture;
       }
       function setupSkybox() {
         const skyboxUrls = [
-          'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/cube/skybox/px.jpg',
-          'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/cube/skybox/nx.jpg',
-          'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/cube/skybox/py.jpg',
-          'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/cube/skybox/ny.jpg',
-          'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/cube/skybox/pz.jpg',
-          'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/cube/skybox/nz.jpg'
+          'https://raw.githubusercontent.com/mrdoob/three.js/r152/examples/textures/cube/skybox/px.jpg',
+          'https://raw.githubusercontent.com/mrdoob/three.js/r152/examples/textures/cube/skybox/nx.jpg',
+          'https://raw.githubusercontent.com/mrdoob/three.js/r152/examples/textures/cube/skybox/py.jpg',
+          'https://raw.githubusercontent.com/mrdoob/three.js/r152/examples/textures/cube/skybox/ny.jpg',
+          'https://raw.githubusercontent.com/mrdoob/three.js/r152/examples/textures/cube/skybox/pz.jpg',
+          'https://raw.githubusercontent.com/mrdoob/three.js/r152/examples/textures/cube/skybox/nz.jpg'
         ];
         const cubeLoader = new THREE.CubeTextureLoader();
         let cubeTexture = cubeLoader.load(skyboxUrls);
         scene.background = cubeTexture;
       }
+
       // Additional details: Dry bushes and varied cacti
       function createBush() {
         let bush = new THREE.Group();
@@ -492,13 +362,14 @@
       // -----------------------
       // Split Map into Biomes: Desert + City (Prompt 5)
       // -----------------------
+      // Desert: Left half (500x500, centered at (-250,0)), City: Right half (500x500, centered at (250,0))
       function loadMap() {
         let mapGroup = scene.getObjectByName("mapGroup");
         if (mapGroup) { scene.remove(mapGroup); }
         mapGroup = new THREE.Group();
         mapGroup.name = "mapGroup";
         
-        // Desert Biome: 500x500, centered at (-250,0)
+        // Desert Biome
         let desertGeom = new THREE.PlaneGeometry(500, 500, 100, 100);
         desertGeom.rotateX(-Math.PI/2);
         desertGeom.translate(-250, 0, 0);
@@ -513,7 +384,7 @@
         }
         desertPos.needsUpdate = true;
         desertGeom.computeVertexNormals();
-        let sandTexture = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/sand.jpg');
+        let sandTexture = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/r152/examples/textures/sand.jpg');
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
         sandTexture.repeat.set(50, 50);
         let desertMat = new THREE.MeshStandardMaterial({ map: sandTexture });
@@ -521,7 +392,7 @@
         desertMesh.receiveShadow = true;
         mapGroup.add(desertMesh);
         
-        // City Biome: 500x500, centered at (250,0)
+        // City Biome
         let cityGeom = new THREE.PlaneGeometry(500, 500, 50, 50);
         cityGeom.rotateX(-Math.PI/2);
         cityGeom.translate(250, 0, 0);
@@ -534,7 +405,7 @@
         }
         cityPos.needsUpdate = true;
         cityGeom.computeVertexNormals();
-        let concreteTexture = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/textures/brick_diffuse.jpg');
+        let concreteTexture = loader.load('https://raw.githubusercontent.com/mrdoob/three.js/r152/examples/textures/brick_diffuse.jpg');
         concreteTexture.wrapS = concreteTexture.wrapT = THREE.RepeatWrapping;
         concreteTexture.repeat.set(20, 20);
         let cityMat = new THREE.MeshStandardMaterial({ map: concreteTexture });
@@ -552,7 +423,7 @@
         mapGroup.add(divider);
         
         scene.add(mapGroup);
-        // Use desert mesh for height updates
+        // Use the desert mesh as a reference for height updates.
         groundMesh = desertMesh;
       }
 
@@ -672,7 +543,7 @@
       }
 
       // -----------------------
-      // Info Bar & Draggable Panel (Prompt 6)
+      // Info Bar & Draggable Panel
       // -----------------------
       let isDragging = false, offsetX = 0, offsetY = 0;
       const infoBar = document.getElementById("infoBar");
@@ -828,7 +699,7 @@
         missileMesh.userData.owner = playerData.id;
         missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
         scene.add(missileMesh);
-        // Minor recoil shake on fire
+        // Trigger a minor camera shake on fire
         cameraShake(0.2, 100);
         // Cannon recoil animation
         let originalPos = cannon.position.clone();
@@ -932,8 +803,7 @@
         let explosionMesh = new THREE.Mesh(explosionGeom, explosionMat);
         explosionMesh.position.copy(position);
         scene.add(explosionMesh);
-        if (explosionSound.isPlaying) explosionSound.stop();
-        explosionSound.play();
+        // Trigger camera shake on explosion
         cameraShake(0.5, 200);
         let explosionLife = 0.5, start = performance.now();
         function animateExplosion() {
@@ -1003,25 +873,7 @@
         sendUpdate();
         updateMissiles(delta);
         updateTrailParticles(delta);
-        // Update weather particles for rain and snow
-        if (currentWeather === "rain" && weatherParticles) {
-          weatherParticles.children.forEach(drop => {
-            drop.position.y -= delta * 50;
-            if (drop.position.y < 0) drop.position.y = Math.random() * 50 + 50;
-          });
-        }
-        if (currentWeather === "snow" && weatherParticles) {
-          weatherParticles.children.forEach(flake => {
-            flake.position.y -= delta * 10;
-            if (flake.position.y < 0) flake.position.y = Math.random() * 50 + 50;
-          });
-        }
-        // For storm, occasional lightning flash
-        if (currentWeather === "storm" && Math.random() < 0.01) {
-          let overlay = document.getElementById("damageOverlay");
-          overlay.style.background = "rgba(255,255,255,0.8)";
-          setTimeout(() => { overlay.style.background = "rgba(255,255,255,0)"; }, 100);
-        }
+        // (Optional: update weather particles here for rain/snow if implemented)
         renderer.render(scene, camera);
         updateMinimap();
         updateHealthBar();
@@ -1067,11 +919,11 @@
       }
       setInterval(() => {
         currentMap = 'desert';
-        loadMap(currentMap);
+        loadMap();
       }, 180000);
 
       // -----------------------
-      // Initialization with Split Biomes, Warm Lighting, Audio & Weather
+      // Initialization with Split Biomes, Warm Lighting, and Weather Effects
       // -----------------------
       function init() {
         clock = new THREE.Clock();
@@ -1080,13 +932,12 @@
         scene.fog = new THREE.FogExp2(0xEDC9AF, 0.002);
         camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         camera.position.set(0, 5, -10);
-        camera.add(listener);
-        engineSound.play();
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
+        // Warm ambient light
         let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
         scene.add(ambient);
         let dirLight = new THREE.DirectionalLight(0xffcc99, 1.2);
@@ -1097,9 +948,9 @@
         dirLight.shadow.camera.top = 200;
         dirLight.shadow.camera.bottom = -200;
         scene.add(dirLight);
-        loadMap(currentMap);
+        loadMap();
         localTank = createTank(playerData.color);
-        // Place local tank randomly within overall bounds: x [-500,500], z [-250,250]
+        // Place the local tank randomly within overall bounds: x from -500 to 500, z from -250 to 250
         localTank.position.set(
           Math.random() * 1000 - 500,
           0,
@@ -1109,7 +960,7 @@
         addNicknameLabel(localTank, playerData.nickname);
         setupWebSocket();
         // Apply randomized weather
-        currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
+        const currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
         applyWeather(currentWeather);
         window.addEventListener('resize', onWindowResize, false);
         window.addEventListener('keydown', onKeyDown, false);
