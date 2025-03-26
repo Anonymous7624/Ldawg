@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.0.12</title>
+  <!-- Immediately redirect if no nickname is stored -->
+  <script>
+    if (!localStorage.getItem('nickname')) {
+      window.location.href = "join.html";
+    }
+  </script>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.13</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -130,7 +136,7 @@
   <div id="infoBar"></div>
   <div id="damageOverlay"></div>
 
-  <!-- Three.js Library and GLTFLoader -->
+  <!-- Three.js and GLTFLoader (the deprecation warning can be ignored for now) -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
 
@@ -296,9 +302,7 @@
         mapGroup = new THREE.Group();
         mapGroup.name = "mapGroup";
         // Overall map dimensions: width=1000, depth=500.
-        // Desert: left half (x from -500 to 0), City: right half (x from 0 to 500).
-
-        // DESERT BIOME
+        // DESERT BIOME: x from -500 to 0, centered at (-250, 0, 0)
         let desertGroup = new THREE.Group();
         let desertGeometry = new THREE.PlaneGeometry(500, 500, 50, 50);
         desertGeometry.rotateX(-Math.PI / 2);
@@ -316,21 +320,19 @@
         let desertMaterial = new THREE.MeshStandardMaterial({ map: setupTerrainTexture(), color: 0xF5DEB3 });
         let desertMesh = new THREE.Mesh(desertGeometry, desertMaterial);
         desertMesh.receiveShadow = true;
-        // Center desert biome at (-250, 0, 0)
         desertMesh.position.set(-250, 0, 0);
         desertGroup.add(desertMesh);
 
-        // CITY BIOME
+        // CITY BIOME: x from 0 to 500, centered at (250, 0, 0)
         let cityGroup = new THREE.Group();
         let cityGeometry = new THREE.PlaneGeometry(500, 500);
         cityGeometry.rotateX(-Math.PI / 2);
         let cityMaterial = new THREE.MeshStandardMaterial({ color: 0x444444 });
         let cityRoad = new THREE.Mesh(cityGeometry, cityMaterial);
         cityRoad.receiveShadow = true;
-        // Center city biome at (250, 0, 0)
         cityRoad.position.set(250, 0, 0);
         cityGroup.add(cityRoad);
-        // Add building blocks
+        // Add building blocks to the city biome
         for (let i = 0; i < 30; i++) {
           let bWidth = Math.random()*30 + 20;
           let bDepth = Math.random()*30 + 20;
@@ -341,10 +343,11 @@
           let building = new THREE.Mesh(buildingGeom, buildingMat);
           building.castShadow = true;
           building.receiveShadow = true;
+          // Position buildings randomly in the city region (x from 0 to 500, z from -250 to 250)
           building.position.set(250 + (Math.random()-0.5)*400, bHeight/2, (Math.random()-0.5)*500);
           cityGroup.add(building);
         }
-        // Divider wall between biomes
+        // Divider wall between biomes (acts as a rocky divider)
         let wallGeom = new THREE.BoxGeometry(10, 50, 500);
         let wallMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
         let wall = new THREE.Mesh(wallGeom, wallMat);
@@ -709,9 +712,9 @@
         ctx.clearRect(0, 0, minimap.width, minimap.height);
         ctx.fillStyle = "rgba(0,0,0,0.5)";
         ctx.fillRect(0, 0, minimap.width, minimap.height);
-        // Map dimensions: width=1000, depth=500. x in [-500,500], z in [-250,250]
+        // Overall map: x in [-500,500], z in [-250,250]
         function worldToMinimap(x, z) {
-          return { x: (x + 500) * (minimap.width / 1000), y: ((250) - z) * (minimap.height / 500) };
+          return { x: (x + 500) * (minimap.width / 1000), y: (250 - z) * (minimap.height / 500) };
         }
         let pos = worldToMinimap(localTank.position.x, localTank.position.z);
         ctx.fillStyle = playerData.color;
@@ -739,7 +742,7 @@
         if (controls.right) localTank.rotation.y -= 2 * delta;
         checkCollisions();
         updateTankHeight();
-        // Update camera position
+        // Update camera
         let targetPos;
         if (cameraMode === 1) {
           targetPos = new THREE.Vector3(0, 5, -10).applyMatrix4(localTank.matrixWorld);
@@ -758,7 +761,7 @@
         sendUpdate();
         updateMissiles(delta);
         updateTrailParticles(delta);
-        // (Update weather-specific animations if needed: updateRain, updateSnow, updateStorm)
+        // (Weather-specific animations for rain, snow, storm can be added here)
         updateDust(delta);
         updateSky();
         renderer.render(scene, camera);
@@ -896,8 +899,8 @@
         try {
           clock = new THREE.Clock();
           scene = new THREE.Scene();
-          // Remove fog to avoid washed-out white appearance
-          // scene.fog = new THREE.FogExp2(0xEDC9AF, 0.002);
+          // Re-enable fog with lower density so it doesn't overpower the scene
+          scene.fog = new THREE.FogExp2(0xEDC9AF, 0.0005);
           camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
           camera.position.set(0, 5, -10);
           let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
@@ -920,7 +923,9 @@
           initSky();
           loadBiomesMap();
           localTank = createTank();
-          // Spawn tank randomly in either biome
+          // Spawn tank randomly in one of the biomes:
+          // Desert: x in [-500,0], z in [-250,250]
+          // City: x in [0,500], z in [-250,250]
           if (Math.random() < 0.5) {
             localTank.position.set(Math.random() * 500 - 500, 0, Math.random() * 500 - 250);
           } else {
@@ -937,6 +942,7 @@
           window.addEventListener('keydown', onKeyDown, false);
           window.addEventListener('keyup', onKeyUp, false);
           animate();
+          console.log("Initialization complete.");
         } catch (error) {
           console.error("Initialization error:", error);
         }
