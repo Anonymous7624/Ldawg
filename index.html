@@ -8,7 +8,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Desert Upgrade & Gameplay Enhancements</title>
+  <title>3D Multiplayer Tank Game - Desert Upgrade, Gameplay & Info Panel</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* UI Elements */
@@ -86,6 +86,20 @@
     #missileMenu label, #missileMenu select {
       font-size: 16px;
     }
+    /* Info Panel (for keybinds, connection & players) */
+    #infoBar {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #fff;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      cursor: move;
+      z-index: 200;
+    }
     canvas { display: block; }
   </style>
 </head>
@@ -104,14 +118,18 @@
   <div id="killFeed"></div>
   <canvas id="minimap" width="200" height="200"></canvas>
   <div id="globalChatLog"></div>
+  <!-- Info Bar: Default visible -->
+  <div id="infoBar">
+    <!-- Content will be updated dynamically -->
+  </div>
 
-  <!-- Three.js and GLTFLoader (if needed later) -->
+  <!-- Three.js and GLTFLoader -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
   
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // Request pointer lock for full control
+      // Request pointer lock on click.
       document.body.addEventListener("click", () => {
         document.body.requestPointerLock();
       });
@@ -172,8 +190,9 @@
       let ws, cameraMode = 1, currentMap = 'desert', missiles = [];
       let groundMesh = null, treeColliders = [], prevTankPosition = new THREE.Vector3();
       let faster = false, turretRotationOffset = 0;
-      // For missile trails
       let trailParticles = [];
+      // For connection quality
+      let latency = 100;
       // For camera shake on explosion
       let cameraShakeTime = 0;
       let cameraShakeIntensity = 0.5;
@@ -192,7 +211,7 @@
       // -----------------------
       const missileTypes = {
         bullet: {
-          speed: 60,  // increased from 50
+          speed: 60,
           geometry: () => {
             let geom = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
             geom.rotateX(Math.PI / 2);
@@ -202,13 +221,13 @@
           explosionRadius: 1
         },
         splash: {
-          speed: 54,  // increased from 45
+          speed: 54,
           geometry: () => new THREE.SphereGeometry(0.3, 8, 8),
           material: new THREE.MeshStandardMaterial({ color: 0xff4500 }),
           explosionRadius: 5
         },
         rocket: {
-          speed: 48,  // increased from 40
+          speed: 48,
           geometry: () => {
             let geom = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
             geom.rotateX(Math.PI / 2);
@@ -425,7 +444,7 @@
       }
 
       // -----------------------
-      // Handle Window Resize
+      // Window Resize Handler
       // -----------------------
       function onWindowResize() {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -434,10 +453,11 @@
       }
 
       // -----------------------
-      // Keyboard Controls (Increased speed)
+      // Keyboard Controls (Increased speed) & Info Toggle
       // -----------------------
       function onKeyDown(e) {
         if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
+        if (e.code === "KeyI") { toggleInfoBar(); return; }
         if (document.activeElement === chatInput) return;
         switch (e.code) {
           case "KeyW": controls.forward = true; break;
@@ -474,7 +494,49 @@
       }
 
       // -----------------------
-      // WebSocket Communication
+      // Info Bar: Toggled by "I"
+      // -----------------------
+      const infoBar = document.getElementById("infoBar");
+      let infoVisible = true;
+      function toggleInfoBar() {
+        infoVisible = !infoVisible;
+        infoBar.style.display = infoVisible ? "block" : "none";
+      }
+      function getConnectionQuality(latency) {
+        if (latency < 50) return "Great";
+        else if (latency < 100) return "Good";
+        else if (latency < 200) return "Ok";
+        else if (latency < 350) return "Mid";
+        else return "Poor";
+      }
+      function updateInfoBar() {
+        let quality = getConnectionQuality(latency);
+        let activePlayers = Object.keys(remoteTanks).length + 1;
+        infoBar.innerHTML = `
+          <strong>Controls:</strong> WASD, Space, 1-3 (Camera), Shift, T (Chat), I (Toggle Info)<br>
+          <strong>Connection:</strong> ${quality} (${Math.round(latency)} ms)<br>
+          <strong>Players:</strong> ${activePlayers}
+        `;
+      }
+      // Make infoBar draggable
+      let isDragging = false, offsetX = 0, offsetY = 0;
+      infoBar.addEventListener("mousedown", function(e) {
+        isDragging = true;
+        offsetX = e.clientX - infoBar.offsetLeft;
+        offsetY = e.clientY - infoBar.offsetTop;
+      });
+      document.addEventListener("mousemove", function(e) {
+        if (isDragging) {
+          infoBar.style.left = (e.clientX - offsetX) + "px";
+          infoBar.style.top = (e.clientY - offsetY) + "px";
+        }
+      });
+      document.addEventListener("mouseup", function() {
+        isDragging = false;
+      });
+
+      // -----------------------
+      // WebSocket Communication with Ping-Pong for Latency
       // -----------------------
       function setupWebSocket() {
         ws = new WebSocket(WS_URL);
@@ -486,9 +548,19 @@
             color: playerData.color,
             position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z }
           }));
+          // Send ping every 2 seconds
+          setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "ping", timestamp: performance.now() }));
+            }
+          }, 2000);
         };
         ws.onmessage = (event) => {
           let msg = JSON.parse(event.data);
+          if (msg.type === "pong") {
+            latency = performance.now() - msg.timestamp;
+            return;
+          }
           handleServerMessage(msg);
         };
         ws.onclose = () => { console.log("Disconnected from server."); };
@@ -562,7 +634,7 @@
       }
 
       // -----------------------
-      // Missile Logic with Trails
+      // Missile Logic with Trails and Camera Shake
       // -----------------------
       function launchMissile() {
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
@@ -610,7 +682,7 @@
           let missile = missiles[i];
           missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
           missile.life -= delta;
-          // Create trail particle each frame
+          // Spawn a trail particle each frame
           createMissileTrail(missile.mesh.position);
           if (missile.life <= 0) {
             createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
@@ -619,15 +691,13 @@
           }
         }
       }
-      // -----------------------
       // Missile Trail Particles
-      // -----------------------
       function createMissileTrail(position) {
         const particleGeom = new THREE.SphereGeometry(0.1, 6, 6);
         const particleMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.5 });
         let particle = new THREE.Mesh(particleGeom, particleMat);
         particle.position.copy(position);
-        particle.userData.life = 0.3; // lasts 0.3 seconds
+        particle.userData.life = 0.3;
         scene.add(particle);
         trailParticles.push(particle);
       }
@@ -642,10 +712,7 @@
           }
         }
       }
-
-      // -----------------------
-      // Explosion Effect with Camera Shake
-      // -----------------------
+      // Explosion with Camera Shake
       function createExplosion(position, radius) {
         let explosionGeom = new THREE.SphereGeometry(radius, 16, 16);
         let explosionMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true });
@@ -704,7 +771,7 @@
         requestAnimationFrame(animate);
         let delta = clock.getDelta();
         prevTankPosition.copy(localTank.position);
-        // Increased movement speed (from 10 to 15)
+        // Increased movement speed from 10 to 15
         let speed = 15 * delta * (faster ? 2 : 1);
         if (controls.forward) localTank.translateZ(speed);
         if (controls.backward) localTank.translateZ(-speed);
@@ -724,6 +791,7 @@
         renderer.render(scene, camera);
         updateMinimap();
         updateHealthBar();
+        updateInfoBar();
       }
       function updateCamera() {
         let targetPos;
@@ -765,9 +833,8 @@
           ctx.fill();
         }
       }
-
       // -----------------------
-      // Map Switching (every 3 minutes; stays in desert)
+      // Map Switching (every 3 minutes; desert remains)
       // -----------------------
       setInterval(() => {
         currentMap = 'desert';
