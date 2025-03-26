@@ -1,11 +1,17 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script>
+    // Redirect to join.html if no nickname is stored
+    if (!localStorage.getItem('nickname')) {
+      window.location.href = "join.html";
+    }
+  </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Desert Upgrade</title>
+  <title>3D Multiplayer Tank Game - Desert Upgrade & Gameplay Enhancements</title>
   <style>
     body { margin: 0; overflow: hidden; }
-    /* UI Styles */
+    /* UI Elements */
     #healthBarContainer {
       position: fixed;
       bottom: 220px;
@@ -57,7 +63,7 @@
       width: 100%;
       max-height: 200px;
       overflow-y: auto;
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(0,0,0,0.7);
       color: #fff;
       font-family: Arial, sans-serif;
       font-size: 14px;
@@ -70,7 +76,7 @@
       top: 50px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(0, 0, 0, 0.7);
+      background: rgba(0,0,0,0.7);
       color: #fff;
       padding: 10px;
       border-radius: 5px;
@@ -105,7 +111,7 @@
   
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // Request pointer lock on click.
+      // Request pointer lock for full control
       document.body.addEventListener("click", () => {
         document.body.requestPointerLock();
       });
@@ -132,27 +138,27 @@
                  24,72,243,141,128,195,78,66,215,61,156,180];
         for (var i = 0; i < 256; i++) { p[256 + i] = p[i]; }
         function fade(t) { return t*t*t*(t*(t*6-15)+10); }
-        function lerp(t, a, b) { return a + t * (b - a); }
+        function lerp(t, a, b) { return a + t*(b-a); }
         function grad(hash, x, y, z) {
           var h = hash & 15;
           var u = h < 8 ? x : y, v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
           return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
         }
-        this.noise = function (x, y, z) {
+        this.noise = function(x, y, z) {
           var floorX = Math.floor(x), floorY = Math.floor(y), floorZ = Math.floor(z);
           var X = floorX & 255, Y = floorY & 255, Z = floorZ & 255;
           x -= floorX; y -= floorY; z -= floorZ;
           var u = fade(x), v = fade(y), w = fade(z);
-          var A = p[X] + Y, AA = p[A] + Z, AB = p[A + 1] + Z;
-          var B = p[X + 1] + Y, BA = p[B] + Z, BB = p[B + 1] + Z;
+          var A = p[X] + Y, AA = p[A] + Z, AB = p[A+1] + Z;
+          var B = p[X+1] + Y, BA = p[B] + Z, BB = p[B+1] + Z;
           return lerp(w,
             lerp(v,
-              lerp(u, grad(p[AA], x, y, z), grad(p[BA], x - 1, y, z)),
-              lerp(u, grad(p[AB], x, y - 1, z), grad(p[BB], x - 1, y - 1, z))
+              lerp(u, grad(p[AA], x, y, z), grad(p[BA], x-1, y, z)),
+              lerp(u, grad(p[AB], x, y-1, z), grad(p[BB], x-1, y-1, z))
             ),
             lerp(v,
-              lerp(u, grad(p[AA + 1], x, y, z - 1), grad(p[BA + 1], x - 1, y, z - 1)),
-              lerp(u, grad(p[AB + 1], x, y - 1, z - 1), grad(p[BB + 1], x - 1, y - 1, z - 1))
+              lerp(u, grad(p[AA+1], x, y, z-1), grad(p[BA+1], x-1, y, z-1)),
+              lerp(u, grad(p[AB+1], x, y-1, z-1), grad(p[BB+1], x-1, y-1, z-1))
             )
           );
         };
@@ -166,6 +172,11 @@
       let ws, cameraMode = 1, currentMap = 'desert', missiles = [];
       let groundMesh = null, treeColliders = [], prevTankPosition = new THREE.Vector3();
       let faster = false, turretRotationOffset = 0;
+      // For missile trails
+      let trailParticles = [];
+      // For camera shake on explosion
+      let cameraShakeTime = 0;
+      let cameraShakeIntensity = 0.5;
       const controls = { forward: false, backward: false, left: false, right: false, shoot: false };
       const storedNickname = localStorage.getItem('nickname');
       const playerData = {
@@ -177,11 +188,11 @@
       const WS_URL = "wss://game.ldawg7624.com";
 
       // -----------------------
-      // Missile Types
+      // Missile Types (Increased speeds)
       // -----------------------
       const missileTypes = {
         bullet: {
-          speed: 50,
+          speed: 60,  // increased from 50
           geometry: () => {
             let geom = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
             geom.rotateX(Math.PI / 2);
@@ -191,13 +202,13 @@
           explosionRadius: 1
         },
         splash: {
-          speed: 45,
+          speed: 54,  // increased from 45
           geometry: () => new THREE.SphereGeometry(0.3, 8, 8),
           material: new THREE.MeshStandardMaterial({ color: 0xff4500 }),
           explosionRadius: 5
         },
         rocket: {
-          speed: 40,
+          speed: 48,  // increased from 40
           geometry: () => {
             let geom = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
             geom.rotateX(Math.PI / 2);
@@ -236,7 +247,7 @@
         turretBase.receiveShadow = true;
         turretBase.position.y = 0.5;
         turret.add(turretBase);
-        // Cannon barrel (extended)
+        // Extended Cannon Barrel
         let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
         let cannon = new THREE.Mesh(cannonGeom, new THREE.MeshStandardMaterial({ color: 0x333333 }));
         cannon.castShadow = true;
@@ -247,7 +258,7 @@
         turret.position.set(0, 1.4, 0);
         tank.add(turret);
         tank.userData.turret = turret;
-        // Simulated tracks (side details)
+        // Simulated tracks
         let trackGeom = new THREE.BoxGeometry(0.5, 0.5, 6.2);
         let trackMat = new THREE.MeshStandardMaterial({ color: 0x222222 });
         let leftTrack = new THREE.Mesh(trackGeom, trackMat);
@@ -313,7 +324,7 @@
       }
 
       // -----------------------
-      // Additional Obstacle: Create a Cactus
+      // Additional Obstacles: Rocks & Cacti
       // -----------------------
       function createCactus() {
         let cactus = new THREE.Group();
@@ -321,7 +332,6 @@
           new THREE.MeshStandardMaterial({ color: 0x228B22 }));
         stem.position.y = 2;
         cactus.add(stem);
-        // Optional arms
         let arm = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 2, 8),
           new THREE.MeshStandardMaterial({ color: 0x228B22 }));
         arm.rotation.z = Math.PI / 4;
@@ -335,7 +345,7 @@
       }
 
       // -----------------------
-      // Load Map (Desert) with Detailed Terrain and Obstacles
+      // Load Desert Map with Detailed Terrain & Obstacles
       // -----------------------
       function loadMap(mapType) {
         let mapGroup = scene.getObjectByName("mapGroup");
@@ -346,7 +356,6 @@
         const size = 1000, segments = 200;
         const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
         geometry.rotateX(-Math.PI / 2);
-        // Desert parameters
         let amplitude = 10, scale = 100;
         const noise = new ImprovedNoise();
         const positions = geometry.attributes.position;
@@ -361,8 +370,7 @@
         groundMesh = new THREE.Mesh(geometry, material);
         groundMesh.receiveShadow = true;
         mapGroup.add(groundMesh);
-
-        // Add many rocks with varying size/rotation
+        // Add 50 rocks
         for (let i = 0; i < 50; i++) {
           let rockSize = Math.random() * 2 + 0.5;
           let rockGeom = new THREE.DodecahedronGeometry(rockSize, 0);
@@ -371,18 +379,16 @@
           rock.castShadow = true;
           rock.receiveShadow = true;
           rock.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
-          // Adjust rock height using noise
           let rockHeight = noise.noise(rock.position.x / scale, rock.position.z / scale, 0) * amplitude;
           rock.position.y = rockHeight + rockSize/2;
           rock.rotation.y = Math.random() * Math.PI * 2;
           mapGroup.add(rock);
         }
-        // Add some cacti as additional obstacles (fewer than rocks)
+        // Add 10 cacti
         for (let i = 0; i < 10; i++) {
           let cactus = createCactus();
           cactus.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
           cactus.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
-          // Adjust height using noise
           let y = noise.noise(cactus.position.x / scale, cactus.position.z / scale, 0) * amplitude;
           cactus.position.y = y;
           mapGroup.add(cactus);
@@ -391,7 +397,7 @@
       }
 
       // -----------------------
-      // Update Tank Height & Check Collisions
+      // Update Tank Height & Collision Detection
       // -----------------------
       function updateTankHeight() {
         if (!groundMesh) return;
@@ -419,7 +425,7 @@
       }
 
       // -----------------------
-      // Window Resize Handler
+      // Handle Window Resize
       // -----------------------
       function onWindowResize() {
         camera.aspect = window.innerWidth / window.innerHeight;
@@ -428,7 +434,7 @@
       }
 
       // -----------------------
-      // Keyboard Controls
+      // Keyboard Controls (Increased speed)
       // -----------------------
       function onKeyDown(e) {
         if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
@@ -556,7 +562,7 @@
       }
 
       // -----------------------
-      // Missile Logic
+      // Missile Logic with Trails
       // -----------------------
       function launchMissile() {
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
@@ -604,6 +610,8 @@
           let missile = missiles[i];
           missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
           missile.life -= delta;
+          // Create trail particle each frame
+          createMissileTrail(missile.mesh.position);
           if (missile.life <= 0) {
             createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
             scene.remove(missile.mesh);
@@ -611,12 +619,41 @@
           }
         }
       }
+      // -----------------------
+      // Missile Trail Particles
+      // -----------------------
+      function createMissileTrail(position) {
+        const particleGeom = new THREE.SphereGeometry(0.1, 6, 6);
+        const particleMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.5 });
+        let particle = new THREE.Mesh(particleGeom, particleMat);
+        particle.position.copy(position);
+        particle.userData.life = 0.3; // lasts 0.3 seconds
+        scene.add(particle);
+        trailParticles.push(particle);
+      }
+      function updateTrailParticles(delta) {
+        for (let i = trailParticles.length - 1; i >= 0; i--) {
+          let p = trailParticles[i];
+          p.userData.life -= delta;
+          p.material.opacity = Math.max(p.userData.life / 0.3, 0);
+          if (p.userData.life <= 0) {
+            scene.remove(p);
+            trailParticles.splice(i, 1);
+          }
+        }
+      }
+
+      // -----------------------
+      // Explosion Effect with Camera Shake
+      // -----------------------
       function createExplosion(position, radius) {
         let explosionGeom = new THREE.SphereGeometry(radius, 16, 16);
         let explosionMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true });
         let explosionMesh = new THREE.Mesh(explosionGeom, explosionMat);
         explosionMesh.position.copy(position);
         scene.add(explosionMesh);
+        // Trigger camera shake
+        cameraShakeTime = 0.3;
         let explosionLife = 0.5, start = performance.now();
         function animateExplosion() {
           let elapsed = (performance.now() - start) / 1000;
@@ -661,13 +698,14 @@
       }
 
       // -----------------------
-      // Animation Loop & Camera
+      // Animation Loop & Camera Shake
       // -----------------------
       function animate() {
         requestAnimationFrame(animate);
         let delta = clock.getDelta();
         prevTankPosition.copy(localTank.position);
-        let speed = 10 * delta * (faster ? 2 : 1);
+        // Increased movement speed (from 10 to 15)
+        let speed = 15 * delta * (faster ? 2 : 1);
         if (controls.forward) localTank.translateZ(speed);
         if (controls.backward) localTank.translateZ(-speed);
         if (controls.left) localTank.rotation.y += 2 * delta;
@@ -682,25 +720,28 @@
         }
         sendUpdate();
         updateMissiles(delta);
+        updateTrailParticles(delta);
         renderer.render(scene, camera);
         updateMinimap();
         updateHealthBar();
       }
       function updateCamera() {
+        let targetPos;
         if (cameraMode === 1) {
-          const offset = new THREE.Vector3(0, 5, -10).applyMatrix4(localTank.matrixWorld);
-          camera.position.lerp(offset, 0.1);
-          camera.lookAt(localTank.position);
+          targetPos = new THREE.Vector3(0, 5, -10).applyMatrix4(localTank.matrixWorld);
         } else if (cameraMode === 2) {
-          let offset = new THREE.Vector3(0, 2, 0);
-          camera.position.lerp(localTank.localToWorld(offset.clone()), 0.1);
-          camera.lookAt(new THREE.Vector3(0, 2, 10).applyMatrix4(localTank.matrixWorld));
+          targetPos = localTank.localToWorld(new THREE.Vector3(0, 2, 0));
         } else if (cameraMode === 3) {
-          let pos = localTank.position.clone();
-          pos.y += 30;
-          camera.position.lerp(pos, 0.1);
-          camera.lookAt(localTank.position);
+          targetPos = localTank.position.clone().add(new THREE.Vector3(0, 30, 0));
         }
+        // Apply camera shake if active
+        if (cameraShakeTime > 0) {
+          targetPos.x += (Math.random()-0.5) * cameraShakeIntensity;
+          targetPos.y += (Math.random()-0.5) * cameraShakeIntensity;
+          cameraShakeTime -= clock.getDelta();
+        }
+        camera.position.lerp(targetPos, 0.1);
+        camera.lookAt(localTank.position);
       }
       function updateMinimap() {
         let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
@@ -726,7 +767,7 @@
       }
 
       // -----------------------
-      // Map Switching (Optional: every 3 minutes)
+      // Map Switching (every 3 minutes; stays in desert)
       // -----------------------
       setInterval(() => {
         currentMap = 'desert';
