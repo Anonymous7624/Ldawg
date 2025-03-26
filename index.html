@@ -10,7 +10,7 @@
       }
     });
   </script>
-  <!-- Redirect if no nickname stored -->
+  <!-- Redirect to join.html if no nickname stored -->
   <script>
     if (!localStorage.getItem('nickname')) {
       window.location.href = "join.html";
@@ -162,9 +162,7 @@
         document.body.requestPointerLock();
       });
 
-      // -----------------------
-      // ImprovedNoise for Terrain
-      // -----------------------
+      // ------------- Terrain Generation (ImprovedNoise) -------------
       var ImprovedNoise = function () {
         var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
                  140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -231,19 +229,17 @@
         health: 100
       };
       const WS_URL = "wss://game.ldawg7624.com";
-      // Chat cooldown (prevent spam)
       let lastChatTime = 0;
-      const chatCooldown = 2000; // milliseconds
+      const chatCooldown = 2000; // ms
 
       // -----------------------
       // Audio Setup
       // -----------------------
       let listener = new THREE.AudioListener();
-      // We'll add the listener to the camera once it’s created.
       let explosionSound = new THREE.Audio(listener);
       let engineSound = new THREE.Audio(listener);
       let audioLoader = new THREE.AudioLoader();
-      // Replace these URLs with your own sound file URLs
+      // Replace with your own sound URLs
       audioLoader.load('https://example.com/explosion.mp3', function(buffer) {
         explosionSound.setBuffer(buffer);
         explosionSound.setVolume(0.5);
@@ -255,82 +251,7 @@
       });
 
       // -----------------------
-      // Missile Types (with corrected barrel alignment)
-      // -----------------------
-      const missileTypes = {
-        bullet: {
-          speed: 60,
-          geometry: () => {
-            let geom = new THREE.CylinderGeometry(0.1, 0.1, 1, 8);
-            geom.rotateZ(Math.PI / 2); // now fires straight
-            return geom;
-          },
-          material: new THREE.MeshStandardMaterial({ color: 0xffff00 }),
-          explosionRadius: 3
-        },
-        splash: {
-          speed: 54,
-          geometry: () => new THREE.SphereGeometry(0.3, 8, 8),
-          material: new THREE.MeshStandardMaterial({ color: 0xff4500 }),
-          explosionRadius: 5
-        },
-        rocket: {
-          speed: 48,
-          geometry: () => {
-            let geom = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
-            geom.rotateZ(Math.PI / 2);
-            return geom;
-          },
-          material: new THREE.MeshStandardMaterial({ color: 0xffa500 }),
-          explosionRadius: 7
-        }
-      };
-
-      // -----------------------
-      // UI Updates & Info Bar
-      // -----------------------
-      function updateHealthBar() {
-        document.getElementById("healthBar").style.width = playerData.health + "%";
-      }
-      function getConnectionQuality(latency) {
-        if (latency < 50) return "Great";
-        else if (latency < 100) return "Good";
-        else if (latency < 200) return "Ok";
-        else if (latency < 350) return "Mid";
-        else return "Poor";
-      }
-      function updateInfoBar() {
-        let quality = getConnectionQuality(latency);
-        let activePlayers = Object.keys(remoteTanks).length + 1;
-        document.getElementById("infoBar").innerHTML = `
-          <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
-          <strong>Connection:</strong> ${quality} (<span id="latencyDisplay">${Math.round(latency)}</span> ms)<br>
-          <strong>Players:</strong> ${activePlayers}
-        `;
-      }
-      // Draggable infoBar
-      let isDragging = false, offsetX = 0, offsetY = 0;
-      const infoBar = document.getElementById("infoBar");
-      infoBar.addEventListener("mousedown", function(e) {
-        isDragging = true;
-        offsetX = e.clientX - infoBar.offsetLeft;
-        offsetY = e.clientY - infoBar.offsetTop;
-      });
-      document.addEventListener("mousemove", function(e) {
-        if (isDragging) {
-          infoBar.style.left = (e.clientX - offsetX) + "px";
-          infoBar.style.top = (e.clientY - offsetY) + "px";
-        }
-      });
-      document.addEventListener("mouseup", function() { isDragging = false; });
-      let infoVisible = true;
-      function toggleInfoBar() {
-        infoVisible = !infoVisible;
-        infoBar.style.display = infoVisible ? "block" : "none";
-      }
-
-      // -----------------------
-      // Create a Detailed Tank Model
+      // Detailed Tank Model with Correct Cannon Alignment
       // -----------------------
       function createTank(color) {
         let tank = new THREE.Group();
@@ -342,7 +263,7 @@
         chassis.receiveShadow = true;
         chassis.position.y = 0.6;
         tank.add(chassis);
-        // Side wheels for tracks
+        // Side wheels (simulate tracks)
         const wheelGeom = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
         const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         for (let side of [1, -1]) {
@@ -363,7 +284,7 @@
         hatch.castShadow = true;
         hatch.receiveShadow = true;
         tank.add(hatch);
-        // Turret with detailed cannon (bonus fix)
+        // Turret with cannon aligned correctly
         let turret = new THREE.Group();
         let turretBaseGeom = new THREE.BoxGeometry(2.5, 1, 3);
         let turretBaseMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.7, roughness: 0.3 });
@@ -372,25 +293,23 @@
         turretBase.receiveShadow = true;
         turretBase.position.y = 0.5;
         turret.add(turretBase);
-        // Cannon barrel: centered on turret, pointing forward (positive Z)
+        // Cannon: centered on turret (X=0), pointing forward (positive Z)
         let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
         let cannonMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.2 });
         let cannon = new THREE.Mesh(cannonGeom, cannonMat);
         cannon.castShadow = true;
         cannon.receiveShadow = true;
-        cannon.rotation.z = Math.PI / 2; // face forward
-        // Position cannon so that it starts at turret center and extends along positive Z.
-        cannon.position.set(0, 0.4, 1.5);
+        cannon.rotation.z = Math.PI / 2;  // make it point forward
+        cannon.position.set(0, 0.4, 1.5);  // centered and low enough so projectiles exit at tank level
         turret.add(cannon);
         turret.position.set(0, 1.4, 0);
         tank.add(turret);
         tank.userData.turret = turret;
-        tank.userData.cannon = cannon; // for recoil animation
+        tank.userData.cannon = cannon;  // for recoil animation
         return tank;
       }
-      // Prevent overlapping nickname sprites by removing any existing one
       function addNicknameLabel(tank, nickname) {
-        // Remove any existing nickname label
+        // Remove any existing label to prevent overlap
         tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
         let canvas = document.createElement('canvas');
         canvas.width = 256; canvas.height = 64;
@@ -426,7 +345,7 @@
       // -----------------------
       function setupTerrainTexture() {
         const loader = new THREE.TextureLoader();
-        let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg'); // Replace with a high-quality texture if available
+        let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg'); // high-quality sand texture
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
         sandTexture.repeat.set(20, 20);
         return sandTexture;
@@ -443,7 +362,7 @@
         ]);
         scene.background = texture;
       }
-      // Additional details: Dry bush and varied cactus
+      // Additional details: Dry bushes and varied cacti
       function createBush() {
         let bush = new THREE.Group();
         let bushGeom = new THREE.SphereGeometry(1, 8, 8);
@@ -487,7 +406,7 @@
         const size = 1000, segments = 200;
         const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
         geometry.rotateX(-Math.PI / 2);
-        // Create gentle dunes
+        // Gentle dunes using noise
         let amplitude = 8, scale = 150;
         const noise = new ImprovedNoise();
         const positions = geometry.attributes.position;
@@ -538,7 +457,7 @@
       }
 
       // -----------------------
-      // Health System on Hit
+      // Health System on Hit & Damage Feedback
       // -----------------------
       function showDamageFlash() {
         const overlay = document.getElementById("damageOverlay");
@@ -549,25 +468,19 @@
         let distance = explosionPos.distanceTo(localTank.position);
         let explosionRadius = missileTypes[missileType].explosionRadius;
         if (distance < explosionRadius) {
-          let damage = 0;
-          if (missileType === "bullet") damage = 10;
-          else if (missileType === "splash") damage = 25;
-          else if (missileType === "rocket") damage = 40;
+          let damage = missileType === "bullet" ? 10 : (missileType === "splash" ? 25 : 40);
           playerData.health -= damage;
           updateHealthBar();
           showDamageFlash();
           if (playerData.health <= 0) {
             createExplosion(localTank.position, 2);
-            addKillFeed(`${localTank.userData.nickname || playerData.nickname} has been eliminated`);
+            addKillFeed(`${playerData.nickname} has been eliminated`);
             setTimeout(() => { window.location.href = "join.html"; }, 1000);
           }
         }
       }
       function applyDamageToRemote(id, missileType) {
-        let damage = 0;
-        if (missileType === "bullet") damage = 10;
-        else if (missileType === "splash") damage = 25;
-        else if (missileType === "rocket") damage = 40;
+        let damage = missileType === "bullet" ? 10 : (missileType === "splash" ? 25 : 40);
         if (remoteTanks[id]) {
           if (remoteTanks[id].health === undefined) remoteTanks[id].health = 100;
           remoteTanks[id].health -= damage;
@@ -659,6 +572,29 @@
       }
 
       // -----------------------
+      // Info Bar & Draggable Panel
+      // -----------------------
+      let isDragging = false, offsetX = 0, offsetY = 0;
+      const infoBar = document.getElementById("infoBar");
+      infoBar.addEventListener("mousedown", function(e) {
+        isDragging = true;
+        offsetX = e.clientX - infoBar.offsetLeft;
+        offsetY = e.clientY - infoBar.offsetTop;
+      });
+      document.addEventListener("mousemove", function(e) {
+        if (isDragging) {
+          infoBar.style.left = (e.clientX - offsetX) + "px";
+          infoBar.style.top = (e.clientY - offsetY) + "px";
+        }
+      });
+      document.addEventListener("mouseup", function() { isDragging = false; });
+      let infoVisible = true;
+      function toggleInfoBar() {
+        infoVisible = !infoVisible;
+        infoBar.style.display = infoVisible ? "block" : "none";
+      }
+
+      // -----------------------
       // WebSocket Communication with Ping-Pong for Latency
       // -----------------------
       function setupWebSocket() {
@@ -671,7 +607,6 @@
             color: playerData.color,
             position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z }
           }));
-          // Start pinging
           setInterval(() => {
             if (ws && ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: "ping", timestamp: performance.now() }));
@@ -710,7 +645,6 @@
               tank.position.set(msg.position.x, msg.position.y, msg.position.z);
               scene.add(tank);
               addNicknameLabel(tank, msg.nickname);
-              // Initialize remote tank health
               remoteTanks[msg.id] = { mesh: tank, nickname: msg.nickname, health: 100 };
             }
             break;
@@ -730,7 +664,6 @@
           addNicknameLabel(tank, data.nickname);
           remoteTanks[data.id] = { mesh: tank, nickname: data.nickname, health: 100 };
         } else {
-          // Smoothly interpolate remote tank position and rotation
           let currentPos = remoteTanks[data.id].mesh.position;
           let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
           currentPos.lerp(targetPos, 0.1);
@@ -747,7 +680,7 @@
           }));
         }
       }
-      // Chat: Prevent spam using a cooldown
+      // Chat with cooldown
       function sendChat(message) {
         let now = Date.now();
         if (now - lastChatTime < chatCooldown) return;
@@ -765,12 +698,12 @@
       }
 
       // -----------------------
-      // Missile Logic with Collision Detection, Trails & Recoil
+      // Missile Logic with Collision Detection, Trails, & Cannon Recoil
       // -----------------------
       function launchMissile() {
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
         let missileProps = missileTypes[selectedMissileType];
-        // Use the cannon so that missile follows the barrel's forward direction
+        // Use the cannon (so missile follows the barrel's forward direction)
         let cannon = localTank.userData.cannon;
         let direction = new THREE.Vector3();
         cannon.getWorldDirection(direction);
@@ -781,7 +714,8 @@
         missileMesh.position.copy(spawnPos);
         missileMesh.quaternion.copy(cannon.getWorldQuaternion(new THREE.Quaternion()));
         let velocity = direction.multiplyScalar(missileProps.speed);
-        // Mark missile as local
+        // Set lastTrailTime to throttle particle creation
+        missileMesh.userData.lastTrailTime = 0;
         missileMesh.userData.owner = playerData.id;
         missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
         scene.add(missileMesh);
@@ -796,7 +730,7 @@
         let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
         missileMesh.position.set(data.position.x, data.position.y, data.position.z);
         missileMesh.rotation.y = data.rotation;
-        // Mark remote missile (owner not equal to playerData.id)
+        missileMesh.userData.lastTrailTime = 0;
         missileMesh.userData.owner = data.id;
         let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), data.rotation);
         let velocity = direction.multiplyScalar(missileProps.speed);
@@ -822,10 +756,13 @@
           let missile = missiles[i];
           missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
           missile.life -= delta;
-          createMissileTrail(missile.mesh.position);
-          // Check collision detection:
-          if (missile.userData.owner === playerData.id) {
-            // Check collision with remote tanks
+          // Throttle missile trail creation to once every 50ms per missile
+          if (performance.now() - missile.mesh.userData.lastTrailTime > 50) {
+            createMissileTrail(missile.mesh.position);
+            missile.mesh.userData.lastTrailTime = performance.now();
+          }
+          // Collision detection: Only check local missiles vs remote tanks and vice versa.
+          if (missile.owner === playerData.id) {
             for (let id in remoteTanks) {
               let remoteTank = remoteTanks[id].mesh;
               if (missile.mesh.position.distanceTo(remoteTank.position) < 1.5) {
@@ -837,7 +774,6 @@
               }
             }
           } else {
-            // Check collision with local tank
             if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
               checkExplosionDamage(missile.mesh.position, missile.type);
               createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
@@ -846,8 +782,7 @@
             }
           }
           if (missile.life <= 0) {
-            // If missile expires without collision, still do explosion damage
-            if (missile.userData.owner === playerData.id) {
+            if (missile.owner === playerData.id) {
               for (let id in remoteTanks) {
                 if (missile.mesh.position.distanceTo(remoteTanks[id].mesh.position) < missileTypes[missile.type].explosionRadius) {
                   applyDamageToRemote(id, missile.type);
@@ -888,7 +823,6 @@
         let explosionMesh = new THREE.Mesh(explosionGeom, explosionMat);
         explosionMesh.position.copy(position);
         scene.add(explosionMesh);
-        // Play explosion sound if available
         if (explosionSound.isPlaying) explosionSound.stop();
         explosionSound.play();
         cameraShakeTime = 0.3;
@@ -952,7 +886,6 @@
         checkCollisions();
         updateTankHeight();
         updateCamera();
-        // Smooth nickname label alignment
         localTank.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
         for (let id in remoteTanks) {
           remoteTanks[id].mesh.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
@@ -1019,16 +952,13 @@
         scene.fog = new THREE.FogExp2(0xEDC9AF, 0.002);
         camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         camera.position.set(0, 5, -10);
-        // Add audio listener to the camera
         camera.add(listener);
-        // Optionally start engine sound (attached to local tank)
         engineSound.play();
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
-        // Warm directional light with dramatic shadows
         let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
         scene.add(ambient);
         let dirLight = new THREE.DirectionalLight(0xffcc99, 1.2);
@@ -1044,8 +974,6 @@
         localTank.position.set(0, 0.6, 0);
         scene.add(localTank);
         addNicknameLabel(localTank, playerData.nickname);
-        // Attach engine sound to local tank (if desired)
-        localTank.add(engineSound);
         setupWebSocket();
         window.addEventListener('resize', onWindowResize, false);
         window.addEventListener('keydown', onKeyDown, false);
