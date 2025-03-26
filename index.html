@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.0.4</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.5</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -148,7 +148,7 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.0.4
+    <strong>Version:</strong> 1.0.5
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -205,15 +205,15 @@
       };
     };
 
-    // Define high-resolution skybox textures for each weather type
+    // High-res skybox textures for weather
     const skyboxTextures = {
       sunny: [
-        "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Bridge2/posx.jpg",
-        "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Bridge2/negx.jpg",
-        "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Bridge2/posy.jpg",
-        "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Bridge2/negy.jpg",
-        "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Bridge2/posz.jpg",
-        "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Bridge2/negz.jpg"
+        "https://threejs.org/examples/textures/cube/skyboxsun25deg/posx.jpg",
+        "https://threejs.org/examples/textures/cube/skyboxsun25deg/negx.jpg",
+        "https://threejs.org/examples/textures/cube/skyboxsun25deg/posy.jpg",
+        "https://threejs.org/examples/textures/cube/skyboxsun25deg/negy.jpg",
+        "https://threejs.org/examples/textures/cube/skyboxsun25deg/posz.jpg",
+        "https://threejs.org/examples/textures/cube/skyboxsun25deg/negz.jpg"
       ],
       rain: [
         "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Park3Med/posx.jpg",
@@ -249,7 +249,7 @@
       ]
     };
 
-    // Define missileTypes for shooting functionality
+    // Missile types for shooting
     const missileTypes = {
       bullet: {
         speed: 100,
@@ -271,7 +271,28 @@
       }
     };
 
-    // Dust particles for desert polish
+    // Cloud layer variables and functions
+    let cloudMesh = null;
+    function startClouds() {
+      if (cloudMesh) return;
+      const loader = new THREE.TextureLoader();
+      loader.load('https://threejs.org/examples/textures/cloud.png', function(texture){
+        let geometry = new THREE.SphereGeometry(1200, 32, 32);
+        let material = new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+          opacity: 0.5,
+          side: THREE.BackSide
+        });
+        cloudMesh = new THREE.Mesh(geometry, material);
+        scene.add(cloudMesh);
+      });
+    }
+    function removeClouds() {
+      if (cloudMesh) { scene.remove(cloudMesh); cloudMesh = null; }
+    }
+
+    // Dust particles for extra desert polish
     let dustParticles;
     function startDust() {
       let dustCount = 200;
@@ -279,7 +300,7 @@
       let dustPositions = new Float32Array(dustCount * 3);
       for (let i = 0; i < dustCount; i++) {
         dustPositions[i * 3] = Math.random() * 1000 - 500;
-        dustPositions[i * 3 + 1] = Math.random() * 100 + 50; // between 50 and 150 in Y
+        dustPositions[i * 3 + 1] = Math.random() * 100 + 50;
         dustPositions[i * 3 + 2] = Math.random() * 1000 - 500;
       }
       dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
@@ -291,7 +312,7 @@
       if (dustParticles) {
         let positions = dustParticles.geometry.attributes.position.array;
         for (let i = 0; i < positions.length; i += 3) {
-          positions[i + 1] += 0.5 * delta; // slow upward drift
+          positions[i + 1] += 0.5 * delta;
           if (positions[i + 1] > 200) { positions[i + 1] = 50; }
         }
         dustParticles.geometry.attributes.position.needsUpdate = true;
@@ -398,12 +419,13 @@
         stormLightningTime -= delta;
         if (stormLightningTime <= 0) {
           let lightning = new THREE.PointLight(0xffffff, 2, 200);
-          lightning.position.set(Math.random()*1000 - 500, 300, Math.random()*1000 - 500);
+          lightning.position.set(Math.random() * 1000 - 500, 300, Math.random() * 1000 - 500);
           scene.add(lightning);
           setTimeout(() => { scene.remove(lightning); }, 100);
           stormLightningTime = Math.random() * 5;
         }
       }
+      // Updated applyWeather: load appropriate skybox, adjust lighting, and add clouds when needed.
       function applyWeather(weather) {
         currentWeather = weather;
         const infoBar = document.getElementById("infoBar");
@@ -412,31 +434,36 @@
           <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
           <strong>Players:</strong> --<br>
           <strong>${weatherText}</strong><br>
-          <strong>Version:</strong> 1.0.4`;
+          <strong>Version:</strong> 1.0.5`;
         
         const loader = new THREE.CubeTextureLoader();
         const textureURLs = skyboxTextures[weather] || skyboxTextures.sunny;
         let ambientLightIntensity = 0.6;
-        switch(weather) {
+        switch (weather) {
           case "sunny":
             ambientLightIntensity = 0.6;
             removeWeatherParticles();
+            removeClouds();
             break;
           case "rain":
             ambientLightIntensity = 0.4;
             startRain();
+            removeClouds();
             break;
           case "snow":
             ambientLightIntensity = 0.5;
             startSnow();
+            startClouds();
             break;
           case "cloudy":
             ambientLightIntensity = 0.5;
             removeWeatherParticles();
+            startClouds();
             break;
           case "storm":
             ambientLightIntensity = 0.3;
             startStorm();
+            startClouds();
             break;
         }
         let newTexture = loader.load(textureURLs);
@@ -444,6 +471,7 @@
         let ambient = scene.getObjectByName("ambientLight");
         if (ambient) { ambient.intensity = ambientLightIntensity; }
       }
+      // Change weather every 60 seconds
       setInterval(() => {
         const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
         const newWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
@@ -489,7 +517,7 @@
         turretBase.receiveShadow = true;
         turretBase.position.y = 0.5;
         turret.add(turretBase);
-        // Fix: Rotate the cannon about the X-axis so it points directly forward (positive Z)
+        // Rotate cannon about X so it points forward (+Z)
         let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
         let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         let cannon = new THREE.Mesh(cannonGeom, cannonMat);
@@ -504,7 +532,7 @@
         tank.userData.cannon = cannon;
         return tank;
       }
-      // Raise the nametag higher (Y = 3.5) so it is easily readable
+      // Raise nametag higher for better readability (Y = 3.5)
       function addNicknameLabel(tank, nickname) {
         tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
         let canvas = document.createElement('canvas');
@@ -537,11 +565,39 @@
       });
 
       // -----------------------
+      // Update Tank Height and Align with Ground Slope
+      // -----------------------
+      function updateTankHeight() {
+        if (!groundMesh) return;
+        let origin = new THREE.Vector3(localTank.position.x, 1000, localTank.position.z);
+        let raycaster = new THREE.Raycaster(origin, new THREE.Vector3(0, -1, 0));
+        let intersects = raycaster.intersectObject(groundMesh);
+        if (intersects.length > 0) {
+          let intersect = intersects[0];
+          localTank.position.y = intersect.point.y + 0.6;
+          // Retrieve the ground normal and transform to world space
+          let normal = intersect.face.normal.clone();
+          normal.transformDirection(groundMesh.matrixWorld);
+          // Preserve current heading (yaw) by extracting it from the tank’s quaternion
+          let currentEuler = new THREE.Euler().setFromQuaternion(localTank.quaternion, 'YXZ');
+          let yaw = currentEuler.y;
+          // Compute the desired forward vector based on yaw
+          let forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+          let projectedForward = forward.clone().projectOnPlane(normal).normalize();
+          if (projectedForward.length() < 0.001) { projectedForward = new THREE.Vector3(0,0,1); }
+          let right = new THREE.Vector3().crossVectors(normal, projectedForward).normalize();
+          let m = new THREE.Matrix4();
+          m.makeBasis(right, normal, projectedForward);
+          localTank.quaternion.setFromRotationMatrix(m);
+        }
+      }
+
+      // -----------------------
       // Environment: High-Res Desert Terrain & Warm Lighting
       // -----------------------
       function setupTerrainTexture() {
         const loader = new THREE.TextureLoader();
-        // Load a high-res sand texture and repeat it 50x50
+        // Use a high-res sand texture and repeat it 50x50
         let sandTexture = loader.load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/sand.jpg');
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
         sandTexture.repeat.set(50, 50);
@@ -666,12 +722,25 @@
       }
       function updateTankHeight() {
         if (!groundMesh) return;
-        let raycaster = new THREE.Raycaster(
-          new THREE.Vector3(localTank.position.x, 1000, localTank.position.z),
-          new THREE.Vector3(0, -1, 0)
-        );
+        let origin = new THREE.Vector3(localTank.position.x, 1000, localTank.position.z);
+        let raycaster = new THREE.Raycaster(origin, new THREE.Vector3(0, -1, 0));
         let intersects = raycaster.intersectObject(groundMesh);
-        if (intersects.length > 0) { localTank.position.y = intersects[0].point.y + 0.6; }
+        if (intersects.length > 0) {
+          let intersect = intersects[0];
+          localTank.position.y = intersect.point.y + 0.6;
+          // Align tank with the slope:
+          let normal = intersect.face.normal.clone();
+          normal.transformDirection(groundMesh.matrixWorld);
+          let currentEuler = new THREE.Euler().setFromQuaternion(localTank.quaternion, 'YXZ');
+          let yaw = currentEuler.y;
+          let forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
+          let projectedForward = forward.clone().projectOnPlane(normal).normalize();
+          if (projectedForward.length() < 0.001) { projectedForward = new THREE.Vector3(0, 0, 1); }
+          let right = new THREE.Vector3().crossVectors(normal, projectedForward).normalize();
+          let m = new THREE.Matrix4();
+          m.makeBasis(right, normal, projectedForward);
+          localTank.quaternion.setFromRotationMatrix(m);
+        }
       }
       function checkCollisions() {
         for (let obs of treeColliders) {
@@ -1073,7 +1142,7 @@
         let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
         ambient.name = "ambientLight";
         scene.add(ambient);
-        // Use a warm directional light for a desert feel
+        // Warm directional light for desert feel
         let dirLight = new THREE.DirectionalLight(0xffaa66, 1.5);
         dirLight.position.set(80, 100, -60);
         dirLight.castShadow = true;
@@ -1096,7 +1165,6 @@
         const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
         currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
         applyWeather(currentWeather);
-        // Start dust particles for extra desert polish
         startDust();
         window.addEventListener('resize', onWindowResize, false);
         window.addEventListener('keydown', onKeyDown, false);
