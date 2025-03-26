@@ -1,15 +1,9 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <script>
-  // If a nickname already exists, redirect directly to index.html
-  if (localStorage.getItem('nickname')) {
-    window.location.href = "index.html";
-  }
-</script>
-  
   <meta charset="UTF-8">
   <title>Join 3D Tank Game</title>
+  <link rel="icon" type="image/png" href="favicon.png">
   <style>
     body { 
       display: flex;
@@ -55,6 +49,12 @@
       background-color: #4cae4c;
     }
   </style>
+  <script>
+    // If a nickname already exists, redirect directly to index.html
+    if (localStorage.getItem('nickname')) {
+      window.location.href = "index.html";
+    }
+  </script>
 </head>
 <body>
   <div class="container">
