@@ -17,10 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Lesson - v1.0.7</title>
-  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
-<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
-
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.8</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -65,7 +62,7 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.0.7
+    <strong>Version:</strong> 1.0.8
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -75,10 +72,21 @@
     import * as THREE from 'https://unpkg.com/three@0.152.2/build/three.module.js';
     import { GLTFLoader } from 'https://unpkg.com/three@0.152.2/examples/jsm/loaders/GLTFLoader.js';
 
-    // Global variable for current map (declared at the top)
+    // Global variable for current map and other globals declared once
     let currentMap = "desert";
+    let prevTankPosition = new THREE.Vector3();
+    let clock, scene, camera, renderer, localTank;
+    let remoteTanks = {}, missiles = [], trailParticles = [];
+    let ws;
+    let cameraShakeTime = 0, cameraShakeIntensity = 0.5;
+    let controls = { forward: false, backward: false, left: false, right: false, shoot: false };
+    let playerData = {
+      id: Math.floor(Math.random() * 1000000).toString(),
+      nickname: localStorage.getItem('nickname') || 'Player' + Math.floor(Math.random() * 1000),
+      color: '#' + (Math.floor(Math.random()*16777215) & 0x00FF00).toString(16)
+    };
 
-    // Define ImprovedNoise for terrain generation
+    // Define ImprovedNoise
     var ImprovedNoise = function () {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
                140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -125,7 +133,7 @@
       };
     };
 
-    // High-res skybox textures for each weather type
+    // High-res skybox textures for weather
     const skyboxTextures = {
       sunny: [
         "https://threejs.org/examples/textures/cube/skyboxsun25deg/posx.jpg",
@@ -280,7 +288,7 @@
       turretBase.receiveShadow = true;
       turretBase.position.y = 0.5;
       turret.add(turretBase);
-      // Cannon aligned parallel to tank (rotate about X-axis)
+      // Cannon: Rotate about X-axis so it points forward (+Z)
       let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
       let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
       let cannon = new THREE.Mesh(cannonGeom, cannonMat);
@@ -317,7 +325,7 @@
       return new THREE.CanvasTexture(canvas);
     }
 
-    // Nametag positioned higher
+    // Raise nametag higher
     function addNicknameLabel(tank, nickname) {
       tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
       let canvas = document.createElement('canvas');
@@ -337,7 +345,7 @@
       tank.add(sprite);
     }
 
-    // Input: Mouse movement and left-click to shoot
+    // Input: Mouse movement and left-click shooting
     let turretRotationOffset = 0;
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body) {
@@ -352,7 +360,6 @@
     });
 
     // Align tank with terrain slope and update its height
-    let prevTankPosition = new THREE.Vector3();
     function updateTankHeight() {
       if (!groundMesh) return;
       let origin = new THREE.Vector3(localTank.position.x, 1000, localTank.position.z);
@@ -394,6 +401,7 @@
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
+
     function onKeyDown(e) {
       if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
       if (e.code === "KeyI") { toggleInfoBar(); return; }
@@ -410,6 +418,7 @@
         case "Digit3": cameraMode = 3; break;
       }
     }
+
     function onKeyUp(e) {
       switch (e.code) {
         case "KeyW": controls.forward = false; break;
@@ -432,6 +441,7 @@
       chatInput.style.display = (chatInput.style.display === "none" || chatInput.style.display === "") ? "block" : "none";
       if (chatInput.style.display === "block") chatInput.focus();
     }
+
     let isDragging = false, offsetX = 0, offsetY = 0;
     const infoBar = document.getElementById("infoBar");
     infoBar.addEventListener("mousedown", function(e) {
@@ -449,9 +459,8 @@
       infoBar.style.display = infoVisible ? "block" : "none";
     }
 
-    // WebSocket Setup (if applicable)
+    // WebSocket Setup
     const WS_URL = "wss://game.ldawg7624.com";
-    let ws;
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
@@ -533,17 +542,7 @@
       }
     }
 
-    // Player Data
-    const playerData = {
-      id: Math.floor(Math.random() * 1000000).toString(),
-      nickname: localStorage.getItem('nickname') || 'Player' + Math.floor(Math.random() * 1000),
-      // For green tanks, choose a random green shade
-      color: '#' + (Math.floor(Math.random()*16777215) & 0x00FF00).toString(16)
-    };
-
     // Chat and Shooting Functions
-    let lastChatTime = 0;
-    const chatCooldown = 2000;
     function sendChat(message) {
       let now = Date.now();
       if (now - lastChatTime < chatCooldown) return;
@@ -609,8 +608,6 @@
     }
 
     // Missile and Trail Updates
-    let missiles = [];
-    let trailParticles = [];
     function updateMissiles(delta) {
       for (let i = missiles.length - 1; i >= 0; i--) {
         let missile = missiles[i];
@@ -724,12 +721,6 @@
     }
 
     // Animation Loop
-    let prevTankPosition = new THREE.Vector3();
-    let cameraShakeTime = 0;
-    let cameraShakeIntensity = 0.5;
-    let controls = { forward: false, backward: false, left: false, right: false, shoot: false };
-    let missiles = [];
-    let trailParticles = [];
     function animate() {
       requestAnimationFrame(animate);
       let delta = clock.getDelta();
@@ -758,6 +749,7 @@
       updateHealthBar();
       updateInfoBar();
     }
+
     function updateCamera() {
       let targetPos;
       if (cameraMode === 1) {
@@ -775,6 +767,7 @@
       camera.position.lerp(targetPos, 0.1);
       camera.lookAt(localTank.position);
     }
+
     function updateMinimap() {
       let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
@@ -797,11 +790,10 @@
         ctx.fill();
       }
     }
+
     setInterval(() => { currentMap = 'desert'; loadMap(currentMap); }, 180000);
 
     // Initialization
-    let clock, scene, camera, renderer, localTank;
-    let remoteTanks = {};
     function init() {
       clock = new THREE.Clock();
       scene = new THREE.Scene();
