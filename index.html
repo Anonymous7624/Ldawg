@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.0.3</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.4</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -148,7 +148,7 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.0.3
+    <strong>Version:</strong> 1.0.4
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -205,7 +205,7 @@
       };
     };
 
-    // Define high-resolution skybox textures per weather type
+    // Define high-resolution skybox textures for each weather type
     const skyboxTextures = {
       sunny: [
         "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Bridge2/posx.jpg",
@@ -249,7 +249,7 @@
       ]
     };
 
-    // Define missileTypes to allow shooting
+    // Define missileTypes for shooting functionality
     const missileTypes = {
       bullet: {
         speed: 100,
@@ -270,6 +270,33 @@
         material: new THREE.MeshStandardMaterial({ color: 0x0000ff })
       }
     };
+
+    // Dust particles for desert polish
+    let dustParticles;
+    function startDust() {
+      let dustCount = 200;
+      let dustGeometry = new THREE.BufferGeometry();
+      let dustPositions = new Float32Array(dustCount * 3);
+      for (let i = 0; i < dustCount; i++) {
+        dustPositions[i * 3] = Math.random() * 1000 - 500;
+        dustPositions[i * 3 + 1] = Math.random() * 100 + 50; // between 50 and 150 in Y
+        dustPositions[i * 3 + 2] = Math.random() * 1000 - 500;
+      }
+      dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+      let dustMaterial = new THREE.PointsMaterial({ color: 0xffccaa, size: 1, transparent: true, opacity: 0.3 });
+      dustParticles = new THREE.Points(dustGeometry, dustMaterial);
+      scene.add(dustParticles);
+    }
+    function updateDust(delta) {
+      if (dustParticles) {
+        let positions = dustParticles.geometry.attributes.position.array;
+        for (let i = 0; i < positions.length; i += 3) {
+          positions[i + 1] += 0.5 * delta; // slow upward drift
+          if (positions[i + 1] > 200) { positions[i + 1] = 50; }
+        }
+        dustParticles.geometry.attributes.position.needsUpdate = true;
+      }
+    }
 
     document.addEventListener('DOMContentLoaded', () => {
       // Request pointer lock on click
@@ -385,7 +412,7 @@
           <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
           <strong>Players:</strong> --<br>
           <strong>${weatherText}</strong><br>
-          <strong>Version:</strong> 1.0.3`;
+          <strong>Version:</strong> 1.0.4`;
         
         const loader = new THREE.CubeTextureLoader();
         const textureURLs = skyboxTextures[weather] || skyboxTextures.sunny;
@@ -462,13 +489,13 @@
         turretBase.receiveShadow = true;
         turretBase.position.y = 0.5;
         turret.add(turretBase);
-        // Fix: Rotate the cannon about the X-axis so it points along positive Z
+        // Fix: Rotate the cannon about the X-axis so it points directly forward (positive Z)
         let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
         let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         let cannon = new THREE.Mesh(cannonGeom, cannonMat);
         cannon.castShadow = true;
         cannon.receiveShadow = true;
-        cannon.rotation.x = Math.PI / 2; // Correct rotation: Y-axis -> Z-axis
+        cannon.rotation.x = Math.PI / 2;
         cannon.position.set(0, 0.4, 1.5);
         turret.add(cannon);
         turret.position.set(0, 1.4, 0);
@@ -477,6 +504,7 @@
         tank.userData.cannon = cannon;
         return tank;
       }
+      // Raise the nametag higher (Y = 3.5) so it is easily readable
       function addNicknameLabel(tank, nickname) {
         tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
         let canvas = document.createElement('canvas');
@@ -492,7 +520,7 @@
         let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture }));
         sprite.name = "nicknameLabel";
         sprite.scale.set(4, 1, 1);
-        sprite.position.set(0, 2.5, 0);
+        sprite.position.set(0, 3.5, 0);
         tank.add(sprite);
       }
 
@@ -509,13 +537,14 @@
       });
 
       // -----------------------
-      // Environment: Terrain & Skybox
+      // Environment: High-Res Desert Terrain & Warm Lighting
       // -----------------------
       function setupTerrainTexture() {
         const loader = new THREE.TextureLoader();
-        let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg');
+        // Load a high-res sand texture and repeat it 50x50
+        let sandTexture = loader.load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/sand.jpg');
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
-        sandTexture.repeat.set(20, 20);
+        sandTexture.repeat.set(50, 50);
         return sandTexture;
       }
       function createBush() {
@@ -531,19 +560,19 @@
       function createCactusVariety() {
         let cactus = new THREE.Group();
         let scale = Math.random() * 0.5 + 0.8;
-        let stem = new THREE.Mesh(new THREE.CylinderGeometry(0.3*scale, 0.3*scale, 4*scale, 8),
+        let stem = new THREE.Mesh(new THREE.CylinderGeometry(0.3 * scale, 0.3 * scale, 4 * scale, 8),
           new THREE.MeshStandardMaterial({ color: 0x228B22 }));
-        stem.position.y = 2*scale;
+        stem.position.y = 2 * scale;
         cactus.add(stem);
         if (Math.random() > 0.5) {
-          let arm = new THREE.Mesh(new THREE.CylinderGeometry(0.2*scale, 0.2*scale, 2*scale, 8),
+          let arm = new THREE.Mesh(new THREE.CylinderGeometry(0.2 * scale, 0.2 * scale, 2 * scale, 8),
             new THREE.MeshStandardMaterial({ color: 0x228B22 }));
           arm.rotation.z = Math.PI / 4;
-          arm.position.set(0.5*scale, 3*scale, 0);
+          arm.position.set(0.5 * scale, 3 * scale, 0);
           cactus.add(arm);
           let arm2 = arm.clone();
           arm2.rotation.z = -Math.PI / 4;
-          arm2.position.set(-0.5*scale, 3*scale, 0);
+          arm2.position.set(-0.5 * scale, 3 * scale, 0);
           cactus.add(arm2);
         }
         return cactus;
@@ -578,24 +607,24 @@
           let rock = new THREE.Mesh(rockGeom, rockMat);
           rock.castShadow = true;
           rock.receiveShadow = true;
-          rock.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
+          rock.position.set((Math.random() - 0.5) * size, 0, (Math.random() - 0.5) * size);
           let rockHeight = noise.noise(rock.position.x / scale, rock.position.z / scale, 0) * amplitude;
-          rock.position.y = rockHeight + rockSize/2;
+          rock.position.y = rockHeight + rockSize / 2;
           rock.rotation.y = Math.random() * Math.PI * 2;
           mapGroup.add(rock);
         }
         for (let i = 0; i < 10; i++) {
           let cactus = createCactusVariety();
-          cactus.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
-          cactus.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
+          cactus.traverse(child => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } });
+          cactus.position.set((Math.random() - 0.5) * size, 0, (Math.random() - 0.5) * size);
           let y = noise.noise(cactus.position.x / scale, cactus.position.z / scale, 0) * amplitude;
           cactus.position.y = y;
           mapGroup.add(cactus);
         }
         for (let i = 0; i < 20; i++) {
           let bush = createBush();
-          bush.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
-          bush.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
+          bush.traverse(child => { if (child.isMesh) { child.castShadow = true; child.receiveShadow = true; } });
+          bush.position.set((Math.random() - 0.5) * size, 0, (Math.random() - 0.5) * size);
           let y = noise.noise(bush.position.x / scale, bush.position.z / scale, 0) * amplitude;
           bush.position.y = y;
           mapGroup.add(bush);
@@ -989,6 +1018,7 @@
         if (currentWeather === "rain") { updateRain(delta); }
         else if (currentWeather === "snow") { updateSnow(delta); }
         else if (currentWeather === "storm") { updateStorm(delta); }
+        updateDust(delta);
         renderer.render(scene, camera);
         updateMinimap();
         updateHealthBar();
@@ -1043,12 +1073,8 @@
         let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
         ambient.name = "ambientLight";
         scene.add(ambient);
-        renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.shadowMap.enabled = true;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-        renderer.setSize(window.innerWidth, window.innerHeight);
-        document.body.appendChild(renderer.domElement);
-        let dirLight = new THREE.DirectionalLight(0xffcc99, 1.2);
+        // Use a warm directional light for a desert feel
+        let dirLight = new THREE.DirectionalLight(0xffaa66, 1.5);
         dirLight.position.set(80, 100, -60);
         dirLight.castShadow = true;
         dirLight.shadow.camera.left = -200;
@@ -1056,6 +1082,11 @@
         dirLight.shadow.camera.top = 200;
         dirLight.shadow.camera.bottom = -200;
         scene.add(dirLight);
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
         loadMap(currentMap);
         localTank = createTank(playerData.color);
         localTank.position.set(0, 0.6, 0);
@@ -1065,6 +1096,8 @@
         const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
         currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
         applyWeather(currentWeather);
+        // Start dust particles for extra desert polish
+        startDust();
         window.addEventListener('resize', onWindowResize, false);
         window.addEventListener('keydown', onKeyDown, false);
         window.addEventListener('keyup', onKeyUp, false);
