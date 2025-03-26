@@ -17,113 +17,27 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.0.6</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.7</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
-    #healthBarContainer {
-      position: fixed;
-      bottom: 220px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 200px;
-      height: 20px;
-      background-color: #555;
-      border: 2px solid #333;
-      border-radius: 5px;
-      z-index: 130;
-    }
-    #healthBar {
-      width: 100%;
-      height: 100%;
-      background-color: green;
-      border-radius: 3px;
-    }
+    #healthBarContainer { position: fixed; bottom: 220px; left: 50%; transform: translateX(-50%); width: 200px; height: 20px; background-color: #555; border: 2px solid #333; border-radius: 5px; z-index: 130; }
+    #healthBar { width: 100%; height: 100%; background-color: green; border-radius: 3px; }
     /* Chat Input */
-    #chatInput {
-      position: fixed;
-      bottom: 210px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: none;
-      padding: 8px;
-      font-size: 16px;
-      z-index: 110;
-    }
+    #chatInput { position: fixed; bottom: 210px; left: 50%; transform: translateX(-50%); display: none; padding: 8px; font-size: 16px; z-index: 110; }
     /* Kill Feed */
-    #killFeed {
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      color: white;
-      font-family: sans-serif;
-      z-index: 110;
-    }
+    #killFeed { position: fixed; top: 10px; right: 10px; color: white; font-family: sans-serif; z-index: 110; }
     /* Minimap */
-    #minimap {
-      position: fixed;
-      top: 10px;
-      left: 10px;
-      border: 2px solid #fff;
-      background: rgba(0,0,0,0.5);
-      z-index: 110;
-    }
+    #minimap { position: fixed; top: 10px; left: 10px; border: 2px solid #fff; background: rgba(0,0,0,0.5); z-index: 110; }
     /* Global Chat Log */
-    #globalChatLog {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      width: 100%;
-      max-height: 200px;
-      overflow-y: auto;
-      background: rgba(0,0,0,0.7);
-      color: #fff;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-      padding: 10px;
-      box-sizing: border-box;
-      z-index: 105;
-    }
+    #globalChatLog { position: fixed; bottom: 0; left: 0; width: 100%; max-height: 200px; overflow-y: auto; background: rgba(0,0,0,0.7); color: #fff; font-family: Arial, sans-serif; font-size: 14px; padding: 10px; box-sizing: border-box; z-index: 105; }
     /* Missile Selector Menu */
-    #missileMenu {
-      position: fixed;
-      top: 50px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0,0,0,0.7);
-      color: #fff;
-      padding: 10px;
-      border-radius: 5px;
-      z-index: 120;
-      font-family: Arial, sans-serif;
-    }
-    #missileMenu label, #missileMenu select {
-      font-size: 16px;
-    }
+    #missileMenu { position: fixed; top: 50px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: #fff; padding: 10px; border-radius: 5px; z-index: 120; font-family: Arial, sans-serif; }
+    #missileMenu label, #missileMenu select { font-size: 16px; }
     /* Info Bar */
-    #infoBar {
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      background: rgba(0, 0, 0, 0.6);
-      color: #ffdd00;
-      padding: 10px;
-      border-radius: 5px;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-      cursor: move;
-      z-index: 200;
-    }
+    #infoBar { position: fixed; top: 10px; right: 10px; background: rgba(0, 0, 0, 0.6); color: #ffdd00; padding: 10px; border-radius: 5px; font-family: Arial, sans-serif; font-size: 14px; cursor: move; z-index: 200; }
     /* Damage Overlay */
-    #damageOverlay {
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(255, 0, 0, 0);
-      pointer-events: none;
-      z-index: 300;
-      transition: background 0.2s ease-out;
-    }
+    #damageOverlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 0, 0, 0); pointer-events: none; z-index: 300; transition: background 0.2s ease-out; }
     canvas { display: block; }
   </style>
 </head>
@@ -148,17 +62,17 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.0.6
+    <strong>Version:</strong> 1.0.7
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
 
-  <!-- Three.js and GLTFLoader -->
-  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
-  <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
-  
-  <script>
-    // Global variable for current map
+  <!-- Use ES Modules for Three.js -->
+  <script type="module">
+    import * as THREE from 'https://unpkg.com/three@0.152.2/build/three.module.js';
+    import { GLTFLoader } from 'https://unpkg.com/three@0.152.2/examples/jsm/loaders/GLTFLoader.js';
+
+    // Global variable for current map (declared at the top)
     let currentMap = "desert";
 
     // Define ImprovedNoise for terrain generation
@@ -208,7 +122,7 @@
       };
     };
 
-    // High-res skybox textures for weather
+    // High-res skybox textures for each weather type
     const skyboxTextures = {
       sunny: [
         "https://threejs.org/examples/textures/cube/skyboxsun25deg/posx.jpg",
@@ -274,28 +188,55 @@
       }
     };
 
-    // Simple camo texture generator
-    function createCamoTexture() {
-      let size = 256;
-      let canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
-      let ctx = canvas.getContext("2d");
-      ctx.fillStyle = "#2E8B57";
-      ctx.fillRect(0, 0, size, size);
-      for (let i = 0; i < 10; i++) {
-        let x = Math.random() * size;
-        let y = Math.random() * size;
-        let radius = Math.random() * 30 + 10;
-        ctx.beginPath();
-        ctx.arc(x, y, radius, 0, Math.PI * 2);
-        ctx.fillStyle = "#556B2F";
-        ctx.fill();
-      }
-      return new THREE.CanvasTexture(canvas);
+    // Cloud layer functions
+    let cloudMesh = null;
+    function startClouds() {
+      if (cloudMesh) return;
+      const loader = new THREE.TextureLoader();
+      loader.load('https://threejs.org/examples/textures/cloud.png', function(texture){
+        let geometry = new THREE.SphereGeometry(1200, 32, 32);
+        let material = new THREE.MeshBasicMaterial({
+          map: texture,
+          transparent: true,
+          opacity: 0.5,
+          side: THREE.BackSide
+        });
+        cloudMesh = new THREE.Mesh(geometry, material);
+        scene.add(cloudMesh);
+      });
+    }
+    function removeClouds() {
+      if (cloudMesh) { scene.remove(cloudMesh); cloudMesh = null; }
     }
 
-    // Create tanks using only green shades (plain or camo)
+    // Dust particles for desert atmosphere
+    let dustParticles;
+    function startDust() {
+      let dustCount = 200;
+      let dustGeometry = new THREE.BufferGeometry();
+      let dustPositions = new Float32Array(dustCount * 3);
+      for (let i = 0; i < dustCount; i++) {
+        dustPositions[i * 3] = Math.random() * 1000 - 500;
+        dustPositions[i * 3 + 1] = Math.random() * 100 + 50;
+        dustPositions[i * 3 + 2] = Math.random() * 1000 - 500;
+      }
+      dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+      let dustMaterial = new THREE.PointsMaterial({ color: 0xffccaa, size: 1, transparent: true, opacity: 0.3 });
+      dustParticles = new THREE.Points(dustGeometry, dustMaterial);
+      scene.add(dustParticles);
+    }
+    function updateDust(delta) {
+      if (dustParticles) {
+        let positions = dustParticles.geometry.attributes.position.array;
+        for (let i = 0; i < positions.length; i += 3) {
+          positions[i + 1] += 0.5 * delta;
+          if (positions[i + 1] > 200) { positions[i + 1] = 50; }
+        }
+        dustParticles.geometry.attributes.position.needsUpdate = true;
+      }
+    }
+
+    // Create green tanks with optional camouflage
     function createTank(colorOverride) {
       const greenShades = [0x228B22, 0x2E8B57, 0x556B2F, 0x6B8E23];
       let baseColor = colorOverride || greenShades[Math.floor(Math.random() * greenShades.length)];
@@ -336,6 +277,7 @@
       turretBase.receiveShadow = true;
       turretBase.position.y = 0.5;
       turret.add(turretBase);
+      // Cannon aligned parallel to tank (rotate about X-axis)
       let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
       let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
       let cannon = new THREE.Mesh(cannonGeom, cannonMat);
@@ -351,7 +293,28 @@
       return tank;
     }
 
-    // Raise nametag higher
+    // Simple camo texture generator using canvas
+    function createCamoTexture() {
+      let size = 256;
+      let canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      let ctx = canvas.getContext("2d");
+      ctx.fillStyle = "#2E8B57";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 10; i++) {
+        let x = Math.random() * size;
+        let y = Math.random() * size;
+        let radius = Math.random() * 30 + 10;
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, Math.PI * 2);
+        ctx.fillStyle = "#556B2F";
+        ctx.fill();
+      }
+      return new THREE.CanvasTexture(canvas);
+    }
+
+    // Nametag positioned higher
     function addNicknameLabel(tank, nickname) {
       tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
       let canvas = document.createElement('canvas');
@@ -371,7 +334,8 @@
       tank.add(sprite);
     }
 
-    // Input: mouse movement for turret, left-click for shooting
+    // Input: Mouse movement and left-click to shoot
+    let turretRotationOffset = 0;
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body) {
         turretRotationOffset -= e.movementX * 0.002;
@@ -385,6 +349,7 @@
     });
 
     // Align tank with terrain slope and update its height
+    let prevTankPosition = new THREE.Vector3();
     function updateTankHeight() {
       if (!groundMesh) return;
       let origin = new THREE.Vector3(localTank.position.x, 1000, localTank.position.z);
@@ -408,7 +373,7 @@
     }
 
     function checkCollisions() {
-      for (let obs of treeColliders) {
+      for (let obs of treeColliders || []) {
         if (localTank.position.distanceTo(obs.position) < 10) {
           localTank.position.copy(prevTankPosition);
           return;
@@ -426,7 +391,6 @@
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
-
     function onKeyDown(e) {
       if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
       if (e.code === "KeyI") { toggleInfoBar(); return; }
@@ -482,7 +446,9 @@
       infoBar.style.display = infoVisible ? "block" : "none";
     }
 
-    // WebSocket Setup
+    // WebSocket Setup (if applicable)
+    const WS_URL = "wss://game.ldawg7624.com";
+    let ws;
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
@@ -564,7 +530,17 @@
       }
     }
 
+    // Player Data
+    const playerData = {
+      id: Math.floor(Math.random() * 1000000).toString(),
+      nickname: localStorage.getItem('nickname') || 'Player' + Math.floor(Math.random() * 1000),
+      // For green tanks, choose a random green shade
+      color: '#' + (Math.floor(Math.random()*16777215) & 0x00FF00).toString(16)
+    };
+
     // Chat and Shooting Functions
+    let lastChatTime = 0;
+    const chatCooldown = 2000;
     function sendChat(message) {
       let now = Date.now();
       if (now - lastChatTime < chatCooldown) return;
@@ -630,6 +606,8 @@
     }
 
     // Missile and Trail Updates
+    let missiles = [];
+    let trailParticles = [];
     function updateMissiles(delta) {
       for (let i = missiles.length - 1; i >= 0; i--) {
         let missile = missiles[i];
@@ -743,6 +721,12 @@
     }
 
     // Animation Loop
+    let prevTankPosition = new THREE.Vector3();
+    let cameraShakeTime = 0;
+    let cameraShakeIntensity = 0.5;
+    let controls = { forward: false, backward: false, left: false, right: false, shoot: false };
+    let missiles = [];
+    let trailParticles = [];
     function animate() {
       requestAnimationFrame(animate);
       let delta = clock.getDelta();
@@ -813,6 +797,8 @@
     setInterval(() => { currentMap = 'desert'; loadMap(currentMap); }, 180000);
 
     // Initialization
+    let clock, scene, camera, renderer, localTank;
+    let remoteTanks = {};
     function init() {
       clock = new THREE.Clock();
       scene = new THREE.Scene();
