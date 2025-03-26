@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Weather & Final Polish</title>
+  <title>3D Multiplayer Tank Game - Final Polish</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -146,8 +146,7 @@
   <div id="infoBar">
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
-    <strong>Players:</strong> --<br>
-    <strong>Weather:</strong> --
+    <strong>Players:</strong> --
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -158,14 +157,12 @@
   
   <script>
     document.addEventListener('DOMContentLoaded', () => {
-      // Request pointer lock
+      // Request pointer lock on click
       document.body.addEventListener("click", () => {
         document.body.requestPointerLock();
       });
 
-      // -----------------------
-      // ImprovedNoise for Terrain
-      // -----------------------
+      // ------------- Terrain Generation (ImprovedNoise) -------------
       var ImprovedNoise = function () {
         var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
                  140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -220,10 +217,9 @@
       let groundMesh = null, treeColliders = [], prevTankPosition = new THREE.Vector3();
       let faster = false, turretRotationOffset = 0;
       let trailParticles = [];
-      let latency = 100;  // in ms
+      let latency = 100;  // in milliseconds
       let cameraShakeTime = 0;
       let cameraShakeIntensity = 0.5;
-      let weatherParticles = null;
       const controls = { forward: false, backward: false, left: false, right: false, shoot: false };
       const storedNickname = localStorage.getItem('nickname');
       const playerData = {
@@ -243,7 +239,7 @@
       let explosionSound = new THREE.Audio(listener);
       let engineSound = new THREE.Audio(listener);
       let audioLoader = new THREE.AudioLoader();
-      // Replace these URLs with your own sound files
+      // Replace with your own sound URLs
       audioLoader.load('https://example.com/explosion.mp3', function(buffer) {
         explosionSound.setBuffer(buffer);
         explosionSound.setVolume(0.5);
@@ -255,62 +251,7 @@
       });
 
       // -----------------------
-      // Weather System
-      // -----------------------
-      const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
-      let currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
-      function applyWeather(type) {
-        currentWeather = type;
-        // Remove any existing weather particles
-        if (weatherParticles) {
-          scene.remove(weatherParticles);
-          weatherParticles = null;
-        }
-        if (type === "sunny") {
-          ambient.intensity = 0.8;
-          scene.fog.color.setHex(0x87ceeb);
-        } else if (type === "cloudy") {
-          ambient.intensity = 0.5;
-          scene.fog.color.setHex(0xb0b0b0);
-        } else if (type === "storm") {
-          ambient.intensity = 0.3;
-          scene.fog.color.setHex(0x555555);
-        } else if (type === "rain") {
-          ambient.intensity = 0.6;
-          createRainParticles();
-        } else if (type === "snow") {
-          ambient.intensity = 0.6;
-          createSnowParticles();
-        }
-        updateInfoBar();
-      }
-      function createRainParticles() {
-        if (weatherParticles) scene.remove(weatherParticles);
-        weatherParticles = new THREE.Group();
-        for (let i = 0; i < 200; i++) {
-          let dropGeom = new THREE.CylinderGeometry(0.02, 0.02, 0.5, 4);
-          let dropMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.6 });
-          let drop = new THREE.Mesh(dropGeom, dropMat);
-          drop.position.set((Math.random()-0.5)*1000, Math.random()*50 + 50, (Math.random()-0.5)*1000);
-          weatherParticles.add(drop);
-        }
-        scene.add(weatherParticles);
-      }
-      function createSnowParticles() {
-        if (weatherParticles) scene.remove(weatherParticles);
-        weatherParticles = new THREE.Group();
-        for (let i = 0; i < 200; i++) {
-          let flakeGeom = new THREE.SphereGeometry(0.1, 6, 6);
-          let flakeMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.8 });
-          let flake = new THREE.Mesh(flakeGeom, flakeMat);
-          flake.position.set((Math.random()-0.5)*1000, Math.random()*50 + 50, (Math.random()-0.5)*1000);
-          weatherParticles.add(flake);
-        }
-        scene.add(weatherParticles);
-      }
-      
-      // -----------------------
-      // Detailed Tank Model with Proper Cannon Alignment
+      // Detailed Tank Model with Correct Cannon Alignment
       // -----------------------
       function createTank(color) {
         let tank = new THREE.Group();
@@ -322,7 +263,7 @@
         chassis.receiveShadow = true;
         chassis.position.y = 0.6;
         tank.add(chassis);
-        // Side wheels for tracks
+        // Side wheels (simulate tracks)
         const wheelGeom = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
         const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         for (let side of [1, -1]) {
@@ -343,7 +284,7 @@
         hatch.castShadow = true;
         hatch.receiveShadow = true;
         tank.add(hatch);
-        // Turret with cannon
+        // Turret with cannon aligned correctly
         let turret = new THREE.Group();
         let turretBaseGeom = new THREE.BoxGeometry(2.5, 1, 3);
         let turretBaseMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.7, roughness: 0.3 });
@@ -352,22 +293,23 @@
         turretBase.receiveShadow = true;
         turretBase.position.y = 0.5;
         turret.add(turretBase);
-        // Cannon: centered (X=0), pointing forward (positive Z), and placed at proper height
+        // Cannon: centered on turret (X=0), pointing forward (positive Z)
         let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
         let cannonMat = new THREE.MeshStandardMaterial({ color: 0x222222, metalness: 0.8, roughness: 0.2 });
         let cannon = new THREE.Mesh(cannonGeom, cannonMat);
         cannon.castShadow = true;
         cannon.receiveShadow = true;
-        cannon.rotation.z = Math.PI / 2;  // align to point forward
-        cannon.position.set(0, 0.4, 1.5);
+        cannon.rotation.z = Math.PI / 2;  // make it point forward
+        cannon.position.set(0, 0.4, 1.5);  // centered and low enough so projectiles exit at tank level
         turret.add(cannon);
         turret.position.set(0, 1.4, 0);
         tank.add(turret);
         tank.userData.turret = turret;
-        tank.userData.cannon = cannon;
+        tank.userData.cannon = cannon;  // for recoil animation
         return tank;
       }
       function addNicknameLabel(tank, nickname) {
+        // Remove any existing label to prevent overlap
         tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
         let canvas = document.createElement('canvas');
         canvas.width = 256; canvas.height = 64;
@@ -399,11 +341,11 @@
       });
 
       // -----------------------
-      // Environment: Desert Terrain & Skybox
+      // Environment: True Desert Terrain & Warm Lighting
       // -----------------------
       function setupTerrainTexture() {
         const loader = new THREE.TextureLoader();
-        let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg');
+        let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg'); // high-quality sand texture
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
         sandTexture.repeat.set(20, 20);
         return sandTexture;
@@ -420,7 +362,7 @@
         ]);
         scene.background = texture;
       }
-      // Additional details: Bushes and varied cacti
+      // Additional details: Dry bushes and varied cacti
       function createBush() {
         let bush = new THREE.Group();
         let bushGeom = new THREE.SphereGeometry(1, 8, 8);
@@ -464,6 +406,7 @@
         const size = 1000, segments = 200;
         const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
         geometry.rotateX(-Math.PI / 2);
+        // Gentle dunes using noise
         let amplitude = 8, scale = 150;
         const noise = new ImprovedNoise();
         const positions = geometry.attributes.position;
@@ -514,7 +457,7 @@
       }
 
       // -----------------------
-      // Health System & Damage Feedback
+      // Health System on Hit & Damage Feedback
       // -----------------------
       function showDamageFlash() {
         const overlay = document.getElementById("damageOverlay");
@@ -737,6 +680,7 @@
           }));
         }
       }
+      // Chat with cooldown
       function sendChat(message) {
         let now = Date.now();
         if (now - lastChatTime < chatCooldown) return;
@@ -754,11 +698,12 @@
       }
 
       // -----------------------
-      // Missile Logic with Collision Detection, Trails & Cannon Recoil
+      // Missile Logic with Collision Detection, Trails, & Cannon Recoil
       // -----------------------
       function launchMissile() {
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
         let missileProps = missileTypes[selectedMissileType];
+        // Use the cannon (so missile follows the barrel's forward direction)
         let cannon = localTank.userData.cannon;
         let direction = new THREE.Vector3();
         cannon.getWorldDirection(direction);
@@ -769,11 +714,12 @@
         missileMesh.position.copy(spawnPos);
         missileMesh.quaternion.copy(cannon.getWorldQuaternion(new THREE.Quaternion()));
         let velocity = direction.multiplyScalar(missileProps.speed);
+        // Set lastTrailTime to throttle particle creation
         missileMesh.userData.lastTrailTime = 0;
         missileMesh.userData.owner = playerData.id;
         missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
         scene.add(missileMesh);
-        // Cannon recoil
+        // Cannon recoil animation
         let originalPos = cannon.position.clone();
         cannon.position.z -= 0.2;
         setTimeout(() => { cannon.position.copy(originalPos); }, 100);
@@ -810,10 +756,12 @@
           let missile = missiles[i];
           missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
           missile.life -= delta;
+          // Throttle missile trail creation to once every 50ms per missile
           if (performance.now() - missile.mesh.userData.lastTrailTime > 50) {
             createMissileTrail(missile.mesh.position);
             missile.mesh.userData.lastTrailTime = performance.now();
           }
+          // Collision detection: Only check local missiles vs remote tanks and vice versa.
           if (missile.owner === playerData.id) {
             for (let id in remoteTanks) {
               let remoteTank = remoteTanks[id].mesh;
@@ -924,7 +872,7 @@
       }
 
       // -----------------------
-      // Animation Loop, Weather Update & Camera Shake
+      // Animation Loop & Camera Shake
       // -----------------------
       function animate() {
         requestAnimationFrame(animate);
@@ -945,25 +893,6 @@
         sendUpdate();
         updateMissiles(delta);
         updateTrailParticles(delta);
-        // Weather particle update for rain and snow
-        if (currentWeather === "rain" && weatherParticles) {
-          weatherParticles.children.forEach(drop => {
-            drop.position.y -= delta * 50;
-            if (drop.position.y < 0) drop.position.y = Math.random() * 50 + 50;
-          });
-        }
-        if (currentWeather === "snow" && weatherParticles) {
-          weatherParticles.children.forEach(flake => {
-            flake.position.y -= delta * 10;
-            if (flake.position.y < 0) flake.position.y = Math.random() * 50 + 50;
-          });
-        }
-        // For storm weather, randomly flash lightning
-        if (currentWeather === "storm" && Math.random() < 0.01) {
-          let overlay = document.getElementById("damageOverlay");
-          overlay.style.background = "rgba(255, 255, 255, 0.8)";
-          setTimeout(() => { overlay.style.background = "rgba(255, 255, 255, 0)"; }, 100);
-        }
         renderer.render(scene, camera);
         updateMinimap();
         updateHealthBar();
@@ -1014,7 +943,7 @@
       }, 180000);
 
       // -----------------------
-      // Initialization with Warm Desert Lighting, Audio & Weather Effects
+      // Initialization with Warm Desert Lighting & Audio
       // -----------------------
       function init() {
         clock = new THREE.Clock();
@@ -1031,7 +960,6 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         document.body.appendChild(renderer.domElement);
         let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
-        window.ambient = ambient; // make it global so applyWeather can adjust it
         scene.add(ambient);
         let dirLight = new THREE.DirectionalLight(0xffcc99, 1.2);
         dirLight.position.set(80, 100, -60);
@@ -1047,10 +975,6 @@
         scene.add(localTank);
         addNicknameLabel(localTank, playerData.nickname);
         setupWebSocket();
-        // Apply randomized weather
-        const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
-        currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
-        applyWeather(currentWeather);
         window.addEventListener('resize', onWindowResize, false);
         window.addEventListener('keydown', onKeyDown, false);
         window.addEventListener('keyup', onKeyUp, false);
