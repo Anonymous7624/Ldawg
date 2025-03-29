@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank v1.1.1</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.1.2</title>
   <!-- Favicon Links -->
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -25,28 +25,17 @@
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
     #healthBarContainer {
-      position: fixed;
-      bottom: 220px;
-      left: 50%;
-      transform: translateX(-50%);
-      width: 200px;
-      height: 20px;
-      background-color: #555;
-      border: 2px solid #333;
-      border-radius: 5px;
-      z-index: 130;
+      position: fixed; bottom: 220px; left: 50%;
+      transform: translateX(-50%); width: 200px; height: 20px;
+      background-color: #555; border: 2px solid #333;
+      border-radius: 5px; z-index: 130;
     }
     #healthBar { width: 100%; height: 100%; background-color: green; border-radius: 3px; }
     /* Chat Input */
     #chatInput {
-      position: fixed;
-      bottom: 210px;
-      left: 50%;
-      transform: translateX(-50%);
-      display: none;
-      padding: 8px;
-      font-size: 16px;
-      z-index: 110;
+      position: fixed; bottom: 210px; left: 50%;
+      transform: translateX(-50%); display: none;
+      padding: 8px; font-size: 16px; z-index: 110;
     }
     /* Kill Feed */
     #killFeed { position: fixed; top: 10px; right: 10px; color: white; font-family: sans-serif; z-index: 110; }
@@ -54,58 +43,34 @@
     #minimap { position: fixed; top: 10px; left: 10px; border: 2px solid #fff; background: rgba(0,0,0,0.5); z-index: 110; }
     /* Global Chat Log */
     #globalChatLog {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      width: 100%;
-      max-height: 200px;
-      overflow-y: auto;
-      background: rgba(0,0,0,0.7);
-      color: #fff;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-      padding: 10px;
-      box-sizing: border-box;
-      z-index: 105;
+      position: fixed; bottom: 0; left: 0; width: 100%;
+      max-height: 200px; overflow-y: auto;
+      background: rgba(0,0,0,0.7); color: #fff;
+      font-family: Arial, sans-serif; font-size: 14px;
+      padding: 10px; box-sizing: border-box; z-index: 105;
     }
     /* Missile Selector Menu */
     #missileMenu {
-      position: fixed;
-      top: 50px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0,0,0,0.7);
-      color: #fff;
-      padding: 10px;
-      border-radius: 5px;
-      z-index: 120;
-      font-family: Arial, sans-serif;
+      position: fixed; top: 50px; left: 50%;
+      transform: translateX(-50%); background: rgba(0,0,0,0.7);
+      color: #fff; padding: 10px; border-radius: 5px;
+      z-index: 120; font-family: Arial, sans-serif;
     }
     #missileMenu label, #missileMenu select { font-size: 16px; }
     /* Info Bar */
     #infoBar {
-      position: fixed;
-      top: 10px;
-      right: 10px;
-      background: rgba(0, 0, 0, 0.6);
-      color: #ffdd00;
-      padding: 10px;
-      border-radius: 5px;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-      cursor: move;
-      z-index: 200;
+      position: fixed; top: 10px; right: 10px;
+      background: rgba(0, 0, 0, 0.6); color: #ffdd00;
+      padding: 10px; border-radius: 5px;
+      font-family: Arial, sans-serif; font-size: 14px;
+      cursor: move; z-index: 200;
     }
     /* Damage Overlay */
     #damageOverlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
+      position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%;
       background: rgba(255, 0, 0, 0);
-      pointer-events: none;
-      z-index: 300;
+      pointer-events: none; z-index: 300;
       transition: background 0.2s ease-out;
     }
     canvas { display: block; }
@@ -132,7 +97,7 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.1.0
+    <strong>Version:</strong> 1.1.2
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -147,7 +112,7 @@
     let currentWeather = "sunny";
     let latency = 0;
 
-    // Global Variables (declared only once)
+    // Global Variables
     let currentMap = "desert";
     let prevTankPosition = new THREE.Vector3();
     let clock, scene, camera, renderer, localTank;
@@ -160,6 +125,16 @@
       nickname: localStorage.getItem('nickname') || 'Player' + Math.floor(Math.random() * 1000),
       color: '#' + (Math.floor(Math.random()*16777215) & 0x00FF00).toString(16)
     };
+
+    // WebSocket URL (declared only once)
+    const WS_URL = "wss://game.ldawg7624.com";
+
+    // Dummy implementations for missing functions (replace with actual code as needed)
+    function updateHealthBar() { /* Update health UI */ }
+    function updateInfoBar() { /* Update additional info */ }
+    function updateRain(delta) { /* Update rain effects */ }
+    function updateSnow(delta) { /* Update snow effects */ }
+    function updateStorm(delta) { /* Update storm effects */ }
 
     // Define ImprovedNoise for terrain generation
     var ImprovedNoise = function () {
@@ -379,7 +354,7 @@
       return tank;
     }
 
-    // Generate camo texture using canvas
+    // Generate a camo texture using canvas
     function createCamoTexture() {
       let size = 256;
       let canvas = document.createElement("canvas");
@@ -534,15 +509,7 @@
       infoBar.style.display = infoVisible ? "block" : "none";
     }
 
-    // Dummy implementations for missing functions
-    function updateHealthBar() { /* Update health UI; placeholder */ }
-    function updateInfoBar() { /* Update additional info; placeholder */ }
-    function updateRain(delta) { /* Rain effects update; placeholder */ }
-    function updateSnow(delta) { /* Snow effects update; placeholder */ }
-    function updateStorm(delta) { /* Storm effects update; placeholder */ }
-
-    // WebSocket Setup – declared only once.
-    const WS_URL = "wss://game.ldawg7624.com";
+    // WebSocket Setup (only one declaration)
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
@@ -715,7 +682,6 @@
       sendUpdate();
       updateMissiles(delta);
       updateTrailParticles(delta);
-      // Dummy weather updates:
       if (currentWeather === "rain") { updateRain(delta); }
       else if (currentWeather === "snow") { updateSnow(delta); }
       else if (currentWeather === "storm") { updateStorm(delta); }
@@ -870,7 +836,7 @@
         <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
         <strong>Players:</strong> --<br>
         <strong>${weatherText}</strong><br>
-        <strong>Version:</strong> 1.1.0`;
+        <strong>Version:</strong> 1.1.2`;
       
       const loader = new THREE.CubeTextureLoader();
       const textureURLs = skyboxTextures[weather] || skyboxTextures.sunny;
@@ -913,14 +879,13 @@
       applyWeather(newWeather);
     }, 60000);
 
-    // Dummy weather functions (replace with actual implementations if available)
+    // Dummy weather functions (replace with real implementations if available)
     function startRain() { /* Implement rain particle system */ }
     function startSnow() { /* Implement snow particle system */ }
     function startStorm() { /* Implement storm effects */ }
     function removeWeatherParticles() { /* Remove active weather particles */ }
 
-    // WebSocket Setup – declared only once.
-    const WS_URL = "wss://game.ldawg7624.com";
+    // WebSocket Setup (only one declaration)
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
