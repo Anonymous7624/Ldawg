@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.1.3</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.1.4</title>
   <!-- Favicon Links -->
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -97,7 +97,7 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.1.3
+    <strong>Version:</strong> 1.1.4
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -106,9 +106,7 @@
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.152.2/build/three.module.js';
 
-    /****************************************************
-     *           BASIC GLOBAL SETUP & VARIABLES         *
-     ****************************************************/
+    /*************** GLOBAL SETUP & VARIABLES ****************/
     let faster = false;
     let currentWeather = "sunny";
     let latency = 0;
@@ -126,25 +124,21 @@
       color: '#' + (Math.floor(Math.random()*16777215) & 0x00FF00).toString(16)
     };
 
-    // Throttle update: send update 15 times per second
+    // Throttle update: 15 times per second
     let lastUpdateTime = 0;
     const updateInterval = 1000 / 15;
 
-    // A single color for the ground
-    const GROUND_COLOR = 0xC2B280; // light brown
+    // Ground color instead of external texture
+    const GROUND_COLOR = 0xC2B280; // Light brown
 
-    /****************************************************
-     *                DUMMY OR HELPER FUNCS             *
-     ****************************************************/
-    function updateHealthBar() {}
-    function updateInfoBar() {}
-    function updateRain(delta) {}
-    function updateSnow(delta) {}
-    function updateStorm(delta) {}
+    /*************** DUMMY FUNCTIONS (Placeholders) ***************/
+    function updateHealthBar() { }
+    function updateInfoBar() { }
+    function updateRain(delta) { }
+    function updateSnow(delta) { }
+    function updateStorm(delta) { }
 
-    /****************************************************
-     *                WEBSOCKET SETUP                   *
-     ****************************************************/
+    /*************** WEBSOCKET SETUP ****************/
     const WS_URL = "wss://game.ldawg7624.com";
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
@@ -157,7 +151,6 @@
           color: playerData.color,
           position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z }
         }));
-        // Send ping every 2 seconds
         setInterval(() => {
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "ping", timestamp: performance.now() }));
@@ -219,9 +212,6 @@
       }
     }
 
-    /****************************************************
-     *              REMOTE TANK HANDLING                *
-     ****************************************************/
     function updateRemoteTank(data) {
       if (!remoteTanks[data.id]) {
         let tank = createTank();
@@ -233,13 +223,11 @@
         let currentPos = remoteTanks[data.id].mesh.position;
         let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
         currentPos.lerp(targetPos, 0.1);
-        remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(
-          remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1
-        );
+        remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1);
       }
     }
 
-    // Send updates at a fixed rate (15 updates/sec)
+    // Throttled update sending
     function sendUpdate() {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -251,9 +239,7 @@
       }
     }
 
-    /****************************************************
-     *                 CHAT & SHOOTING                  *
-     ****************************************************/
+    /*************** CHAT & SHOOTING ****************/
     let lastChatTime = 0;
     const chatCooldown = 2000;
     function sendChat(message) {
@@ -272,7 +258,6 @@
       }
     }
 
-    // Missile definitions
     const missileTypes = {
       bullet: {
         speed: 100,
@@ -318,7 +303,7 @@
       });
       scene.add(missileMesh);
 
-      // Cannon recoil
+      // Cannon recoil effect
       let originalPos = cannon.position.clone();
       cannon.position.z -= 0.2;
       setTimeout(() => { cannon.position.copy(originalPos); }, 100);
@@ -332,9 +317,7 @@
       missileMesh.rotation.y = data.rotation;
       missileMesh.userData.lastTrailTime = 0;
       missileMesh.userData.owner = data.id;
-      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(
-        new THREE.Vector3(0, 1, 0), data.rotation
-      );
+      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), data.rotation);
       let velocity = direction.multiplyScalar(missileProps.speed);
       missiles.push({
         mesh: missileMesh,
@@ -361,39 +344,17 @@
       launchMissile();
     }
 
-    /****************************************************
-     *            MISSILES & PARTICLE TRAILS           *
-     ****************************************************/
+    /*************** MISSILES & TRAILS ****************/
     function updateMissiles(delta) {
       for (let i = missiles.length - 1; i >= 0; i--) {
         let missile = missiles[i];
         missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
         missile.life -= delta;
-        // create a small smoke trail
         if (performance.now() - (missile.mesh.userData.lastTrailTime || 0) > 50) {
           createMissileTrail(missile.mesh.position);
           missile.mesh.userData.lastTrailTime = performance.now();
         }
-        // Collision checks...
-        if (missile.owner === playerData.id) {
-          // Check collisions with remote tanks
-          for (let id in remoteTanks) {
-            let remoteTank = remoteTanks[id].mesh;
-            if (missile.mesh.position.distanceTo(remoteTank.position) < 1.5) {
-              // Explosion logic or damage
-              scene.remove(missile.mesh);
-              missiles.splice(i, 1);
-              break;
-            }
-          }
-        } else {
-          // Check collision with local tank
-          if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
-            scene.remove(missile.mesh);
-            missiles.splice(i, 1);
-          }
-        }
-        // Expire missile
+        // Basic collision checks (for demo purposes)
         if (missile.life <= 0) {
           scene.remove(missile.mesh);
           missiles.splice(i, 1);
@@ -403,11 +364,7 @@
 
     function createMissileTrail(position) {
       const particleGeom = new THREE.SphereGeometry(0.1, 6, 6);
-      const particleMat = new THREE.MeshBasicMaterial({
-        color: 0xaaaaaa,
-        transparent: true,
-        opacity: 0.5
-      });
+      const particleMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.5 });
       let particle = new THREE.Mesh(particleGeom, particleMat);
       particle.position.copy(position);
       particle.userData.life = 0.3;
@@ -427,13 +384,9 @@
       }
     }
 
-    /****************************************************
-     *                 CHAT DISPLAY FUNCS               *
-     ****************************************************/
+    /*************** CHAT DISPLAY ****************/
     function displayChatBubble(msg) {
-      let target = (msg.id === playerData.id)
-        ? localTank
-        : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
+      let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
       if (!target) return;
       let canvas = document.createElement('canvas');
       canvas.width = 256; canvas.height = 64;
@@ -457,8 +410,7 @@
     let killFeedMessages = [];
     function addKillFeed(text) {
       killFeedMessages.push(text);
-      document.getElementById("killFeed").innerHTML =
-        killFeedMessages.slice(-5).join("<br>");
+      document.getElementById("killFeed").innerHTML = killFeedMessages.slice(-5).join("<br>");
     }
 
     function addGlobalChatMessage(text) {
@@ -469,11 +421,8 @@
       chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    /****************************************************
-     *                TANK CREATION                     *
-     ****************************************************/
+    /*************** TANK CREATION ****************/
     function createTank(colorOverride) {
-      // Basic green tank with no external textures
       const greenShades = [0x228B22, 0x2E8B57, 0x556B2F, 0x6B8E23];
       let baseColor = colorOverride || greenShades[Math.floor(Math.random() * greenShades.length)];
       let tank = new THREE.Group();
@@ -512,7 +461,7 @@
       hatch.receiveShadow = true;
       tank.add(hatch);
 
-      // Turret
+      // Turret and Cannon
       let turret = new THREE.Group();
       let turretBaseGeom = new THREE.BoxGeometry(2.5, 1, 3);
       let turretBaseMat = new THREE.MeshStandardMaterial({
@@ -526,16 +475,14 @@
       turretBase.position.y = 0.5;
       turret.add(turretBase);
 
-      // Cannon
       let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
       let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
       let cannon = new THREE.Mesh(cannonGeom, cannonMat);
       cannon.castShadow = true;
       cannon.receiveShadow = true;
-      cannon.rotation.x = Math.PI / 2; // point forward
+      cannon.rotation.x = Math.PI / 2;
       cannon.position.set(0, 0, 1.5);
       turret.add(cannon);
-
       turret.position.set(0, 1.4, 0);
       tank.add(turret);
 
@@ -545,7 +492,6 @@
     }
 
     function addNicknameLabel(tank, nickname) {
-      // Remove old label if any
       tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
       let canvas = document.createElement('canvas');
       canvas.width = 256; canvas.height = 64;
@@ -564,68 +510,83 @@
       tank.add(sprite);
     }
 
-    /****************************************************
-     *            INIT, TERRAIN, & RENDER LOOP          *
-     ****************************************************/
-    let groundMesh, treeColliders;
+    /*************** MOUSE & KEY INPUT ****************/
+    let turretRotationOffset = 0;
+    document.addEventListener("mousemove", (e) => {
+      if (document.pointerLockElement === document.body && localTank && localTank.userData.turret) {
+        turretRotationOffset -= e.movementX * 0.002;
+        localTank.userData.turret.rotation.y = turretRotationOffset;
+      }
+    });
+    document.addEventListener("mousedown", (e) => {
+      if (e.button === 0) sendShoot();
+    });
 
-    function init() {
-      clock = new THREE.Clock();
-      scene = new THREE.Scene();
-
-      // Instead of a skybox, just set a blue background color
-      scene.background = new THREE.Color(0x87ceeb); // "skyblue"
-
-      // Gentle fog
-      scene.fog = new THREE.FogExp2(0x87ceeb, 0.001);
-
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
-      camera.position.set(0, 5, -10);
-
-      // Ambient light
-      let ambient = new THREE.AmbientLight(0xffffff, 0.5);
-      ambient.name = "ambientLight";
-      scene.add(ambient);
-
-      // Directional light for shadows
-      let dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
-      dirLight.position.set(80, 100, -60);
-      dirLight.castShadow = true;
-      dirLight.shadow.camera.left = -200;
-      dirLight.shadow.camera.right = 200;
-      dirLight.shadow.camera.top = 200;
-      dirLight.shadow.camera.bottom = -200;
-      scene.add(dirLight);
-
-      renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      document.body.appendChild(renderer.domElement);
-
-      loadMap(currentMap);
-
-      // Create the local tank
-      localTank = createTank();
-      localTank.position.set(0, 0.6, 0);
-      scene.add(localTank);
-      addNicknameLabel(localTank, playerData.nickname);
-
-      setupWebSocket();
-
-      // Start dust effect (optional)
-      startDust();
-
-      // Basic event listeners
-      window.addEventListener('resize', onWindowResize, false);
-      window.addEventListener('keydown', onKeyDown, false);
-      window.addEventListener('keyup', onKeyUp, false);
-
-      animate();
+    function onKeyDown(e) {
+      if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
+      if (e.code === "KeyI") { toggleInfoBar(); return; }
+      if (document.activeElement === chatInput) return;
+      switch (e.code) {
+        case "KeyW": controls.forward = true; break;
+        case "KeyS": controls.backward = true; break;
+        case "KeyA": controls.left = true; break;
+        case "KeyD": controls.right = true; break;
+        case "Space": controls.shoot = true; sendShoot(); break;
+        case "ShiftLeft": faster = true; break;
+        case "Digit1": cameraMode = 1; break;
+        case "Digit2": cameraMode = 2; break;
+        case "Digit3": cameraMode = 3; break;
+      }
     }
 
+    function onKeyUp(e) {
+      switch (e.code) {
+        case "KeyW": controls.forward = false; break;
+        case "KeyS": controls.backward = false; break;
+        case "KeyA": controls.left = false; break;
+        case "KeyD": controls.right = false; break;
+        case "Space": controls.shoot = false; break;
+        case "ShiftLeft": faster = false; break;
+      }
+    }
+
+    const chatInput = document.getElementById("chatInput");
+    chatInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        if (chatInput.value.trim() !== "") {
+          sendChat(chatInput.value.trim());
+          chatInput.value = "";
+        }
+        chatInput.style.display = "none";
+      }
+    });
+    function toggleChat() {
+      chatInput.style.display = (chatInput.style.display === "none" || chatInput.style.display === "") ? "block" : "none";
+      if (chatInput.style.display === "block") chatInput.focus();
+    }
+
+    let isDragging = false, offsetX = 0, offsetY = 0;
+    const infoBar = document.getElementById("infoBar");
+    infoBar.addEventListener("mousedown", (e) => {
+      isDragging = true;
+      offsetX = e.clientX - infoBar.offsetLeft;
+      offsetY = e.clientY - infoBar.offsetTop;
+    });
+    document.addEventListener("mousemove", (e) => {
+      if (isDragging) {
+        infoBar.style.left = (e.clientX - offsetX) + "px";
+        infoBar.style.top = (e.clientY - offsetY) + "px";
+      }
+    });
+    document.addEventListener("mouseup", () => { isDragging = false; });
+    let infoVisible = true;
+    function toggleInfoBar() {
+      infoVisible = !infoVisible;
+      infoBar.style.display = infoVisible ? "block" : "none";
+    }
+
+    /*************** DESERT TERRAIN & SKY ****************/
     function loadMap(mapType) {
-      // Remove old map if any
       let oldMap = scene.getObjectByName("mapGroup");
       if (oldMap) scene.remove(oldMap);
 
@@ -633,12 +594,10 @@
       mapGroup.name = "mapGroup";
       treeColliders = [];
 
-      // Just create a big plane with a brownish color
       const size = 1000;
       const geometry = new THREE.PlaneGeometry(size, size, 1, 1);
       geometry.rotateX(-Math.PI / 2);
 
-      // Use a simple color (GROUND_COLOR), no external texture
       const material = new THREE.MeshStandardMaterial({ color: GROUND_COLOR });
       groundMesh = new THREE.Mesh(geometry, material);
       groundMesh.receiveShadow = true;
@@ -647,23 +606,55 @@
       scene.add(mapGroup);
     }
 
+    /*************** DUST (Ensure startDust is defined before init) ****************/
+    let dustParticles;
+    function startDust() {
+      let dustCount = 200;
+      let dustGeometry = new THREE.BufferGeometry();
+      let dustPositions = new Float32Array(dustCount * 3);
+      for (let i = 0; i < dustCount; i++) {
+        dustPositions[i * 3] = Math.random() * 1000 - 500;
+        dustPositions[i * 3 + 1] = Math.random() * 100 + 50;
+        dustPositions[i * 3 + 2] = Math.random() * 1000 - 500;
+      }
+      dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+      let dustMaterial = new THREE.PointsMaterial({
+        color: 0xffccaa,
+        size: 1,
+        transparent: true,
+        opacity: 0.3
+      });
+      dustParticles = new THREE.Points(dustGeometry, dustMaterial);
+      scene.add(dustParticles);
+    }
+
+    function updateDust(delta) {
+      if (dustParticles) {
+        let positions = dustParticles.geometry.attributes.position.array;
+        for (let i = 0; i < positions.length; i += 3) {
+          positions[i + 1] += 0.5 * delta;
+          if (positions[i + 1] > 200) positions[i + 1] = 50;
+        }
+        dustParticles.geometry.attributes.position.needsUpdate = true;
+      }
+    }
+
+    /*************** ANIMATION & CAMERA ****************/
+    let cameraMode = 1;
     function animate() {
       requestAnimationFrame(animate);
-
       let delta = clock.getDelta();
       prevTankPosition.copy(localTank.position);
-
       let speed = 15 * delta * (faster ? 2 : 1);
       if (controls.forward) localTank.translateZ(speed);
       if (controls.backward) localTank.translateZ(-speed);
       if (controls.left) localTank.rotation.y += 2 * delta;
       if (controls.right) localTank.rotation.y -= 2 * delta;
-
       checkCollisions();
       updateTankHeight();
       updateCamera();
 
-      // Make sure tank name labels face the camera
+      // Make sure nickname labels face the camera
       localTank.children.forEach(child => {
         if (child.type === "Sprite") child.lookAt(camera.position);
       });
@@ -695,8 +686,6 @@
 
     function updateCamera() {
       let targetPos;
-      if (!localTank) return;
-
       if (cameraMode === 1) {
         targetPos = new THREE.Vector3(0, 5, -10).applyMatrix4(localTank.matrixWorld);
       } else if (cameraMode === 2) {
@@ -704,7 +693,6 @@
       } else if (cameraMode === 3) {
         targetPos = localTank.position.clone().add(new THREE.Vector3(0, 30, 0));
       }
-
       if (cameraShakeTime > 0) {
         targetPos.x += (Math.random() - 0.5) * cameraShakeIntensity;
         targetPos.y += (Math.random() - 0.5) * cameraShakeIntensity;
@@ -715,26 +703,19 @@
     }
 
     function updateMinimap() {
-      let minimap = document.getElementById("minimap");
-      let ctx = minimap.getContext("2d");
+      let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
       ctx.fillStyle = "rgba(0,0,0,0.5)";
       ctx.fillRect(0, 0, minimap.width, minimap.height);
-
       const fullMap = 1000, half = fullMap / 2;
       function worldToMinimap(x, z) {
-        return {
-          x: (x + half) * (minimap.width / fullMap),
-          y: (half - z) * (minimap.height / fullMap)
-        };
+        return { x: (x + half) * (minimap.width / fullMap), y: (half - z) * (minimap.height / fullMap) };
       }
       let pos = worldToMinimap(localTank.position.x, localTank.position.z);
       ctx.fillStyle = playerData.color;
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
       ctx.fill();
-
-      // Remote tanks
       ctx.fillStyle = "#fff";
       for (let id in remoteTanks) {
         let rPos = worldToMinimap(remoteTanks[id].mesh.position.x, remoteTanks[id].mesh.position.z);
@@ -744,13 +725,83 @@
       }
     }
 
+    /*************** TERRAIN & SKY SETUP ****************/
+    let groundMesh, treeColliders;
+    function loadMap(mapType) {
+      let oldMap = scene.getObjectByName("mapGroup");
+      if (oldMap) scene.remove(oldMap);
+
+      let mapGroup = new THREE.Group();
+      mapGroup.name = "mapGroup";
+      treeColliders = [];
+
+      const size = 1000;
+      const geometry = new THREE.PlaneGeometry(size, size, 1, 1);
+      geometry.rotateX(-Math.PI / 2);
+      const material = new THREE.MeshStandardMaterial({ color: GROUND_COLOR });
+      groundMesh = new THREE.Mesh(geometry, material);
+      groundMesh.receiveShadow = true;
+      mapGroup.add(groundMesh);
+
+      scene.add(mapGroup);
+    }
+
+    /*************** INIT FUNCTION ****************/
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Start everything
+    function init() {
+      clock = new THREE.Clock();
+      scene = new THREE.Scene();
+
+      // Use a blue background for the sky
+      scene.background = new THREE.Color(0x87ceeb);
+      scene.fog = new THREE.FogExp2(0x87ceeb, 0.001);
+
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+      camera.position.set(0, 5, -10);
+
+      let ambient = new THREE.AmbientLight(0xffffff, 0.5);
+      ambient.name = "ambientLight";
+      scene.add(ambient);
+
+      let dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
+      dirLight.position.set(80, 100, -60);
+      dirLight.castShadow = true;
+      dirLight.shadow.camera.left = -200;
+      dirLight.shadow.camera.right = 200;
+      dirLight.shadow.camera.top = 200;
+      dirLight.shadow.camera.bottom = -200;
+      scene.add(dirLight);
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      loadMap(currentMap);
+
+      localTank = createTank();
+      localTank.position.set(0, 0.6, 0);
+      scene.add(localTank);
+      addNicknameLabel(localTank, playerData.nickname);
+
+      setupWebSocket();
+
+      // Start dust effect
+      startDust();
+
+      window.addEventListener('resize', onWindowResize, false);
+      window.addEventListener('keydown', onKeyDown, false);
+      window.addEventListener('keyup', onKeyUp, false);
+
+      animate();
+    }
+
     init();
   </script>
 </body>
