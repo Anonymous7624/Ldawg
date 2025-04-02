@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.1.5</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.1.6</title>
   <!-- Favicon Links -->
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -97,7 +97,7 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.1.5
+    <strong>Version:</strong> 1.1.6
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -106,10 +106,11 @@
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.152.2/build/three.module.js';
 
-    /*************** GLOBAL SETUP & VARIABLES ****************/
+    /*************** GLOBAL SETUP & VARIABLES ***************/
     let faster = false;
     let currentWeather = "sunny";
     let latency = 0;
+
     let currentMap = "desert";
     let prevTankPosition = new THREE.Vector3();
     let clock, scene, camera, renderer, localTank;
@@ -120,28 +121,35 @@
     let playerData = {
       id: Math.floor(Math.random() * 1000000).toString(),
       nickname: localStorage.getItem('nickname') || 'Player' + Math.floor(Math.random() * 1000),
-      color: '#' + (Math.floor(Math.random()*16777215) & 0x00FF00).toString(16)
+      color: '#' + (Math.floor(Math.random() * 16777215) & 0x00FF00).toString(16)
     };
 
-    // Global declarations for terrain
-    let groundMesh, treeColliders;
     // Throttle update: 15 times per second
     let lastUpdateTime = 0;
     const updateInterval = 1000 / 15;
-    // Ground color instead of external texture
+
+    // Use a constant color for the ground
     const GROUND_COLOR = 0xC2B280; // Light brown
 
-    /*************** DUMMY FUNCTIONS (Placeholders) ***************/
-    function updateHealthBar() { }
-    function updateInfoBar() { }
-    function updateRain(delta) { }
-    function updateSnow(delta) { }
-    function updateStorm(delta) { }
-    // Note: Implement or stub out checkCollisions() and updateTankHeight() if needed.
-    function checkCollisions() { /* Collision logic here */ }
-    function updateTankHeight() { /* Update tank height according to terrain */ }
+    // Declare dustParticles in the global scope
+    let dustParticles;
 
-    /*************** WEBSOCKET SETUP ****************/
+    /*************** DUMMY FUNCTIONS (Placeholders) ***************/
+    function updateHealthBar() { /* Update health bar UI */ }
+    function updateInfoBar() { /* Update additional info UI */ }
+    function updateRain(delta) { /* Update rain effects */ }
+    function updateSnow(delta) { /* Update snow effects */ }
+    function updateStorm(delta) { /* Update storm effects */ }
+
+    /*************** MISSING FUNCTIONS STUBS ***************/
+    function checkCollisions() {
+      // TODO: Implement collision detection logic
+    }
+    function updateTankHeight() {
+      // TODO: Adjust the tank's height based on the terrain
+    }
+
+    /*************** WEBSOCKET SETUP ***************/
     const WS_URL = "wss://game.ldawg7624.com";
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
@@ -226,11 +234,13 @@
         let currentPos = remoteTanks[data.id].mesh.position;
         let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
         currentPos.lerp(targetPos, 0.1);
-        remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1);
+        remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(
+          remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1
+        );
       }
     }
 
-    // Throttled update sending
+    // Send updates at a fixed rate (15 updates per second)
     function sendUpdate() {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -439,7 +449,6 @@
       chassis.position.y = 0.6;
       tank.add(chassis);
 
-      // Wheels
       const wheelGeom = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
       const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
       for (let side of [1, -1]) {
@@ -453,7 +462,6 @@
         }
       }
 
-      // Hatch
       let hatchGeom = new THREE.BoxGeometry(1, 0.2, 1);
       let hatchMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
       let hatch = new THREE.Mesh(hatchGeom, hatchMat);
@@ -462,7 +470,6 @@
       hatch.receiveShadow = true;
       tank.add(hatch);
 
-      // Turret and Cannon
       let turret = new THREE.Group();
       let turretBaseGeom = new THREE.BoxGeometry(2.5, 1, 3);
       let turretBaseMat = new THREE.MeshStandardMaterial({
@@ -511,7 +518,7 @@
       tank.add(sprite);
     }
 
-    /*************** MOUSE & KEY INPUT ****************/
+    /*************** INPUT HANDLING ****************/
     let turretRotationOffset = 0;
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body && localTank && localTank.userData.turret) {
@@ -522,7 +529,6 @@
     document.addEventListener("mousedown", (e) => {
       if (e.button === 0) sendShoot();
     });
-
     function onKeyDown(e) {
       if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
       if (e.code === "KeyI") { toggleInfoBar(); return; }
@@ -539,7 +545,6 @@
         case "Digit3": cameraMode = 3; break;
       }
     }
-
     function onKeyUp(e) {
       switch (e.code) {
         case "KeyW": controls.forward = false; break;
@@ -550,7 +555,6 @@
         case "ShiftLeft": faster = false; break;
       }
     }
-
     const chatInput = document.getElementById("chatInput");
     chatInput.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
@@ -565,7 +569,6 @@
       chatInput.style.display = (chatInput.style.display === "none" || chatInput.style.display === "") ? "block" : "none";
       if (chatInput.style.display === "block") chatInput.focus();
     }
-
     let isDragging = false, offsetX = 0, offsetY = 0;
     const infoBar = document.getElementById("infoBar");
     infoBar.addEventListener("mousedown", (e) => {
@@ -586,7 +589,8 @@
       infoBar.style.display = infoVisible ? "block" : "none";
     }
 
-    /*************** DESERT TERRAIN & SKY ****************/
+    /*************** TERRAIN & SKY SETUP ****************/
+    let groundMesh, treeColliders;
     function loadMap(mapType) {
       let oldMap = scene.getObjectByName("mapGroup");
       if (oldMap) scene.remove(oldMap);
@@ -603,38 +607,6 @@
       scene.add(mapGroup);
     }
 
-    /*************** DUST (Ensure startDust is defined before init) ****************/
-    function startDust() {
-      let dustCount = 200;
-      let dustGeometry = new THREE.BufferGeometry();
-      let dustPositions = new Float32Array(dustCount * 3);
-      for (let i = 0; i < dustCount; i++) {
-        dustPositions[i * 3] = Math.random() * 1000 - 500;
-        dustPositions[i * 3 + 1] = Math.random() * 100 + 50;
-        dustPositions[i * 3 + 2] = Math.random() * 1000 - 500;
-      }
-      dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
-      let dustMaterial = new THREE.PointsMaterial({
-        color: 0xffccaa,
-        size: 1,
-        transparent: true,
-        opacity: 0.3
-      });
-      dustParticles = new THREE.Points(dustGeometry, dustMaterial);
-      scene.add(dustParticles);
-    }
-
-    function updateDust(delta) {
-      if (dustParticles) {
-        let positions = dustParticles.geometry.attributes.position.array;
-        for (let i = 0; i < positions.length; i += 3) {
-          positions[i + 1] += 0.5 * delta;
-          if (positions[i + 1] > 200) positions[i + 1] = 50;
-        }
-        dustParticles.geometry.attributes.position.needsUpdate = true;
-      }
-    }
-
     /*************** ANIMATION & CAMERA ****************/
     let cameraMode = 1;
     function animate() {
@@ -646,30 +618,31 @@
       if (controls.backward) localTank.translateZ(-speed);
       if (controls.left) localTank.rotation.y += 2 * delta;
       if (controls.right) localTank.rotation.y -= 2 * delta;
+
       checkCollisions();
       updateTankHeight();
       updateCamera();
-      // Make sure nickname labels face the camera
-      localTank.children.forEach(child => {
-        if (child.type === "Sprite") child.lookAt(camera.position);
-      });
+
+      // Ensure nickname labels face the camera
+      localTank.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
       for (let id in remoteTanks) {
-        remoteTanks[id].mesh.children.forEach(child => {
-          if (child.type === "Sprite") child.lookAt(camera.position);
-        });
+        remoteTanks[id].mesh.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
       }
+
       // Throttle sendUpdate() to 15 updates per second
       const now = performance.now();
       if (now - lastUpdateTime > updateInterval) {
         sendUpdate();
         lastUpdateTime = now;
       }
+
       updateMissiles(delta);
       updateTrailParticles(delta);
       if (currentWeather === "rain") updateRain(delta);
       else if (currentWeather === "snow") updateSnow(delta);
       else if (currentWeather === "storm") updateStorm(delta);
       updateDust(delta);
+
       renderer.render(scene, camera);
       updateMinimap();
       updateHealthBar();
@@ -695,7 +668,8 @@
     }
 
     function updateMinimap() {
-      let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
+      let minimap = document.getElementById("minimap");
+      let ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
       ctx.fillStyle = "rgba(0,0,0,0.5)";
       ctx.fillRect(0, 0, minimap.width, minimap.height);
@@ -717,24 +691,28 @@
       }
     }
 
-    /*************** INIT FUNCTION ****************/
+    /*************** WINDOW RESIZE ****************/
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
+    /*************** INIT & TERRAIN ****************/
     function init() {
       clock = new THREE.Clock();
       scene = new THREE.Scene();
-      // Use a blue background for the sky
+      // Use a blue background for the sky and matching fog
       scene.background = new THREE.Color(0x87ceeb);
       scene.fog = new THREE.FogExp2(0x87ceeb, 0.001);
+
       camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
       camera.position.set(0, 5, -10);
+
       let ambient = new THREE.AmbientLight(0xffffff, 0.5);
       ambient.name = "ambientLight";
       scene.add(ambient);
+
       let dirLight = new THREE.DirectionalLight(0xffffff, 1.0);
       dirLight.position.set(80, 100, -60);
       dirLight.castShadow = true;
@@ -743,25 +721,31 @@
       dirLight.shadow.camera.top = 200;
       dirLight.shadow.camera.bottom = -200;
       scene.add(dirLight);
+
       renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
+
       loadMap(currentMap);
+
       localTank = createTank();
       localTank.position.set(0, 0.6, 0);
       scene.add(localTank);
       addNicknameLabel(localTank, playerData.nickname);
+
       setupWebSocket();
-      // Start dust effect
       startDust();
+
       window.addEventListener('resize', onWindowResize, false);
       window.addEventListener('keydown', onKeyDown, false);
       window.addEventListener('keyup', onKeyUp, false);
+
       animate();
     }
 
+    // Start the application
     init();
   </script>
 </body>
