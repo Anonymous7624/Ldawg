@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.1</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -142,12 +142,12 @@
   <div id="killFeed"></div>
   <canvas id="minimap" width="200" height="200"></canvas>
   <div id="globalChatLog"></div>
-  <!-- Info Bar (default visible) -->
+  <!-- Info Bar with Version Display -->
   <div id="infoBar">
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
-    <strong>Weather:</strong> --
+    <strong>Version:</strong> 1.0.1
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -157,6 +157,53 @@
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
   
   <script>
+    // Define ImprovedNoise so terrain generation works
+    var ImprovedNoise = function () {
+      var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
+               140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
+               247,120,234,75,0,26,197,62,94,252,219,203,117,35,11,32,
+               57,177,33,88,237,149,56,87,174,20,125,136,171,168,68,175,
+               74,165,71,134,139,48,27,166,77,146,158,231,83,111,229,122,
+               60,211,133,230,220,105,92,41,55,46,245,40,244,102,143,54,
+               65,25,63,161,1,216,80,73,209,76,132,187,208,89,18,169,200,
+               196,135,130,116,188,159,86,164,100,109,198,173,186,3,64,52,
+               217,226,250,124,123,5,202,38,147,118,126,255,82,85,212,207,
+               206,59,227,47,16,58,17,182,189,28,42,223,183,170,213,119,248,
+               152,2,44,154,163,70,221,153,101,155,167,43,172,9,129,22,39,
+               253,19,98,108,110,79,113,224,232,178,185,112,104,218,246,97,
+               228,251,34,242,193,238,210,144,12,191,179,162,241,81,51,145,
+               235,249,14,239,107,49,192,214,31,181,199,106,157,184,84,204,
+               176,115,121,50,45,127,4,150,254,138,236,205,93,222,114,67,29,
+               24,72,243,141,128,195,78,66,215,61,156,180];
+      for (var i = 0; i < 256; i++) { p[256 + i] = p[i]; }
+      function fade(t) { return t*t*t*(t*(t*6-15)+10); }
+      function lerp(t, a, b) { return a + t*(b-a); }
+      function grad(hash, x, y, z) {
+        var h = hash & 15;
+        var u = h < 8 ? x : y,
+            v = h < 4 ? y : (h === 12 || h === 14 ? x : z);
+        return ((h & 1) === 0 ? u : -u) + ((h & 2) === 0 ? v : -v);
+      }
+      this.noise = function (x, y, z) {
+        var floorX = Math.floor(x), floorY = Math.floor(y), floorZ = Math.floor(z);
+        var X = floorX & 255, Y = floorY & 255, Z = floorZ & 255;
+        x -= floorX; y -= floorY; z -= floorZ;
+        var u = fade(x), v = fade(y), w = fade(z);
+        var A = p[X]+Y, AA = p[A]+Z, AB = p[A+1]+Z;
+        var B = p[X+1]+Y, BA = p[B]+Z, BB = p[B+1]+Z;
+        return lerp(w,
+          lerp(v,
+            lerp(u, grad(p[AA], x, y, z), grad(p[BA], x-1, y, z)),
+            lerp(u, grad(p[AB], x, y-1, z), grad(p[BB], x-1, y-1, z))
+          ),
+          lerp(v,
+            lerp(u, grad(p[AA+1], x, y, z-1), grad(p[BA+1], x-1, y, z-1)),
+            lerp(u, grad(p[AB+1], x, y-1, z-1), grad(p[BB+1], x-1, y-1, z-1))
+          )
+        );
+      };
+    };
+
     document.addEventListener('DOMContentLoaded', () => {
       // Request pointer lock on click
       document.body.addEventListener("click", () => {
@@ -170,7 +217,7 @@
       let groundMesh = null, treeColliders = [], prevTankPosition = new THREE.Vector3();
       let faster = false, turretRotationOffset = 0;
       let trailParticles = [];
-      let latency = 100;  // in milliseconds
+      let latency = 100;
       let cameraShakeTime = 0;
       let cameraShakeIntensity = 0.5;
       const controls = { forward: false, backward: false, left: false, right: false, shoot: false };
@@ -183,25 +230,10 @@
       };
       const WS_URL = "wss://game.ldawg7624.com";
       let lastChatTime = 0;
-      const chatCooldown = 2000; // ms
-
-      // Audio Setup (commented out to avoid loading non-existent files)
-//      let listener = new THREE.AudioListener();
-//      let explosionSound = new THREE.Audio(listener);
-//      let engineSound = new THREE.Audio(listener);
-//      let audioLoader = new THREE.AudioLoader();
-//      audioLoader.load('https://example.com/explosion.mp3', function(buffer) {
-//        explosionSound.setBuffer(buffer);
-//        explosionSound.setVolume(0.5);
-//      });
-//      audioLoader.load('https://example.com/engine.mp3', function(buffer) {
-//        engineSound.setBuffer(buffer);
-//        engineSound.setLoop(true);
-//        engineSound.setVolume(0.3);
-//      });
+      const chatCooldown = 2000;
 
       // Weather globals
-      let currentWeather = "sunny"; // default
+      let currentWeather = "sunny";
       let rainParticles, snowParticles;
       let stormLightningTime = 0;
 
@@ -209,18 +241,12 @@
       // Weather Functions
       // -----------------------
       function removeWeatherParticles() {
-        if (rainParticles) {
-          scene.remove(rainParticles);
-          rainParticles = null;
-        }
-        if (snowParticles) {
-          scene.remove(snowParticles);
-          snowParticles = null;
-        }
+        if (rainParticles) { scene.remove(rainParticles); rainParticles = null; }
+        if (snowParticles) { scene.remove(snowParticles); snowParticles = null; }
       }
       function startRain() {
         removeWeatherParticles();
-        let rainCount = 1000;
+        let rainCount = 500; // reduced for performance
         let rainGeometry = new THREE.BufferGeometry();
         let rainPositions = new Float32Array(rainCount * 3);
         for (let i = 0; i < rainCount; i++) {
@@ -237,17 +263,15 @@
         if (rainParticles) {
           let positions = rainParticles.geometry.attributes.position.array;
           for (let i = 0; i < positions.length; i += 3) {
-            positions[i + 1] -= 50 * delta; // fall speed
-            if (positions[i + 1] < 0) {
-              positions[i + 1] = 500;
-            }
+            positions[i + 1] -= 50 * delta;
+            if (positions[i + 1] < 0) { positions[i + 1] = 500; }
           }
           rainParticles.geometry.attributes.position.needsUpdate = true;
         }
       }
       function startSnow() {
         removeWeatherParticles();
-        let snowCount = 1000;
+        let snowCount = 500;
         let snowGeometry = new THREE.BufferGeometry();
         let snowPositions = new Float32Array(snowCount * 3);
         for (let i = 0; i < snowCount; i++) {
@@ -264,17 +288,15 @@
         if (snowParticles) {
           let positions = snowParticles.geometry.attributes.position.array;
           for (let i = 0; i < positions.length; i += 3) {
-            positions[i + 1] -= 10 * delta; // slow fall speed
-            if (positions[i + 1] < 0) {
-              positions[i + 1] = 500;
-            }
+            positions[i + 1] -= 10 * delta;
+            if (positions[i + 1] < 0) { positions[i + 1] = 500; }
           }
           snowParticles.geometry.attributes.position.needsUpdate = true;
         }
       }
       function startStorm() {
         removeWeatherParticles();
-        startRain(); // Storm includes heavy rain
+        startRain();
         stormLightningTime = 0;
       }
       function updateStorm(delta) {
@@ -290,96 +312,59 @@
       }
       function applyWeather(weather) {
         currentWeather = weather;
-        // Update Info Bar with weather info
+        // Update Info Bar weather info
         const infoBar = document.getElementById("infoBar");
         let weatherText = "Weather: " + weather.charAt(0).toUpperCase() + weather.slice(1);
         infoBar.innerHTML = `<strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
           <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
           <strong>Players:</strong> --<br>
-          <strong>${weatherText}</strong>`;
+          <strong>${weatherText}</strong><br>
+          <strong>Version:</strong> 1.0.1`;
         
-        // Update skybox and lighting based on weather
+        // Use a working skybox (Bridge2 textures) for all weather types
         const loader = new THREE.CubeTextureLoader();
-        let textureURLs;
+        let textureURLs = [
+          'https://threejs.org/examples/textures/cube/Bridge2/posx.jpg',
+          'https://threejs.org/examples/textures/cube/Bridge2/negx.jpg',
+          'https://threejs.org/examples/textures/cube/Bridge2/posy.jpg',
+          'https://threejs.org/examples/textures/cube/Bridge2/negy.jpg',
+          'https://threejs.org/examples/textures/cube/Bridge2/posz.jpg',
+          'https://threejs.org/examples/textures/cube/Bridge2/negz.jpg'
+        ];
         let ambientLightIntensity = 0.6;
         switch(weather) {
           case "sunny":
-            textureURLs = [
-              'https://threejs.org/examples/textures/cube/skybox/px.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/py.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
-            ];
             ambientLightIntensity = 0.6;
             removeWeatherParticles();
             break;
           case "rain":
-            textureURLs = [
-              'https://threejs.org/examples/textures/cube/skybox/px.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/py.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
-            ];
             ambientLightIntensity = 0.4;
             startRain();
             break;
           case "snow":
-            textureURLs = [
-              'https://threejs.org/examples/textures/cube/skybox/px.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/py.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
-            ];
             ambientLightIntensity = 0.5;
             startSnow();
             break;
           case "cloudy":
-            textureURLs = [
-              'https://threejs.org/examples/textures/cube/skybox/px.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/py.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
-            ];
             ambientLightIntensity = 0.5;
             removeWeatherParticles();
             break;
           case "storm":
-            textureURLs = [
-              'https://threejs.org/examples/textures/cube/skybox/px.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/py.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
-              'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
-            ];
             ambientLightIntensity = 0.3;
             startStorm();
             break;
         }
         let newTexture = loader.load(textureURLs);
         scene.background = newTexture;
-        
-        // Update ambient light if present
         let ambient = scene.getObjectByName("ambientLight");
-        if (ambient) {
-          ambient.intensity = ambientLightIntensity;
-        }
+        if (ambient) { ambient.intensity = ambientLightIntensity; }
       }
 
       // -----------------------
-      // Detailed Tank Model with Correct Cannon Alignment
+      // Tank Model with Correct Cannon Alignment
       // -----------------------
       function createTank(color) {
         let tank = new THREE.Group();
-        // Chassis
         let chassisGeom = new THREE.BoxGeometry(3.5, 1.2, 6);
         let chassisMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.6, roughness: 0.4 });
         let chassis = new THREE.Mesh(chassisGeom, chassisMat);
@@ -387,7 +372,6 @@
         chassis.receiveShadow = true;
         chassis.position.y = 0.6;
         tank.add(chassis);
-        // Side wheels (simulate tracks)
         const wheelGeom = new THREE.CylinderGeometry(0.4, 0.4, 0.3, 16);
         const wheelMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         for (let side of [1, -1]) {
@@ -400,7 +384,6 @@
             tank.add(wheel);
           }
         }
-        // Hatch on top
         let hatchGeom = new THREE.BoxGeometry(1, 0.2, 1);
         let hatchMat = new THREE.MeshStandardMaterial({ color: 0x555555 });
         let hatch = new THREE.Mesh(hatchGeom, hatchMat);
@@ -408,7 +391,6 @@
         hatch.castShadow = true;
         hatch.receiveShadow = true;
         tank.add(hatch);
-        // Turret with cannon aligned correctly
         let turret = new THREE.Group();
         let turretBaseGeom = new THREE.BoxGeometry(2.5, 1, 3);
         let turretBaseMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.7, roughness: 0.3 });
@@ -417,19 +399,19 @@
         turretBase.receiveShadow = true;
         turretBase.position.y = 0.5;
         turret.add(turretBase);
-        // Cannon: center-mounted and properly aligned
+        // Cannon: center-mounted, pointing forward (positive Z) at tank level
         let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
         let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         let cannon = new THREE.Mesh(cannonGeom, cannonMat);
         cannon.castShadow = true;
         cannon.receiveShadow = true;
-        cannon.rotation.z = Math.PI / 2;  // Forward direction along positive Z-axis
-        cannon.position.set(0, 0.4, 1.5);  // Dead-center on X, low Y for tank level
+        cannon.rotation.z = Math.PI / 2;
+        cannon.position.set(0, 0.4, 1.5);
         turret.add(cannon);
         turret.position.set(0, 1.4, 0);
         tank.add(turret);
         tank.userData.turret = turret;
-        tank.userData.cannon = cannon;  // for recoil animation
+        tank.userData.cannon = cannon;
         return tank;
       }
       function addNicknameLabel(tank, nickname) {
@@ -464,7 +446,7 @@
       });
 
       // -----------------------
-      // Environment: True Desert Terrain & Warm Lighting
+      // Environment: Terrain & Skybox
       // -----------------------
       function setupTerrainTexture() {
         const loader = new THREE.TextureLoader();
@@ -472,19 +454,6 @@
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
         sandTexture.repeat.set(20, 20);
         return sandTexture;
-      }
-      function setupSkybox() {
-        // This function is now controlled by applyWeather
-        const loader = new THREE.CubeTextureLoader();
-        const texture = loader.load([
-          'https://threejs.org/examples/textures/cube/skybox/px.jpg',
-          'https://threejs.org/examples/textures/cube/skybox/nx.jpg',
-          'https://threejs.org/examples/textures/cube/skybox/py.jpg',
-          'https://threejs.org/examples/textures/cube/skybox/ny.jpg',
-          'https://threejs.org/examples/textures/cube/skybox/pz.jpg',
-          'https://threejs.org/examples/textures/cube/skybox/nz.jpg'
-        ]);
-        scene.background = texture;
       }
       function createBush() {
         let bush = new THREE.Group();
@@ -610,9 +579,7 @@
           new THREE.Vector3(0, -1, 0)
         );
         let intersects = raycaster.intersectObject(groundMesh);
-        if (intersects.length > 0) {
-          localTank.position.y = intersects[0].point.y + 0.6;
-        }
+        if (intersects.length > 0) { localTank.position.y = intersects[0].point.y + 0.6; }
       }
       function checkCollisions() {
         for (let obs of treeColliders) {
@@ -677,10 +644,7 @@
         offsetY = e.clientY - infoBar.offsetTop;
       });
       document.addEventListener("mousemove", function(e) {
-        if (isDragging) {
-          infoBar.style.left = (e.clientX - offsetX) + "px";
-          infoBar.style.top = (e.clientY - offsetY) + "px";
-        }
+        if (isDragging) { infoBar.style.left = (e.clientX - offsetX) + "px"; infoBar.style.top = (e.clientY - offsetY) + "px"; }
       });
       document.addEventListener("mouseup", function() { isDragging = false; });
       let infoVisible = true;
@@ -706,10 +670,7 @@
         };
         ws.onmessage = (event) => {
           let msg = JSON.parse(event.data);
-          if (msg.type === "pong") {
-            latency = performance.now() - msg.timestamp;
-            return;
-          }
+          if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
           handleServerMessage(msg);
         };
         ws.onclose = () => { console.log("Disconnected from server."); };
@@ -911,9 +872,7 @@
           if (elapsed < explosionLife) {
             explosionMesh.material.opacity = 1 - (elapsed / explosionLife);
             requestAnimationFrame(animateExplosion);
-          } else {
-            scene.remove(explosionMesh);
-          }
+          } else { scene.remove(explosionMesh); }
         }
         animateExplosion();
       }
@@ -964,14 +923,9 @@
         sendUpdate();
         updateMissiles(delta);
         updateTrailParticles(delta);
-        // Weather updates
-        if (currentWeather === "rain") {
-          updateRain(delta);
-        } else if (currentWeather === "snow") {
-          updateSnow(delta);
-        } else if (currentWeather === "storm") {
-          updateStorm(delta);
-        }
+        if (currentWeather === "rain") { updateRain(delta); }
+        else if (currentWeather === "snow") { updateSnow(delta); }
+        else if (currentWeather === "storm") { updateStorm(delta); }
         renderer.render(scene, camera);
         updateMinimap();
         updateHealthBar();
@@ -1016,24 +970,16 @@
           ctx.fill();
         }
       }
-      setInterval(() => {
-        currentMap = 'desert';
-        loadMap(currentMap);
-      }, 180000);
+      setInterval(() => { currentMap = 'desert'; loadMap(currentMap); }, 180000);
       function init() {
         clock = new THREE.Clock();
         scene = new THREE.Scene();
-        setupSkybox();
         scene.fog = new THREE.FogExp2(0xEDC9AF, 0.002);
         camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
         camera.position.set(0, 5, -10);
-        // Attach audio listener if needed (commented out)
-//        camera.add(listener);
-        // Add ambient light with a name for weather adjustments
         let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
         ambient.name = "ambientLight";
         scene.add(ambient);
-        // engineSound.play(); // commented out to avoid errors
         renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -1053,7 +999,6 @@
         scene.add(localTank);
         addNicknameLabel(localTank, playerData.nickname);
         setupWebSocket();
-        // Randomize and apply weather
         const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
         currentWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
         applyWeather(currentWeather);
