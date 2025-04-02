@@ -905,43 +905,8 @@
     function startStorm() { /* Implement storm effects */ }
     function removeWeatherParticles() { /* Remove active weather particles */ }
 
-    // WebSocket Setup (only one declaration)
-    function setupWebSocket() {
-      ws = new WebSocket(WS_URL);
-      ws.onopen = () => {
-        ws.send(JSON.stringify({
-          type: "join",
-          id: playerData.id,
-          nickname: playerData.nickname,
-          color: playerData.color,
-          position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z }
-        }));
-        setInterval(() => {
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "ping", timestamp: performance.now() }));
-          }
-        }, 2000);
-      };
-      ws.onmessage = (event) => {
-        try {
-          let msg = JSON.parse(event.data);
-          if (msg.type === "pong") { 
-            latency = performance.now() - msg.timestamp; 
-            return; 
-          }
-          handleServerMessage(msg);
-        } catch (err) {
-          console.error("Failed to parse message:", err, event.data);
-        }
-      };
-      ws.onclose = () => {
-        console.log("Disconnected from server. Reconnecting in 3 seconds...");
-        setTimeout(setupWebSocket, 3000);
-      };
-      ws.onerror = (err) => {
-        console.error("WebSocket error:", err);
-      };
-    }
+  
+  
 
     function handleServerMessage(msg) {
       switch (msg.type) {
