@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.0.2</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.3</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -148,7 +148,7 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.0.2
+    <strong>Version:</strong> 1.0.3
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -158,7 +158,7 @@
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
   
   <script>
-    // Define ImprovedNoise (for terrain generation)
+    // Define ImprovedNoise for terrain generation
     var ImprovedNoise = function () {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
                140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -205,7 +205,7 @@
       };
     };
 
-    // Define high-resolution skybox textures for each weather type
+    // Define high-resolution skybox textures per weather type
     const skyboxTextures = {
       sunny: [
         "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Bridge2/posx.jpg",
@@ -247,6 +247,28 @@
         "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Park3Med/posz.jpg",
         "https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/cube/Park3Med/negz.jpg"
       ]
+    };
+
+    // Define missileTypes to allow shooting
+    const missileTypes = {
+      bullet: {
+        speed: 100,
+        explosionRadius: 5,
+        geometry: () => new THREE.SphereGeometry(0.2, 8, 8),
+        material: new THREE.MeshStandardMaterial({ color: 0xff0000 })
+      },
+      splash: {
+        speed: 80,
+        explosionRadius: 8,
+        geometry: () => new THREE.SphereGeometry(0.3, 8, 8),
+        material: new THREE.MeshStandardMaterial({ color: 0x00ff00 })
+      },
+      rocket: {
+        speed: 60,
+        explosionRadius: 10,
+        geometry: () => new THREE.CylinderGeometry(0.2, 0.2, 2, 8),
+        material: new THREE.MeshStandardMaterial({ color: 0x0000ff })
+      }
     };
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -355,7 +377,6 @@
           stormLightningTime = Math.random() * 5;
         }
       }
-      // Updated applyWeather to load skybox based on weather and update lighting/info
       function applyWeather(weather) {
         currentWeather = weather;
         const infoBar = document.getElementById("infoBar");
@@ -364,9 +385,8 @@
           <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
           <strong>Players:</strong> --<br>
           <strong>${weatherText}</strong><br>
-          <strong>Version:</strong> 1.0.2`;
+          <strong>Version:</strong> 1.0.3`;
         
-        // Load skybox textures based on weather type
         const loader = new THREE.CubeTextureLoader();
         const textureURLs = skyboxTextures[weather] || skyboxTextures.sunny;
         let ambientLightIntensity = 0.6;
@@ -397,8 +417,6 @@
         let ambient = scene.getObjectByName("ambientLight");
         if (ambient) { ambient.intensity = ambientLightIntensity; }
       }
-
-      // Automatically change weather every 60 seconds
       setInterval(() => {
         const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
         const newWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
@@ -444,13 +462,13 @@
         turretBase.receiveShadow = true;
         turretBase.position.y = 0.5;
         turret.add(turretBase);
-        // Cannon: centered, pointing forward (positive Z) at tank level
+        // Fix: Rotate the cannon about the X-axis so it points along positive Z
         let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
         let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         let cannon = new THREE.Mesh(cannonGeom, cannonMat);
         cannon.castShadow = true;
         cannon.receiveShadow = true;
-        cannon.rotation.z = Math.PI / 2;
+        cannon.rotation.x = Math.PI / 2; // Correct rotation: Y-axis -> Z-axis
         cannon.position.set(0, 0.4, 1.5);
         turret.add(cannon);
         turret.position.set(0, 1.4, 0);
