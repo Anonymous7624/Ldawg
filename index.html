@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.1.6</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.1.7</title>
   <!-- Favicon Links -->
   <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
   <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
@@ -25,52 +25,101 @@
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
     #healthBarContainer {
-      position: fixed; bottom: 220px; left: 50%;
-      transform: translateX(-50%); width: 200px; height: 20px;
-      background-color: #555; border: 2px solid #333;
-      border-radius: 5px; z-index: 130;
+      position: fixed;
+      bottom: 220px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 200px;
+      height: 20px;
+      background-color: #555;
+      border: 2px solid #333;
+      border-radius: 5px;
+      z-index: 130;
     }
     #healthBar { width: 100%; height: 100%; background-color: green; border-radius: 3px; }
     /* Chat Input */
     #chatInput {
-      position: fixed; bottom: 210px; left: 50%;
-      transform: translateX(-50%); display: none;
-      padding: 8px; font-size: 16px; z-index: 110;
+      position: fixed;
+      bottom: 210px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      padding: 8px;
+      font-size: 16px;
+      z-index: 110;
     }
     /* Kill Feed */
-    #killFeed { position: fixed; top: 10px; right: 10px; color: white; font-family: sans-serif; z-index: 110; }
+    #killFeed {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      color: white;
+      font-family: sans-serif;
+      z-index: 110;
+    }
     /* Minimap */
-    #minimap { position: fixed; top: 10px; left: 10px; border: 2px solid #fff; background: rgba(0,0,0,0.5); z-index: 110; }
+    #minimap {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      border: 2px solid #fff;
+      background: rgba(0,0,0,0.5);
+      z-index: 110;
+    }
     /* Global Chat Log */
     #globalChatLog {
-      position: fixed; bottom: 0; left: 0; width: 100%;
-      max-height: 200px; overflow-y: auto;
-      background: rgba(0,0,0,0.7); color: #fff;
-      font-family: Arial, sans-serif; font-size: 14px;
-      padding: 10px; box-sizing: border-box; z-index: 105;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      max-height: 200px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      padding: 10px;
+      box-sizing: border-box;
+      z-index: 105;
     }
     /* Missile Selector Menu */
     #missileMenu {
-      position: fixed; top: 50px; left: 50%;
-      transform: translateX(-50%); background: rgba(0,0,0,0.7);
-      color: #fff; padding: 10px; border-radius: 5px;
-      z-index: 120; font-family: Arial, sans-serif;
+      position: fixed;
+      top: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 10px;
+      border-radius: 5px;
+      z-index: 120;
+      font-family: Arial, sans-serif;
     }
     #missileMenu label, #missileMenu select { font-size: 16px; }
     /* Info Bar */
     #infoBar {
-      position: fixed; top: 10px; right: 10px;
-      background: rgba(0, 0, 0, 0.6); color: #ffdd00;
-      padding: 10px; border-radius: 5px;
-      font-family: Arial, sans-serif; font-size: 14px;
-      cursor: move; z-index: 200;
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.6);
+      color: #ffdd00;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      cursor: move;
+      z-index: 200;
     }
     /* Damage Overlay */
     #damageOverlay {
-      position: fixed; top: 0; left: 0;
-      width: 100%; height: 100%;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
       background: rgba(255, 0, 0, 0);
-      pointer-events: none; z-index: 300;
+      pointer-events: none;
+      z-index: 300;
       transition: background 0.2s ease-out;
     }
     canvas { display: block; }
@@ -97,7 +146,7 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.1.6
+    <strong>Version:</strong> 1.1.7
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -121,17 +170,17 @@
     let playerData = {
       id: Math.floor(Math.random() * 1000000).toString(),
       nickname: localStorage.getItem('nickname') || 'Player' + Math.floor(Math.random() * 1000),
-      color: '#' + (Math.floor(Math.random() * 16777215) & 0x00FF00).toString(16)
+      color: '#' + (Math.floor(Math.random()*16777215) & 0x00FF00).toString(16)
     };
 
-    // Throttle update: 15 times per second
+    // Throttle update: 15 updates per second
     let lastUpdateTime = 0;
     const updateInterval = 1000 / 15;
 
     // Use a constant color for the ground
     const GROUND_COLOR = 0xC2B280; // Light brown
 
-    // Declare dustParticles in the global scope
+    // Declare dustParticles globally
     let dustParticles;
 
     /*************** DUMMY FUNCTIONS (Placeholders) ***************/
@@ -141,12 +190,12 @@
     function updateSnow(delta) { /* Update snow effects */ }
     function updateStorm(delta) { /* Update storm effects */ }
 
-    /*************** MISSING FUNCTIONS STUBS ***************/
+    /*************** MISSING FUNCTION STUBS ***************/
     function checkCollisions() {
       // TODO: Implement collision detection logic
     }
     function updateTankHeight() {
-      // TODO: Adjust the tank's height based on the terrain
+      // TODO: Adjust the tank's height based on terrain (stub)
     }
 
     /*************** WEBSOCKET SETUP ***************/
@@ -234,13 +283,11 @@
         let currentPos = remoteTanks[data.id].mesh.position;
         let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
         currentPos.lerp(targetPos, 0.1);
-        remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(
-          remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1
-        );
+        remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1);
       }
     }
 
-    // Send updates at a fixed rate (15 updates per second)
+    // Throttled update sending
     function sendUpdate() {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -356,7 +403,7 @@
       launchMissile();
     }
 
-    /*************** MISSILES & TRAILS ****************/
+    /*************** MISSILE UPDATES & TRAILS ****************/
     function updateMissiles(delta) {
       for (let i = missiles.length - 1; i >= 0; i--) {
         let missile = missiles[i];
@@ -607,6 +654,38 @@
       scene.add(mapGroup);
     }
 
+    /*************** DUST FUNCTIONS ****************/
+    function startDust() {
+      let dustCount = 200;
+      let dustGeometry = new THREE.BufferGeometry();
+      let dustPositions = new Float32Array(dustCount * 3);
+      for (let i = 0; i < dustCount; i++) {
+        dustPositions[i * 3] = Math.random() * 1000 - 500;
+        dustPositions[i * 3 + 1] = Math.random() * 100 + 50;
+        dustPositions[i * 3 + 2] = Math.random() * 1000 - 500;
+      }
+      dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
+      let dustMaterial = new THREE.PointsMaterial({
+        color: 0xffccaa,
+        size: 1,
+        transparent: true,
+        opacity: 0.3
+      });
+      dustParticles = new THREE.Points(dustGeometry, dustMaterial);
+      scene.add(dustParticles);
+    }
+
+    function updateDust(delta) {
+      if (dustParticles) {
+        let positions = dustParticles.geometry.attributes.position.array;
+        for (let i = 0; i < positions.length; i += 3) {
+          positions[i + 1] += 0.5 * delta;
+          if (positions[i + 1] > 200) positions[i + 1] = 50;
+        }
+        dustParticles.geometry.attributes.position.needsUpdate = true;
+      }
+    }
+
     /*************** ANIMATION & CAMERA ****************/
     let cameraMode = 1;
     function animate() {
@@ -698,11 +777,28 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    /*************** INIT & TERRAIN ****************/
+    /*************** TERRAIN & SKY INIT ****************/
+    function loadMap(mapType) {
+      let oldMap = scene.getObjectByName("mapGroup");
+      if (oldMap) scene.remove(oldMap);
+      let mapGroup = new THREE.Group();
+      mapGroup.name = "mapGroup";
+      treeColliders = [];
+      const size = 1000;
+      const geometry = new THREE.PlaneGeometry(size, size, 1, 1);
+      geometry.rotateX(-Math.PI / 2);
+      const material = new THREE.MeshStandardMaterial({ color: GROUND_COLOR });
+      groundMesh = new THREE.Mesh(geometry, material);
+      groundMesh.receiveShadow = true;
+      mapGroup.add(groundMesh);
+      scene.add(mapGroup);
+    }
+
+    /*************** INIT FUNCTION ****************/
     function init() {
       clock = new THREE.Clock();
       scene = new THREE.Scene();
-      // Use a blue background for the sky and matching fog
+      // Blue sky background and matching fog
       scene.background = new THREE.Color(0x87ceeb);
       scene.fog = new THREE.FogExp2(0x87ceeb, 0.001);
 
