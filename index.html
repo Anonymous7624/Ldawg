@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.0.7</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.8</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -144,17 +144,39 @@
   <div id="globalChatLog"></div>
   <!-- Info Bar with dynamic info -->
   <div id="infoBar">
-    <strong>Version:</strong> 1.0.7
+    <strong>Version:</strong> 1.0.8
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
 
-  <!-- Three.js and GLTFLoader -->
+  <!-- Three.js -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
+  <!-- GLTFLoader (if needed) -->
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
   
   <script>
-    // --- ImprovedNoise definition ---
+    // Declare global variables that will be shared by inner functions
+    let scene, camera, renderer, clock;
+    let localTank, remoteTanks = {};
+    let missiles = [];
+    let trailParticles = [];
+    let dustParticles;
+    let currentWeather = "sunny";
+    let ws;
+    let turretRotationOffset = 0;
+    let prevTankPosition = new THREE.Vector3();
+    let cameraShakeTime = 0, cameraShakeIntensity = 0.5;
+    let controls = { forward: false, backward: false, left: false, right: false, shoot: false };
+
+    // Define player data
+    const playerData = {
+      id: Math.floor(Math.random() * 1000000).toString(),
+      nickname: localStorage.getItem('nickname') || 'Player' + Math.floor(Math.random() * 1000),
+      color: '#' + Math.floor(Math.random() * 16777215).toString(16),
+      health: 100
+    };
+
+    // --- ImprovedNoise (for terrain) ---
     var ImprovedNoise = function () {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
                140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -201,38 +223,16 @@
       };
     };
 
-    // Define weather colors (basic colors, no photos)
+    // --- Weather: Use basic colors and generate clouds using low-poly shapes ---
     const weatherColors = {
       sunny: 0x87ceeb,    // blue sky
       rain: 0x555555,     // dark grey
       snow: 0xccccff,     // light blue-gray
       cloudy: 0x999999,   // medium grey
-      storm: 0x222222     // very dark
+      storm: 0x222222     // dark
     };
 
-    // Missile types for shooting
-    const missileTypes = {
-      bullet: {
-        speed: 100,
-        explosionRadius: 5,
-        geometry: () => new THREE.SphereGeometry(0.2, 8, 8),
-        material: new THREE.MeshStandardMaterial({ color: 0xff0000 })
-      },
-      splash: {
-        speed: 80,
-        explosionRadius: 8,
-        geometry: () => new THREE.SphereGeometry(0.3, 8, 8),
-        material: new THREE.MeshStandardMaterial({ color: 0x00ff00 })
-      },
-      rocket: {
-        speed: 60,
-        explosionRadius: 10,
-        geometry: () => new THREE.CylinderGeometry(0.2, 0.2, 2, 8),
-        material: new THREE.MeshStandardMaterial({ color: 0x0000ff })
-      }
-    };
-
-    // Generate a basic cloud layer using low-poly spheres
+    // Cloud layer using low-poly spheres (no external images)
     let cloudLayer = null;
     function createCloudLayer() {
       let group = new THREE.Group();
@@ -261,39 +261,12 @@
       if (cloudLayer) { scene.remove(cloudLayer); cloudLayer = null; }
     }
 
-    // Dust particles for desert polish
-    let dustParticles;
-    function startDust() {
-      let dustCount = 200;
-      let dustGeometry = new THREE.BufferGeometry();
-      let dustPositions = new Float32Array(dustCount * 3);
-      for (let i = 0; i < dustCount; i++) {
-        dustPositions[i * 3] = Math.random() * 1000 - 500;
-        dustPositions[i * 3 + 1] = Math.random() * 100 + 50;
-        dustPositions[i * 3 + 2] = Math.random() * 1000 - 500;
-      }
-      dustGeometry.setAttribute('position', new THREE.BufferAttribute(dustPositions, 3));
-      let dustMaterial = new THREE.PointsMaterial({ color: 0xffccaa, size: 1, transparent: true, opacity: 0.3 });
-      dustParticles = new THREE.Points(dustGeometry, dustMaterial);
-      scene.add(dustParticles);
-    }
-    function updateDust(delta) {
-      if (dustParticles) {
-        let positions = dustParticles.geometry.attributes.position.array;
-        for (let i = 0; i < positions.length; i += 3) {
-          positions[i + 1] += 0.5 * delta;
-          if (positions[i + 1] > 200) { positions[i + 1] = 50; }
-        }
-        dustParticles.geometry.attributes.position.needsUpdate = true;
-      }
-    }
-
-    // Use a plain sandy color for the terrain (no high-res photos)
+    // --- Terrain: Use plain sandy color ---
     function setupTerrainMaterial() {
       return new THREE.MeshStandardMaterial({ color: 0xDEB887 });
     }
 
-    // Update the Info Bar with connection latency, player count, and current weather.
+    // --- Info Bar Updates ---
     function updateInfoBar() {
       let infoBar = document.getElementById("infoBar");
       let playerCount = Object.keys(remoteTanks).length + 1;
@@ -301,13 +274,11 @@
       <strong>Connection:</strong> ${latency.toFixed(0)} ms<br>
       <strong>Players:</strong> ${playerCount}<br>
       <strong>Weather:</strong> ${currentWeather}<br>
-      <strong>Version:</strong> 1.0.7`;
+      <strong>Version:</strong> 1.0.8`;
     }
 
     // --- WebSocket Setup ---
-    let ws;
     function setupWebSocket() {
-      // Change URL if needed – here we assume the server runs on ws://localhost:8765
       ws = new WebSocket("ws://localhost:8765");
       ws.onopen = () => {
         ws.send(JSON.stringify({
@@ -351,7 +322,6 @@
             }
             break;
           case "weather":
-            // Global weather update from the server
             applyWeather(msg.weather);
             break;
         }
@@ -359,14 +329,7 @@
       ws.onclose = () => { console.log("Disconnected from server."); };
     }
 
-    // --- Tank and Missile Code ---
-    const playerData = {
-      id: Math.floor(Math.random() * 1000000).toString(),
-      nickname: localStorage.getItem('nickname') || 'Player' + Math.floor(Math.random() * 1000),
-      color: '#' + Math.floor(Math.random() * 16777215).toString(16),
-      health: 100
-    };
-    let turretRotationOffset = 0;
+    // --- Tank & Missile Code ---
     function createTank(color) {
       let tank = new THREE.Group();
       let chassisGeom = new THREE.BoxGeometry(3.5, 1.2, 6);
@@ -403,7 +366,7 @@
       turretBase.receiveShadow = true;
       turretBase.position.y = 0.5;
       turret.add(turretBase);
-      // Cannon: rotated about X so it points forward along +Z; positioned at (0,0,2.5)
+      // Cannon: rotated so that it points forward along +Z; positioned at (0,0,2.5) relative to turret.
       let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
       let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
       let cannon = new THREE.Mesh(cannonGeom, cannonMat);
@@ -447,8 +410,7 @@
       }
     });
 
-    // --- Update Tank Height & Slope Alignment ---
-    let prevTankPosition = new THREE.Vector3();
+    // --- Update Tank Height & Align with Slope ---
     function updateTankHeight() {
       if (!groundMesh) return;
       let origin = new THREE.Vector3(localTank.position.x, 1000, localTank.position.z);
@@ -471,14 +433,13 @@
       }
     }
 
-    // --- Environment: Desert Terrain (plain color) ---
+    // --- Environment: Create Desert Terrain (plain color) ---
     let groundMesh;
     function loadMap(mapType) {
       let mapGroup = scene.getObjectByName("mapGroup");
       if (mapGroup) { scene.remove(mapGroup); }
       mapGroup = new THREE.Group();
       mapGroup.name = "mapGroup";
-      let treeColliders = [];
       const size = 1000, segments = 200;
       const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
       geometry.rotateX(-Math.PI / 2);
@@ -495,9 +456,9 @@
       const material = setupTerrainMaterial();
       groundMesh = new THREE.Mesh(geometry, material);
       groundMesh.receiveShadow = true;
-      mapGroup.add(groundMesh);
-      // (Additional rocks and plants could be added here if desired)
-      scene.add(mapGroup);
+      let mapGroupContainer = new THREE.Group();
+      mapGroupContainer.add(groundMesh);
+      scene.add(mapGroupContainer);
     }
 
     // --- Simple Damage Flash ---
@@ -539,7 +500,6 @@
     }
 
     // --- Shooting Functions ---
-    let missiles = [];
     function launchMissile() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
       let missileProps = missileTypes[selectedMissileType];
@@ -689,8 +649,8 @@
       setTimeout(() => { target.remove(sprite); }, 3000);
     }
     function addKillFeed(text) {
-      killFeedMessages.push(text);
-      document.getElementById("killFeed").innerHTML = killFeedMessages.slice(-5).join("<br>");
+      let killFeed = document.getElementById("killFeed");
+      killFeed.innerHTML += text + "<br>";
     }
     function addGlobalChatMessage(text) {
       let chatLog = document.getElementById("globalChatLog");
@@ -701,8 +661,6 @@
     }
 
     // --- Main Animation Loop ---
-    let prevTankPosition = new THREE.Vector3();
-    let cameraShakeTime = 0, cameraShakeIntensity = 0.5;
     function animate() {
       requestAnimationFrame(animate);
       let delta = clock.getDelta();
@@ -773,10 +731,6 @@
     setInterval(() => { loadMap('desert'); }, 180000);
 
     // --- Initialization ---
-    let clock, scene, camera, renderer, localTank, remoteTanks = {}, killFeedMessages = {};
-    let controls = { forward: false, backward: false, left: false, right: false, shoot: false };
-    let faster = false;
-    let cameraMode = 1;
     function init() {
       clock = new THREE.Clock();
       scene = new THREE.Scene();
@@ -805,15 +759,53 @@
       scene.add(localTank);
       addNicknameLabel(localTank, playerData.nickname);
       setupWebSocket();
-      // Note: Weather will now be set by the server via "weather" messages.
+      // Weather will be updated from the server
       startDust();
       window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth/window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
       }, false);
-      window.addEventListener('keydown', onKeyDown, false);
-      window.addEventListener('keyup', onKeyUp, false);
+      window.addEventListener('keydown', (e) => {
+        if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
+        if (e.code === "KeyI") { toggleInfoBar(); return; }
+        if (document.activeElement === chatInput) return;
+        switch (e.code) {
+          case "KeyW": controls.forward = true; break;
+          case "KeyS": controls.backward = true; break;
+          case "KeyA": controls.left = true; break;
+          case "KeyD": controls.right = true; break;
+          case "Space": controls.shoot = true; sendShoot(); break;
+          case "ShiftLeft": faster = true; break;
+          case "Digit1": cameraMode = 1; break;
+          case "Digit2": cameraMode = 2; break;
+          case "Digit3": cameraMode = 3; break;
+        }
+      }, false);
+      window.addEventListener('keyup', (e) => {
+        switch (e.code) {
+          case "KeyW": controls.forward = false; break;
+          case "KeyS": controls.backward = false; break;
+          case "KeyA": controls.left = false; break;
+          case "KeyD": controls.right = false; break;
+          case "Space": controls.shoot = false; break;
+          case "ShiftLeft": faster = false; break;
+        }
+      }, false);
+      chatInput.addEventListener("keydown", function(e) {
+        if (e.key === "Enter") {
+          if (chatInput.value.trim() !== "") { sendChat(chatInput.value.trim()); chatInput.value = ""; }
+          chatInput.style.display = "none";
+        }
+      });
+      document.addEventListener("mousedown", function(e) {
+        let infoBar = document.getElementById("infoBar");
+        infoBar.style.cursor = "move";
+      });
+      document.addEventListener("mouseup", function() {
+        let infoBar = document.getElementById("infoBar");
+        infoBar.style.cursor = "default";
+      });
       animate();
     }
     init();
