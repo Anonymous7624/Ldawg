@@ -2,86 +2,257 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Join 3D Tank v1.1.7</title>
- <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
-<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
-
+  <title>Basic Multiplayer Tank Game</title>
   <style>
-    body { 
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      height: 100vh; 
-      margin: 0; 
-      background-color: #222;
+    body { margin: 0; overflow: hidden; background-color: #222; }
+    #info {
+      position: absolute;
+      top: 10px;
+      left: 10px;
       color: #fff;
-      font-family: Arial, sans-serif;
-    }
-    .container {
-      background: #333;
-      padding: 20px;
-      border-radius: 10px;
-      text-align: center;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
-    }
-    input[type="text"] {
-      padding: 10px;
-      width: 200px;
-      border: none;
-      border-radius: 5px;
-      margin-bottom: 10px;
-    }
-    label {
-      display: block;
-      margin: 10px 0;
-    }
-    input[type="checkbox"] {
-      margin-right: 5px;
-    }
-    button {
-      padding: 10px 20px;
-      border: none;
-      border-radius: 5px;
-      background-color: #5cb85c;
-      color: #fff;
-      font-size: 16px;
-      cursor: pointer;
-    }
-    button:hover {
-      background-color: #4cae4c;
+      font-family: sans-serif;
+      z-index: 100;
     }
   </style>
-  <script>
-    // If a nickname already exists, redirect directly to index.html
-    if (localStorage.getItem('nickname')) {
-      window.location.href = "index.html";
-    }
-  </script>
 </head>
 <body>
-  <div class="container">
-    <h1>Join the Tank Game</h1>
-    <form id="joinForm">
-      <input type="text" id="nickname" placeholder="Enter your nickname" required>
-      <label>
-        <input type="checkbox" id="notRobot" required>
-        I'm not a robot
-      </label>
-      <button type="submit">Join Game</button>
-    </form>
-  </div>
-  
+  <div id="info">Controls: WASD to move, SPACE or Mouse Click to shoot</div>
+  <!-- Make sure Three.js is loaded -->
+  <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
   <script>
-    document.getElementById('joinForm').addEventListener('submit', function(e) {
-      e.preventDefault();
-      const nickname = document.getElementById('nickname').value.trim();
-      const notRobot = document.getElementById('notRobot').checked;
-      if(nickname && notRobot) {
-        localStorage.setItem('nickname', nickname);
-        window.location.href = "index.html";
-      } else {
-        alert("Please enter a nickname and confirm you're not a robot.");
+    // Redirect to join page if nickname is missing
+    if (!localStorage.getItem('nickname')) {
+      window.location.href = "join.html";
+    }
+    const nickname = localStorage.getItem('nickname');
+    const playerId = Math.floor(Math.random() * 1000000).toString();
+
+    /*********** Scene Setup ***********/
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87ceeb);
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 10, 20);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    document.body.appendChild(renderer.domElement);
+
+    // Add ambient and directional light
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(ambientLight);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    dirLight.position.set(10, 20, 10);
+    scene.add(dirLight);
+
+    // Create a flat ground
+    const groundGeo = new THREE.PlaneGeometry(200, 200);
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0x808080 });
+    const ground = new THREE.Mesh(groundGeo, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    scene.add(ground);
+
+    /*********** Tank Creation ***********/
+    function createTank(color) {
+      const tank = new THREE.Group();
+      // Tank body
+      const bodyGeo = new THREE.BoxGeometry(4, 1, 6);
+      const bodyMat = new THREE.MeshStandardMaterial({ color: color });
+      const body = new THREE.Mesh(bodyGeo, bodyMat);
+      body.position.y = 0.5;
+      tank.add(body);
+      // Tank cannon
+      const cannonGeo = new THREE.CylinderGeometry(0.3, 0.3, 4, 12);
+      const cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
+      const cannon = new THREE.Mesh(cannonGeo, cannonMat);
+      cannon.rotation.z = Math.PI / 2;
+      cannon.position.set(0, 1, 3);
+      tank.add(cannon);
+      return tank;
+    }
+
+    // Create the local player's tank (green)
+    const localTank = createTank(0x00ff00);
+    localTank.position.set(0, 0, 0);
+    scene.add(localTank);
+
+    // Function to add a floating nickname above a tank using a sprite
+    function addNameLabel(tank, name) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 64;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "30px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.fillText(name, canvas.width / 2, canvas.height / 2 + 10);
+      const texture = new THREE.CanvasTexture(canvas);
+      const spriteMat = new THREE.SpriteMaterial({ map: texture });
+      const sprite = new THREE.Sprite(spriteMat);
+      sprite.scale.set(4, 1, 1);
+      sprite.position.set(0, 3, 0);
+      tank.add(sprite);
+    }
+
+    addNameLabel(localTank, nickname);
+
+    // Remote tanks (other players)
+    const remoteTanks = {};
+
+    /*********** WebSocket Setup ***********/
+    const ws = new WebSocket("ws://localhost:8080");
+    ws.onopen = function() {
+      // Inform server of the new player joining
+      const joinMsg = {
+        type: "join",
+        id: playerId,
+        nickname: nickname,
+        position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z }
+      };
+      ws.send(JSON.stringify(joinMsg));
+    };
+
+    ws.onmessage = function(event) {
+      const msg = JSON.parse(event.data);
+      // Ignore messages from our own player
+      if (msg.id === playerId) return;
+
+      if (msg.type === "join") {
+        // Add a new remote tank if not already present
+        if (!remoteTanks[msg.id]) {
+          const remoteTank = createTank(0xff0000);
+          remoteTank.position.set(msg.position.x, msg.position.y, msg.position.z);
+          addNameLabel(remoteTank, msg.nickname);
+          scene.add(remoteTank);
+          remoteTanks[msg.id] = remoteTank;
+        }
+      } else if (msg.type === "update") {
+        // Update remote tank position and rotation
+        if (remoteTanks[msg.id]) {
+          remoteTanks[msg.id].position.set(msg.position.x, msg.position.y, msg.position.z);
+          remoteTanks[msg.id].rotation.y = msg.rotation;
+        }
+      } else if (msg.type === "shoot") {
+        // Create a missile for a remote player shooting
+        createMissile(msg.position, msg.rotation);
+      } else if (msg.type === "leave") {
+        // Remove a remote tank when a player leaves
+        if (remoteTanks[msg.id]) {
+          scene.remove(remoteTanks[msg.id]);
+          delete remoteTanks[msg.id];
+        }
       }
+    };
+
+    /*********** Input Handling ***********/
+    const controls = { forward: false, backward: false, left: false, right: false };
+
+    document.addEventListener('keydown', (e) => {
+      if (e.code === 'KeyW') controls.forward = true;
+      if (e.code === 'KeyS') controls.backward = true;
+      if (e.code === 'KeyA') controls.left = true;
+      if (e.code === 'KeyD') controls.right = true;
+      if (e.code === 'Space') shoot();
+    });
+
+    document.addEventListener('keyup', (e) => {
+      if (e.code === 'KeyW') controls.forward = false;
+      if (e.code === 'KeyS') controls.backward = false;
+      if (e.code === 'KeyA') controls.left = false;
+      if (e.code === 'KeyD') controls.right = false;
+    });
+
+    // Also allow shooting on mouse click
+    document.addEventListener('mousedown', (e) => {
+      shoot();
+    });
+
+    const moveSpeed = 0.2;
+    function updateMovement() {
+      if (controls.forward) {
+        localTank.translateZ(moveSpeed);
+      }
+      if (controls.backward) {
+        localTank.translateZ(-moveSpeed);
+      }
+      if (controls.left) {
+        localTank.rotation.y += 0.05;
+      }
+      if (controls.right) {
+        localTank.rotation.y -= 0.05;
+      }
+      // Send current position and rotation to the server
+      const updateMsg = {
+        type: "update",
+        id: playerId,
+        position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+        rotation: localTank.rotation.y
+      };
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(updateMsg));
+      }
+    }
+
+    /*********** Missile (Shooting) ***********/
+    const missiles = [];
+    function createMissile(startPos, rotation) {
+      const geometry = new THREE.SphereGeometry(0.2, 8, 8);
+      const material = new THREE.MeshStandardMaterial({ color: 0xffff00 });
+      const missile = new THREE.Mesh(geometry, material);
+      // Slightly raise missile to avoid ground clipping
+      missile.position.set(startPos.x, startPos.y + 1, startPos.z);
+      // Set velocity in the direction of the tank's facing angle
+      const velocity = new THREE.Vector3(0, 0, 0.5);
+      velocity.applyAxisAngle(new THREE.Vector3(0,1,0), rotation);
+      missile.userData = { velocity: velocity };
+      scene.add(missile);
+      missiles.push(missile);
+    }
+
+    function shoot() {
+      // Determine missile starting point (in front of the tank)
+      const startPos = new THREE.Vector3();
+      startPos.copy(localTank.position);
+      // Offset: assume cannon is at front (modify as needed)
+      const offset = new THREE.Vector3(0, 1, 3);
+      offset.applyEuler(localTank.rotation);
+      startPos.add(offset);
+      createMissile(startPos, localTank.rotation.y);
+      // Notify server of the shoot event
+      const shootMsg = {
+        type: "shoot",
+        id: playerId,
+        position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+        rotation: localTank.rotation.y
+      };
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(shootMsg));
+      }
+    }
+
+    /*********** Animation Loop ***********/
+    function animate() {
+      requestAnimationFrame(animate);
+      updateMovement();
+
+      // Update missile positions and remove if too far away
+      for (let i = missiles.length - 1; i >= 0; i--) {
+        missiles[i].position.add(missiles[i].userData.velocity);
+        if (missiles[i].position.length() > 200) {
+          scene.remove(missiles[i]);
+          missiles.splice(i, 1);
+        }
+      }
+
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // Handle window resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
     });
   </script>
 </body>
