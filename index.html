@@ -126,10 +126,11 @@
       color: '#' + (Math.floor(Math.random()*16777215) & 0x00FF00).toString(16)
     };
 
-    // WebSocket URL (declared only once)
-    const WS_URL = "wss://game.ldawg7624.com";
+    // Throttle update: send update 15 times per second.
+    let lastUpdateTime = 0;
+    const updateInterval = 1000 / 15;
 
-    // Dummy implementations for missing functions (replace with actual code as needed)
+    // Dummy implementations for missing functions (replace with actual code if available)
     function updateHealthBar() { /* Update health UI */ }
     function updateInfoBar() { /* Update additional info */ }
     function updateRain(delta) { /* Update rain effects */ }
@@ -509,7 +510,7 @@
       infoBar.style.display = infoVisible ? "block" : "none";
     }
 
-    // WebSocket Setup (only one declaration)
+    // WebSocket Setup with error handling and reconnection logic
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
@@ -527,11 +528,24 @@
         }, 2000);
       };
       ws.onmessage = (event) => {
-        let msg = JSON.parse(event.data);
-        if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
-        handleServerMessage(msg);
+        try {
+          let msg = JSON.parse(event.data);
+          if (msg.type === "pong") { 
+            latency = performance.now() - msg.timestamp; 
+            return; 
+          }
+          handleServerMessage(msg);
+        } catch (err) {
+          console.error("Failed to parse message:", err, event.data);
+        }
       };
-      ws.onclose = () => { console.log("Disconnected from server."); };
+      ws.onclose = () => {
+        console.log("Disconnected from server. Attempting to reconnect in 3 seconds...");
+        setTimeout(setupWebSocket, 3000);
+      };
+      ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+      };
     }
 
     function handleServerMessage(msg) {
@@ -583,6 +597,7 @@
       }
     }
 
+    // Send updates at a fixed rate (15 updates per second)
     function sendUpdate() {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -679,7 +694,12 @@
       for (let id in remoteTanks) {
         remoteTanks[id].mesh.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
       }
-      sendUpdate();
+      // Throttle sendUpdate() to 15 updates per second
+      const now = performance.now();
+      if (now - lastUpdateTime > updateInterval) {
+        sendUpdate();
+        lastUpdateTime = now;
+      }
       updateMissiles(delta);
       updateTrailParticles(delta);
       if (currentWeather === "rain") { updateRain(delta); }
@@ -879,7 +899,7 @@
       applyWeather(newWeather);
     }, 60000);
 
-    // Dummy weather functions (replace with real implementations if available)
+    // Dummy weather functions (replace with actual implementations)
     function startRain() { /* Implement rain particle system */ }
     function startSnow() { /* Implement snow particle system */ }
     function startStorm() { /* Implement storm effects */ }
@@ -903,11 +923,24 @@
         }, 2000);
       };
       ws.onmessage = (event) => {
-        let msg = JSON.parse(event.data);
-        if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
-        handleServerMessage(msg);
+        try {
+          let msg = JSON.parse(event.data);
+          if (msg.type === "pong") { 
+            latency = performance.now() - msg.timestamp; 
+            return; 
+          }
+          handleServerMessage(msg);
+        } catch (err) {
+          console.error("Failed to parse message:", err, event.data);
+        }
       };
-      ws.onclose = () => { console.log("Disconnected from server."); };
+      ws.onclose = () => {
+        console.log("Disconnected from server. Reconnecting in 3 seconds...");
+        setTimeout(setupWebSocket, 3000);
+      };
+      ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+      };
     }
 
     function handleServerMessage(msg) {
@@ -1055,7 +1088,12 @@
       for (let id in remoteTanks) {
         remoteTanks[id].mesh.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
       }
-      sendUpdate();
+      // Throttle sendUpdate() to 15 updates per second
+      const now = performance.now();
+      if (now - lastUpdateTime > updateInterval) {
+        sendUpdate();
+        lastUpdateTime = now;
+      }
       updateMissiles(delta);
       updateTrailParticles(delta);
       if (currentWeather === "rain") { updateRain(delta); }
@@ -1108,7 +1146,107 @@
     }
     setInterval(() => { currentMap = 'desert'; loadMap(currentMap); }, 180000);
 
+    // Desert Terrain Setup
+    let groundMesh, treeColliders;
+    function setupTerrainTexture() {
+      const loader = new THREE.TextureLoader();
+      let sandTexture = loader.load('https://threejs.org/examples/textures/sand.jpg');
+      sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
+      sandTexture.repeat.set(50, 50);
+      return sandTexture;
+    }
+    function createBush() {
+      let bush = new THREE.Group();
+      let bushGeom = new THREE.SphereGeometry(1, 8, 8);
+      let bushMat = new THREE.MeshStandardMaterial({ color: 0x775533 });
+      let bushMesh = new THREE.Mesh(bushGeom, bushMat);
+      bushMesh.castShadow = true;
+      bushMesh.receiveShadow = true;
+      bush.add(bushMesh);
+      return bush;
+    }
+    function createCactusVariety() {
+      let cactus = new THREE.Group();
+      let scale = Math.random() * 0.5 + 0.8;
+      let stem = new THREE.Mesh(new THREE.CylinderGeometry(0.3 * scale, 0.3 * scale, 4 * scale, 8),
+        new THREE.MeshStandardMaterial({ color: 0x228B22 }));
+      stem.position.y = 2 * scale;
+      cactus.add(stem);
+      if (Math.random() > 0.5) {
+        let arm = new THREE.Mesh(new THREE.CylinderGeometry(0.2 * scale, 0.2 * scale, 2 * scale, 8),
+          new THREE.MeshStandardMaterial({ color: 0x228B22 }));
+        arm.rotation.z = Math.PI / 4;
+        arm.position.set(0.5 * scale, 3 * scale, 0);
+        cactus.add(arm);
+        let arm2 = arm.clone();
+        arm2.rotation.z = -Math.PI / 4;
+        arm2.position.set(-0.5 * scale, 3 * scale, 0);
+        cactus.add(arm2);
+      }
+      return cactus;
+    }
+    function loadMap(mapType) {
+      if (typeof treeColliders === 'undefined') treeColliders = [];
+      let mapGroup = scene.getObjectByName("mapGroup");
+      if (mapGroup) { scene.remove(mapGroup); }
+      mapGroup = new THREE.Group();
+      mapGroup.name = "mapGroup";
+      treeColliders = [];
+      const size = 1000, segments = 200;
+      const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
+      geometry.rotateX(-Math.PI / 2);
+      let amplitude = 8, scale = 150;
+      let noise = new ImprovedNoise();
+      let positions = geometry.attributes.position;
+      for (let i = 0; i < positions.count; i++) {
+        let x = positions.getX(i), z = positions.getZ(i);
+        let y = noise.noise(x / scale, z / scale, 0) * amplitude;
+        positions.setY(i, y);
+      }
+      positions.needsUpdate = true;
+      geometry.computeVertexNormals();
+      const material = new THREE.MeshStandardMaterial({ map: setupTerrainTexture(), color: 0xF5DEB3 });
+      groundMesh = new THREE.Mesh(geometry, material);
+      groundMesh.receiveShadow = true;
+      mapGroup.add(groundMesh);
+      for (let i = 0; i < 70; i++) {
+        let rockSize = Math.random() * 2 + 0.5;
+        let rockGeom = new THREE.DodecahedronGeometry(rockSize, 0);
+        let rockMat = new THREE.MeshStandardMaterial({ color: 0x888888 });
+        let rock = new THREE.Mesh(rockGeom, rockMat);
+        rock.castShadow = true;
+        rock.receiveShadow = true;
+        rock.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
+        let rockHeight = noise.noise(rock.position.x / scale, rock.position.z / scale, 0) * amplitude;
+        rock.position.y = rockHeight + rockSize/2;
+        rock.rotation.y = Math.random() * Math.PI * 2;
+        mapGroup.add(rock);
+      }
+      for (let i = 0; i < 10; i++) {
+        let cactus = createCactusVariety();
+        cactus.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
+        cactus.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
+        let y = noise.noise(cactus.position.x / scale, cactus.position.z / scale, 0) * amplitude;
+        cactus.position.y = y;
+        mapGroup.add(cactus);
+      }
+      for (let i = 0; i < 20; i++) {
+        let bush = createBush();
+        bush.traverse(child => { if(child.isMesh) { child.castShadow = true; child.receiveShadow = true; }});
+        bush.position.set((Math.random()-0.5)*size, 0, (Math.random()-0.5)*size);
+        let y = noise.noise(bush.position.x / scale, bush.position.z / scale, 0) * amplitude;
+        bush.position.y = y;
+        mapGroup.add(bush);
+      }
+      scene.add(mapGroup);
+    }
+
     // Initialization and Terrain Setup
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
     function init() {
       clock = new THREE.Clock();
       scene = new THREE.Scene();
