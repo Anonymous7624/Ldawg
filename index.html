@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.0.6</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.5</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -148,7 +148,7 @@
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
     <strong>Weather:</strong> --<br>
-    <strong>Version:</strong> 1.0.6
+    <strong>Version:</strong> 1.0.5
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -205,7 +205,7 @@
       };
     };
 
-    // High-res but not excessive skybox textures for weather
+    // High-res skybox textures for weather
     const skyboxTextures = {
       sunny: [
         "https://threejs.org/examples/textures/cube/skyboxsun25deg/posx.jpg",
@@ -271,12 +271,12 @@
       }
     };
 
-    // Cloud layer functions (for snowy, cloudy, storm weather)
+    // Cloud layer variables and functions
     let cloudMesh = null;
     function startClouds() {
       if (cloudMesh) return;
       const loader = new THREE.TextureLoader();
-      loader.load('https://threejs.org/examples/textures/cloud.png', function(texture) {
+      loader.load('https://threejs.org/examples/textures/cloud.png', function(texture){
         let geometry = new THREE.SphereGeometry(1200, 32, 32);
         let material = new THREE.MeshBasicMaterial({
           map: texture,
@@ -292,7 +292,7 @@
       if (cloudMesh) { scene.remove(cloudMesh); cloudMesh = null; }
     }
 
-    // Dust particles for desert polish
+    // Dust particles for extra desert polish
     let dustParticles;
     function startDust() {
       let dustCount = 200;
@@ -419,13 +419,13 @@
         stormLightningTime -= delta;
         if (stormLightningTime <= 0) {
           let lightning = new THREE.PointLight(0xffffff, 2, 200);
-          lightning.position.set(Math.random()*1000 - 500, 300, Math.random()*1000 - 500);
+          lightning.position.set(Math.random() * 1000 - 500, 300, Math.random() * 1000 - 500);
           scene.add(lightning);
           setTimeout(() => { scene.remove(lightning); }, 100);
           stormLightningTime = Math.random() * 5;
         }
       }
-      // applyWeather: load the skybox and add clouds for certain weather types.
+      // Updated applyWeather: load appropriate skybox, adjust lighting, and add clouds when needed.
       function applyWeather(weather) {
         currentWeather = weather;
         const infoBar = document.getElementById("infoBar");
@@ -434,12 +434,12 @@
           <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
           <strong>Players:</strong> --<br>
           <strong>${weatherText}</strong><br>
-          <strong>Version:</strong> 1.0.6`;
+          <strong>Version:</strong> 1.0.5`;
         
         const loader = new THREE.CubeTextureLoader();
         const textureURLs = skyboxTextures[weather] || skyboxTextures.sunny;
         let ambientLightIntensity = 0.6;
-        switch(weather) {
+        switch (weather) {
           case "sunny":
             ambientLightIntensity = 0.6;
             removeWeatherParticles();
@@ -471,6 +471,7 @@
         let ambient = scene.getObjectByName("ambientLight");
         if (ambient) { ambient.intensity = ambientLightIntensity; }
       }
+      // Change weather every 60 seconds
       setInterval(() => {
         const weatherTypes = ["sunny", "rain", "snow", "cloudy", "storm"];
         const newWeather = weatherTypes[Math.floor(Math.random() * weatherTypes.length)];
@@ -516,15 +517,14 @@
         turretBase.receiveShadow = true;
         turretBase.position.y = 0.5;
         turret.add(turretBase);
-        // Fix: Rotate the cannon about the X-axis so that its long axis (Y by default) aligns with positive Z.
+        // Rotate cannon about X so it points forward (+Z)
         let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
         let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
         let cannon = new THREE.Mesh(cannonGeom, cannonMat);
         cannon.castShadow = true;
         cannon.receiveShadow = true;
-        cannon.rotation.x = Math.PI / 2; // now the cylinder extends along Z
-        // Position it so that it is centered on the turret and extends forward.
-        cannon.position.set(0, 0, 2.5);
+        cannon.rotation.x = Math.PI / 2;
+        cannon.position.set(0, 0.4, 1.5);
         turret.add(cannon);
         turret.position.set(0, 1.4, 0);
         tank.add(turret);
@@ -532,7 +532,7 @@
         tank.userData.cannon = cannon;
         return tank;
       }
-      // Raise nametag higher (Y = 3.5) for readability.
+      // Raise nametag higher for better readability (Y = 3.5)
       function addNicknameLabel(tank, nickname) {
         tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
         let canvas = document.createElement('canvas');
@@ -565,7 +565,7 @@
       });
 
       // -----------------------
-      // Update Tank Height and Slope Alignment
+      // Update Tank Height and Align with Ground Slope
       // -----------------------
       function updateTankHeight() {
         if (!groundMesh) return;
@@ -575,13 +575,16 @@
         if (intersects.length > 0) {
           let intersect = intersects[0];
           localTank.position.y = intersect.point.y + 0.6;
+          // Retrieve the ground normal and transform to world space
           let normal = intersect.face.normal.clone();
           normal.transformDirection(groundMesh.matrixWorld);
+          // Preserve current heading (yaw) by extracting it from the tank’s quaternion
           let currentEuler = new THREE.Euler().setFromQuaternion(localTank.quaternion, 'YXZ');
           let yaw = currentEuler.y;
+          // Compute the desired forward vector based on yaw
           let forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
           let projectedForward = forward.clone().projectOnPlane(normal).normalize();
-          if (projectedForward.length() < 0.001) { projectedForward = new THREE.Vector3(0, 0, 1); }
+          if (projectedForward.length() < 0.001) { projectedForward = new THREE.Vector3(0,0,1); }
           let right = new THREE.Vector3().crossVectors(normal, projectedForward).normalize();
           let m = new THREE.Matrix4();
           m.makeBasis(right, normal, projectedForward);
@@ -590,10 +593,11 @@
       }
 
       // -----------------------
-      // Environment: Desert Terrain & Warm Lighting
+      // Environment: High-Res Desert Terrain & Warm Lighting
       // -----------------------
       function setupTerrainTexture() {
         const loader = new THREE.TextureLoader();
+        // Use a high-res sand texture and repeat it 50x50
         let sandTexture = loader.load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r152/examples/textures/sand.jpg');
         sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
         sandTexture.repeat.set(50, 50);
@@ -724,6 +728,7 @@
         if (intersects.length > 0) {
           let intersect = intersects[0];
           localTank.position.y = intersect.point.y + 0.6;
+          // Align tank with the slope:
           let normal = intersect.face.normal.clone();
           normal.transformDirection(groundMesh.matrixWorld);
           let currentEuler = new THREE.Euler().setFromQuaternion(localTank.quaternion, 'YXZ');
@@ -764,11 +769,7 @@
           case "KeyS": controls.backward = true; break;
           case "KeyA": controls.left = true; break;
           case "KeyD": controls.right = true; break;
-          case "Space": 
-            controls.shoot = true; 
-            console.log("Shooting triggered");
-            sendShoot(); 
-            break;
+          case "Space": controls.shoot = true; sendShoot(); break;
           case "ShiftLeft": faster = true; break;
           case "Digit1": cameraMode = 1; break;
           case "Digit2": cameraMode = 2; break;
@@ -942,8 +943,6 @@
         scene.add(missileMesh);
       }
       function sendShoot() {
-        // Log shooting for debugging
-        console.log("Space pressed: shooting missile");
         let selectedMissileType = document.getElementById("missileTypeSelect").value;
         if (ws && ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({
