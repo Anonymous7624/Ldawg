@@ -157,6 +157,9 @@
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
   
   <script>
+    // -----------------------------
+    // Helper Functions & Definitions
+    // -----------------------------
     // ImprovedNoise for terrain generation
     var ImprovedNoise = function () {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
@@ -226,7 +229,7 @@
       }
     };
 
-    // Remove all weather; use clear sky only.
+    // Remove weather functionality; use a fixed clear sky
     function setupSky() {
       const loader = new THREE.TextureLoader();
       loader.load('ClearSky.png', function(texture) {
@@ -237,13 +240,41 @@
     // Use provided ground texture
     function setupTerrainTexture() {
       const loader = new THREE.TextureLoader();
-      let sandTexture = loader.load('rocky_trail_02_diff_4k.jpg');
-      sandTexture.wrapS = sandTexture.wrapT = THREE.RepeatWrapping;
-      sandTexture.repeat.set(50, 50);
-      return sandTexture;
+      let groundTexture = loader.load('rocky_trail_02_diff_4k.jpg');
+      groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
+      groundTexture.repeat.set(50, 50);
+      return groundTexture;
     }
 
-    // Tank model with properly aligned barrel
+    // loadMap() must be defined before init() is called.
+    function loadMap(mapType) {
+      let mapGroup = scene.getObjectByName("mapGroup");
+      if (mapGroup) { scene.remove(mapGroup); }
+      mapGroup = new THREE.Group();
+      mapGroup.name = "mapGroup";
+      // Optional: reset tree colliders if used elsewhere
+      const size = 1000, segments = 200;
+      const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
+      geometry.rotateX(-Math.PI / 2);
+      let amplitude = 8, scale = 150;
+      const noise = new ImprovedNoise();
+      const positions = geometry.attributes.position;
+      for (let i = 0; i < positions.count; i++) {
+        let x = positions.getX(i), z = positions.getZ(i);
+        let y = noise.noise(x / scale, z / scale, 0) * amplitude;
+        positions.setY(i, y);
+      }
+      positions.needsUpdate = true;
+      geometry.computeVertexNormals();
+      const material = new THREE.MeshStandardMaterial({ map: setupTerrainTexture() });
+      groundMesh = new THREE.Mesh(geometry, material);
+      groundMesh.receiveShadow = true;
+      mapGroup.add(groundMesh);
+      // Optionally add desert rocks, plants, etc. here...
+      scene.add(mapGroup);
+    }
+
+    // Create the tank with correctly aligned barrel
     function createTank(color) {
       let tank = new THREE.Group();
       let chassisGeom = new THREE.BoxGeometry(3.5, 1.2, 6);
@@ -280,7 +311,7 @@
       turretBase.receiveShadow = true;
       turretBase.position.y = 0.5;
       turret.add(turretBase);
-      // Barrel: rotate about X-axis so it points along positive Z; remains parallel with tank
+      // Cannon: rotate about X-axis so its long axis points along positive Z
       let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
       let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
       let cannon = new THREE.Mesh(cannonGeom, cannonMat);
@@ -296,7 +327,7 @@
       return tank;
     }
 
-    // Raise the nametag higher so it’s easily readable
+    // Raise the nametag higher so it's more visible
     function addNicknameLabel(tank, nickname) {
       tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
       let canvas = document.createElement('canvas');
@@ -316,10 +347,9 @@
       tank.add(sprite);
     }
 
-    // Update tank height and orientation according to ground slope
+    // Update tank height and orientation to match the ground slope
     function updateTankHeightAndOrientation() {
       if (!groundMesh) return;
-      // Cast ray downward from a point above the tank
       let raycaster = new THREE.Raycaster(
         new THREE.Vector3(localTank.position.x, localTank.position.y + 10, localTank.position.z),
         new THREE.Vector3(0, -1, 0)
@@ -328,21 +358,15 @@
       if (intersects.length > 0) {
         let hit = intersects[0];
         localTank.position.y = hit.point.y + 0.6;
-        // Get the ground normal in world space
         let normal = hit.face.normal.clone();
         normal.transformDirection(groundMesh.matrixWorld);
-        // Preserve the user-controlled yaw (rotation around Y)
         let yaw = localTank.rotation.y;
-        // Compute forward vector from yaw
         let forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-        // Project forward onto the plane defined by the ground normal
         forward.projectOnPlane(normal).normalize();
         let right = new THREE.Vector3().crossVectors(normal, forward).normalize();
-        // Build a new rotation matrix with X=right, Y=normal, Z=forward
         let m = new THREE.Matrix4();
         m.makeBasis(right, normal, forward);
         let euler = new THREE.Euler().setFromRotationMatrix(m);
-        // Override yaw with user input
         euler.y = yaw;
         localTank.rotation.set(euler.x, euler.y, euler.z);
       }
@@ -358,11 +382,10 @@
       }
     });
 
-    // Server connection (using ws://localhost:8080)
-    const WS_URL = "ws://localhost:8080";
-
+    // WebSocket connection to ws://localhost:8080
+    let ws;
     function setupWebSocket() {
-      ws = new WebSocket(WS_URL);
+      ws = new WebSocket("ws://localhost:8080");
       ws.onopen = () => {
         ws.send(JSON.stringify({
           type: "join",
@@ -593,7 +616,9 @@
         if (elapsed < explosionLife) {
           explosionMesh.material.opacity = 1 - (elapsed / explosionLife);
           requestAnimationFrame(animateExplosion);
-        } else { scene.remove(explosionMesh); }
+        } else {
+          scene.remove(explosionMesh);
+        }
       }
       animateExplosion();
     }
@@ -627,31 +652,6 @@
       messageElem.textContent = text;
       chatLog.appendChild(messageElem);
       chatLog.scrollTop = chatLog.scrollHeight;
-    }
-
-    function animate() {
-      requestAnimationFrame(animate);
-      let delta = clock.getDelta();
-      prevTankPosition.copy(localTank.position);
-      let speed = 15 * delta * (faster ? 2 : 1);
-      if (controls.forward) localTank.translateZ(speed);
-      if (controls.backward) localTank.translateZ(-speed);
-      if (controls.left) localTank.rotation.y += 2 * delta;
-      if (controls.right) localTank.rotation.y -= 2 * delta;
-      checkCollisions();
-      updateTankHeightAndOrientation();
-      updateCamera();
-      localTank.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
-      for (let id in remoteTanks) {
-        remoteTanks[id].mesh.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
-      }
-      sendUpdate();
-      updateMissiles(delta);
-      updateTrailParticles(delta);
-      renderer.render(scene, camera);
-      updateMinimap();
-      updateHealthBar();
-      updateInfoBar();
     }
 
     function updateCamera() {
@@ -695,34 +695,135 @@
       }
     }
 
-    // Combined function to update tank height and adjust orientation to match ground slope
-    function updateTankHeightAndOrientation() {
-      if (!groundMesh) return;
-      let raycaster = new THREE.Raycaster(
-        new THREE.Vector3(localTank.position.x, localTank.position.y + 10, localTank.position.z),
-        new THREE.Vector3(0, -1, 0)
-      );
-      let intersects = raycaster.intersectObject(groundMesh);
-      if (intersects.length > 0) {
-        let hit = intersects[0];
-        localTank.position.y = hit.point.y + 0.6;
-        // Adjust tank orientation to match ground slope while preserving yaw
-        let normal = hit.face.normal.clone();
-        normal.transformDirection(groundMesh.matrixWorld);
-        let yaw = localTank.rotation.y;
-        let forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-        forward.projectOnPlane(normal).normalize();
-        let right = new THREE.Vector3().crossVectors(normal, forward).normalize();
-        let m = new THREE.Matrix4();
-        m.makeBasis(right, normal, forward);
-        let euler = new THREE.Euler().setFromRotationMatrix(m);
-        euler.y = yaw; // preserve user-controlled yaw
-        localTank.rotation.set(euler.x, euler.y, euler.z);
+    function animate() {
+      requestAnimationFrame(animate);
+      let delta = clock.getDelta();
+      prevTankPosition.copy(localTank.position);
+      let speed = 15 * delta * (faster ? 2 : 1);
+      if (controls.forward) localTank.translateZ(speed);
+      if (controls.backward) localTank.translateZ(-speed);
+      if (controls.left) localTank.rotation.y += 2 * delta;
+      if (controls.right) localTank.rotation.y -= 2 * delta;
+      checkCollisions();
+      updateTankHeightAndOrientation();
+      updateCamera();
+      localTank.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
+      for (let id in remoteTanks) {
+        remoteTanks[id].mesh.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
+      }
+      sendUpdate();
+      updateMissiles(delta);
+      updateTrailParticles(delta);
+      renderer.render(scene, camera);
+      updateMinimap();
+      // updateHealthBar() and updateInfoBar() would go here if defined
+    }
+
+    function checkCollisions() {
+      for (let obs of treeColliders) {
+        if (localTank.position.distanceTo(obs.position) < 10) {
+          localTank.position.copy(prevTankPosition);
+          return;
+        }
+      }
+      const boundary = 500;
+      if (localTank.position.x < -boundary || localTank.position.x > boundary ||
+          localTank.position.z < -boundary || localTank.position.z > boundary) {
+        localTank.position.copy(prevTankPosition);
       }
     }
 
-    setInterval(() => { currentMap = 'desert'; loadMap(currentMap); }, 180000);
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
 
+    function onKeyDown(e) {
+      if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
+      if (e.code === "KeyI") { toggleInfoBar(); return; }
+      if (document.activeElement === chatInput) return;
+      switch (e.code) {
+        case "KeyW": controls.forward = true; break;
+        case "KeyS": controls.backward = true; break;
+        case "KeyA": controls.left = true; break;
+        case "KeyD": controls.right = true; break;
+        case "Space": controls.shoot = true; sendShoot(); break;
+        case "ShiftLeft": faster = true; break;
+        case "Digit1": cameraMode = 1; break;
+        case "Digit2": cameraMode = 2; break;
+        case "Digit3": cameraMode = 3; break;
+      }
+    }
+
+    function onKeyUp(e) {
+      switch (e.code) {
+        case "KeyW": controls.forward = false; break;
+        case "KeyS": controls.backward = false; break;
+        case "KeyA": controls.left = false; break;
+        case "KeyD": controls.right = false; break;
+        case "Space": controls.shoot = false; break;
+        case "ShiftLeft": faster = false; break;
+      }
+    }
+
+    const chatInput = document.getElementById("chatInput");
+    chatInput.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        if (chatInput.value.trim() !== "") { sendChat(chatInput.value.trim()); chatInput.value = ""; }
+        chatInput.style.display = "none";
+      }
+    });
+    function toggleChat() {
+      chatInput.style.display = (chatInput.style.display === "none" || chatInput.style.display === "") ? "block" : "none";
+      if (chatInput.style.display === "block") chatInput.focus();
+    }
+
+    let isDragging = false, offsetX = 0, offsetY = 0;
+    const infoBar = document.getElementById("infoBar");
+    infoBar.addEventListener("mousedown", function(e) {
+      isDragging = true;
+      offsetX = e.clientX - infoBar.offsetLeft;
+      offsetY = e.clientY - infoBar.offsetTop;
+    });
+    document.addEventListener("mousemove", function(e) {
+      if (isDragging) { infoBar.style.left = (e.clientX - offsetX) + "px"; infoBar.style.top = (e.clientY - offsetY) + "px"; }
+    });
+    document.addEventListener("mouseup", function() { isDragging = false; });
+    let infoVisible = true;
+    function toggleInfoBar() {
+      infoVisible = !infoVisible;
+      infoBar.style.display = infoVisible ? "block" : "none";
+    }
+
+    // -----------------------------
+    // Global Variables for the Scene
+    // -----------------------------
+    let scene, camera, renderer, localTank, clock;
+    let remoteTanks = {};
+    let prevTankPosition = new THREE.Vector3();
+    let treeColliders = [];
+    let missiles = [];
+    let trailParticles = [];
+    let latency = 100;
+    let cameraShakeTime = 0;
+    let cameraShakeIntensity = 0.5;
+    let controls = { forward: false, backward: false, left: false, right: false, shoot: false };
+    let turretRotationOffset = 0;
+    let ws;
+    let lastChatTime = 0;
+    const chatCooldown = 2000;
+    const storedNickname = localStorage.getItem('nickname');
+    const playerData = {
+      id: Math.floor(Math.random() * 1000000).toString(),
+      nickname: storedNickname ? storedNickname : 'Player' + Math.floor(Math.random() * 1000),
+      color: '#' + Math.floor(Math.random() * 16777215).toString(16),
+      health: 100
+    };
+
+    // -----------------------------
+    // Init Function (Called After All Definitions)
+    // -----------------------------
     function init() {
       clock = new THREE.Clock();
       scene = new THREE.Scene();
@@ -746,7 +847,7 @@
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
-      loadMap(currentMap);
+      loadMap('desert');
       localTank = createTank(playerData.color);
       localTank.position.set(0, 0.6, 0);
       scene.add(localTank);
@@ -758,6 +859,7 @@
       window.addEventListener('keyup', onKeyUp, false);
       animate();
     }
+
     init();
   </script>
 </body>
