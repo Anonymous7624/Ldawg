@@ -188,6 +188,18 @@
     let prevTankPosition = new THREE.Vector3();
 
     // -----------------------------
+    // Security Helper: Sanitize HTML to prevent XSS
+    // -----------------------------
+    function sanitizeHTML(str) {
+      if (typeof str !== "string") return "";
+      return str.replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+    }
+
+    // -----------------------------
     // Helper Functions & Definitions
     // -----------------------------
     // ImprovedNoise for terrain generation
@@ -355,7 +367,7 @@
       return tank;
     }
 
-    // Raise the nametag higher
+    // Raise the nametag higher. Sanitize the nickname.
     function addNicknameLabel(tank, nickname) {
       tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
       let canvas = document.createElement('canvas');
@@ -366,7 +378,8 @@
       ctx.font = "30px Arial";
       ctx.fillStyle = "#fff";
       ctx.textAlign = "center";
-      ctx.fillText(nickname, canvas.width / 2, canvas.height / 2 + 10);
+      // Use sanitized nickname
+      ctx.fillText(sanitizeHTML(nickname), canvas.width / 2, canvas.height / 2 + 10);
       let texture = new THREE.CanvasTexture(canvas);
       let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture }));
       sprite.name = "nicknameLabel";
@@ -376,7 +389,6 @@
     }
 
     // Adjust tank height and orientation to match ground slope.
-    // (Keep only one copy of this function)
     function updateTankHeightAndOrientation() {
       if (!groundMesh) return;
       let raycaster = new THREE.Raycaster(
@@ -411,7 +423,8 @@
       }
     });
 
-    // WebSocket connection using WS_URL
+    // WebSocket connection using WS_URL.
+    // Note: Additional backend validation and rate limiting should be added in server.js.
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
@@ -497,19 +510,23 @@
       }
     }
 
+    // Client-side rate limiting is done using chatCooldown.
+    // Note: Also implement server-side rate limiting and validation in your backend.
     function sendChat(message) {
       let now = Date.now();
       if (now - lastChatTime < chatCooldown) return;
       lastChatTime = now;
+      // Sanitize message before sending
+      let safeMessage = sanitizeHTML(message);
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
           type: "chat",
           id: playerData.id,
           nickname: playerData.nickname,
-          message: message
+          message: safeMessage
         }));
-        displayChatBubble({ id: playerData.id, nickname: playerData.nickname, message: message });
-        addGlobalChatMessage(`${playerData.nickname}: ${message}`);
+        displayChatBubble({ id: playerData.id, nickname: playerData.nickname, message: safeMessage });
+        addGlobalChatMessage(`${playerData.nickname}: ${safeMessage}`);
       }
     }
 
@@ -652,6 +669,7 @@
       animateExplosion();
     }
 
+    // Display chat bubble with sanitized message text.
     function displayChatBubble(msg) {
       let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
       if (!target) return;
@@ -662,7 +680,8 @@
       ctx.font = "20px Arial";
       ctx.fillStyle = "#fff";
       ctx.textAlign = "center";
-      ctx.fillText(msg.message, canvas.width / 2, canvas.height / 2 + 8);
+      // Sanitize message before drawing it
+      ctx.fillText(sanitizeHTML(msg.message), canvas.width / 2, canvas.height / 2 + 8);
       let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
       sprite.scale.set(4, 1, 1);
       sprite.position.set(0, 3, 0);
@@ -670,15 +689,17 @@
       setTimeout(() => { target.remove(sprite); }, 3000);
     }
 
+    // Update kill feed by sanitizing messages to prevent XSS.
     function addKillFeed(text) {
-      killFeedMessages.push(text);
+      // Sanitize the text before adding
+      killFeedMessages.push(sanitizeHTML(text));
       document.getElementById("killFeed").innerHTML = killFeedMessages.slice(-5).join("<br>");
     }
 
     function addGlobalChatMessage(text) {
       let chatLog = document.getElementById("globalChatLog");
       let messageElem = document.createElement("div");
-      messageElem.textContent = text;
+      messageElem.textContent = text; // textContent is safe
       chatLog.appendChild(messageElem);
       chatLog.scrollTop = chatLog.scrollHeight;
     }
@@ -775,7 +796,11 @@
     const chatInput = document.getElementById("chatInput");
     chatInput.addEventListener("keydown", function (e) {
       if (e.key === "Enter") {
-        if (chatInput.value.trim() !== "") { sendChat(chatInput.value.trim()); chatInput.value = ""; }
+        if (chatInput.value.trim() !== "") {
+          // Sanitize input on the client side before sending
+          sendChat(chatInput.value.trim());
+          chatInput.value = "";
+        }
         chatInput.style.display = "none";
       }
     });
