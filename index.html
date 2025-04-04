@@ -449,60 +449,77 @@
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
         if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
-        handleServerMessage(msg);
-      };
-      ws.onclose = () => { console.log("Disconnected from server."); };
-      ws.onerror = (err) => { console.error("WebSocket error:", err); };
-    }
-
-    function handleServerMessage(msg) {
-      switch (msg.type) {
-        case "update":
-          if (msg.id !== playerData.id) { updateRemoteTank(msg); }
-          break;
-        case "chat":
-          displayChatBubble(msg);
-          addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
-          break;
-        case "shoot":
-          addKillFeed(`${msg.nickname} fired!`);
-          if (msg.id !== playerData.id) { createRemoteMissile(msg); }
-          break;
-        case "kill":
-          addKillFeed(`${msg.killer} eliminated ${msg.victim}`);
-          break;
-        case "join":
-          if (msg.id !== playerData.id && !remoteTanks[msg.id]) {
-            let tank = createTank(msg.color);
-            tank.position.set(msg.position.x, msg.position.y, msg.position.z);
-            scene.add(tank);
-            addNicknameLabel(tank, msg.nickname);
-            remoteTanks[msg.id] = { mesh: tank, nickname: msg.nickname, health: 100 };
+        function handleServerMessage(msg) {
+  switch (msg.type) {
+    case "join":
+      if (msg.id !== playerData.id) {
+        // If this is the first time we receive a join for this client:
+        if (!remoteTanks[msg.id]) {
+          let tank = createTank(msg.color);
+          tank.position.set(msg.position.x, msg.position.y, msg.position.z);
+          scene.add(tank);
+          addNicknameLabel(tank, msg.nickname);
+          remoteTanks[msg.id] = { mesh: tank, nickname: msg.nickname, health: 100 };
+        } else {
+          // If the tank already exists, update its position, rotation, and label.
+          let tank = remoteTanks[msg.id].mesh;
+          let targetPos = new THREE.Vector3(msg.position.x, msg.position.y, msg.position.z);
+          tank.position.lerp(targetPos, 0.2);
+          // Update rotation smoothly if provided (make sure msg.rotation exists)
+          if (msg.rotation !== undefined) {
+            tank.rotation.y = THREE.MathUtils.lerp(tank.rotation.y, msg.rotation, 0.2);
           }
-          break;
-        case "leave":
-          if (remoteTanks[msg.id]) {
-            scene.remove(remoteTanks[msg.id].mesh);
-            delete remoteTanks[msg.id];
-          }
-          break;
+          addNicknameLabel(tank, msg.nickname);
+        }
       }
-    }
+      break;
+    case "update":
+      if (msg.id !== playerData.id) {
+        updateRemoteTank(msg);
+      }
+      break;
+    case "chat":
+      displayChatBubble(msg);
+      addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
+      break;
+    case "shoot":
+      addKillFeed(`${msg.nickname} fired!`);
+      if (msg.id !== playerData.id) {
+        createRemoteMissile(msg);
+      }
+      break;
+    case "kill":
+      addKillFeed(`${msg.killer} eliminated ${msg.victim}`);
+      break;
+    case "leave":
+      if (remoteTanks[msg.id]) {
+        scene.remove(remoteTanks[msg.id].mesh);
+        delete remoteTanks[msg.id];
+      }
+      break;
+    default:
+      console.log("❓ Unknown message type:", msg.type);
+  }
+}
 
-    function updateRemoteTank(data) {
-      if (!remoteTanks[data.id]) {
-        let tank = createTank(data.color);
-        tank.position.set(data.position.x, data.position.y, data.position.z);
-        scene.add(tank);
-        addNicknameLabel(tank, data.nickname);
-        remoteTanks[data.id] = { mesh: tank, nickname: data.nickname, health: 100 };
-      } else {
-        let currentPos = remoteTanks[data.id].mesh.position;
-        let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
-        currentPos.lerp(targetPos, 0.1);
-        remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1);
-      }
+function updateRemoteTank(data) {
+  if (!remoteTanks[data.id]) {
+    // If the tank doesn't exist yet, create it.
+    let tank = createTank(data.color);
+    tank.position.set(data.position.x, data.position.y, data.position.z);
+    scene.add(tank);
+    addNicknameLabel(tank, data.nickname);
+    remoteTanks[data.id] = { mesh: tank, nickname: data.nickname, health: 100 };
+  } else {
+    // Smoothly update position and rotation.
+    let tank = remoteTanks[data.id].mesh;
+    let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
+    tank.position.lerp(targetPos, 0.2);
+    if (data.rotation !== undefined) {
+      tank.rotation.y = THREE.MathUtils.lerp(tank.rotation.y, data.rotation, 0.2);
     }
+  }
+}
 
     function sendUpdate() {
       if (ws && ws.readyState === WebSocket.OPEN) {
