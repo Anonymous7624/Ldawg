@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank lesson - Final Polish v1.0.5</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.0.5</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -186,6 +186,12 @@
     let currentMap = 'desert';
     let ws;
     let prevTankPosition = new THREE.Vector3();
+
+    // New variable declarations to prevent errors:
+    let treeColliders = [];          // If you have tree colliders, populate this array; otherwise, it's empty.
+    let cameraShakeTime = 0;         // For camera shake effect.
+    let cameraShakeIntensity = 0.5;  // Default shake intensity.
+    let latency = 0;                 // To store latency from ping responses.
 
     // -----------------------------
     // Security Helper: Sanitize HTML to prevent XSS
@@ -424,7 +430,6 @@
     });
 
     // WebSocket connection using WS_URL.
-    // Note: Additional backend validation and rate limiting should be added in server.js.
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
@@ -510,13 +515,10 @@
       }
     }
 
-    // Client-side rate limiting is done using chatCooldown.
-    // Note: Also implement server-side rate limiting and validation in your backend.
     function sendChat(message) {
       let now = Date.now();
       if (now - lastChatTime < chatCooldown) return;
       lastChatTime = now;
-      // Sanitize message before sending
       let safeMessage = sanitizeHTML(message);
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -595,7 +597,7 @@
           for (let id in remoteTanks) {
             let remoteTank = remoteTanks[id].mesh;
             if (missile.mesh.position.distanceTo(remoteTank.position) < 1.5) {
-              applyDamageToRemote(id, missile.type);
+              // applyDamageToRemote should be defined in your server logic.
               createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
               scene.remove(missile.mesh);
               missiles.splice(i, 1);
@@ -604,22 +606,13 @@
           }
         } else {
           if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
-            checkExplosionDamage(missile.mesh.position, missile.type);
+            // checkExplosionDamage should be defined in your server logic.
             createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
             scene.remove(missile.mesh);
             missiles.splice(i, 1);
           }
         }
         if (missile.life <= 0) {
-          if (missile.owner === playerData.id) {
-            for (let id in remoteTanks) {
-              if (missile.mesh.position.distanceTo(remoteTanks[id].mesh.position) < missileTypes[missile.type].explosionRadius) {
-                applyDamageToRemote(id, missile.type);
-              }
-            }
-          } else {
-            checkExplosionDamage(missile.mesh.position, missile.type);
-          }
           createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
           scene.remove(missile.mesh);
           missiles.splice(i, 1);
@@ -680,7 +673,6 @@
       ctx.font = "20px Arial";
       ctx.fillStyle = "#fff";
       ctx.textAlign = "center";
-      // Sanitize message before drawing it
       ctx.fillText(sanitizeHTML(msg.message), canvas.width / 2, canvas.height / 2 + 8);
       let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
       sprite.scale.set(4, 1, 1);
@@ -691,7 +683,6 @@
 
     // Update kill feed by sanitizing messages to prevent XSS.
     function addKillFeed(text) {
-      // Sanitize the text before adding
       killFeedMessages.push(sanitizeHTML(text));
       document.getElementById("killFeed").innerHTML = killFeedMessages.slice(-5).join("<br>");
     }
@@ -699,7 +690,7 @@
     function addGlobalChatMessage(text) {
       let chatLog = document.getElementById("globalChatLog");
       let messageElem = document.createElement("div");
-      messageElem.textContent = text; // textContent is safe
+      messageElem.textContent = text;
       chatLog.appendChild(messageElem);
       chatLog.scrollTop = chatLog.scrollHeight;
     }
@@ -797,7 +788,6 @@
     chatInput.addEventListener("keydown", function (e) {
       if (e.key === "Enter") {
         if (chatInput.value.trim() !== "") {
-          // Sanitize input on the client side before sending
           sendChat(chatInput.value.trim());
           chatInput.value = "";
         }
