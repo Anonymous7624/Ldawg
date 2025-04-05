@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.2.0</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.3.0</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -39,7 +39,7 @@
       background-color: green;
       border-radius: 3px;
     }
-    /* Chat Input: now positioned at the same height as the health bar and above global chat */
+    /* Chat Input: positioned at the same height as the health bar and with higher z-index */
     #chatInput {
       position: fixed;
       bottom: 220px;
@@ -147,7 +147,7 @@
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
-    <strong>Version:</strong> 1.2.0
+    <strong>Version:</strong> 1.3.0
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -169,7 +169,7 @@
       color: "#" + Math.floor(Math.random() * 16777215).toString(16)
     };
 
-    // Define all missing global variables
+    // Global variables
     let scene, camera, renderer, clock;
     let localTank;
     let remoteTanks = {};
@@ -187,14 +187,14 @@
     let ws;
     let prevTankPosition = new THREE.Vector3();
 
-    // New variable declarations to prevent errors:
+    // Additional globals
     let treeColliders = [];
     let cameraShakeTime = 0;
     let cameraShakeIntensity = 0.5;
     let latency = 0;
 
     // -----------------------------
-    // Security Helper: Sanitize HTML to prevent XSS
+    // Security Helper: Sanitize HTML
     // -----------------------------
     function sanitizeHTML(str) {
       if (typeof str !== "string") return "";
@@ -411,7 +411,7 @@
       }
     }
 
-    // Pointer lock for turret aiming and hiding mouse cursor with error catching
+    // Pointer lock for turret aiming with error handling
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body) {
         turretRotationOffset -= e.movementX * 0.002;
@@ -457,6 +457,7 @@
     function handleServerMessage(msg) {
       switch (msg.type) {
         case "update":
+          // Only update remote tanks for other players.
           if (msg.id !== playerData.id) { updateRemoteTank(msg); }
           break;
         case "chat":
@@ -471,7 +472,15 @@
           addKillFeed(`${msg.killer} eliminated ${msg.victim}`);
           break;
         case "join":
-          if (msg.id !== playerData.id && !remoteTanks[msg.id]) {
+          // If the join message is for our own player, remove any duplicate remote tank.
+          if (msg.id === playerData.id) {
+            if (remoteTanks[msg.id]) {
+              scene.remove(remoteTanks[msg.id].mesh);
+              delete remoteTanks[msg.id];
+            }
+            break;
+          }
+          if (!remoteTanks[msg.id]) {
             let tank = createTank(msg.color);
             tank.position.set(msg.position.x, msg.position.y, msg.position.z);
             scene.add(tank);
@@ -489,7 +498,8 @@
     }
 
     function updateRemoteTank(data) {
-      // Extra safety check: if remote tank data or mesh is missing, ignore the update.
+      // Do not update if the update is for our own tank.
+      if (data.id === playerData.id) return;
       if (!remoteTanks[data.id] || !remoteTanks[data.id].mesh) return;
       let currentPos = remoteTanks[data.id].mesh.position;
       let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
@@ -630,7 +640,7 @@
           trailParticles.splice(i, 1);
         }
       }
-      // Limit the total number of trail particles to prevent memory leaks.
+      // Limit total number of trail particles to prevent memory issues.
       if (trailParticles.length > 300) { 
         let oldest = trailParticles.shift();
         scene.remove(oldest);
@@ -657,7 +667,7 @@
       animateExplosion();
     }
 
-    // Adjusted chat bubble so that it appears above the nametag
+    // Display chat bubble above the nametag.
     function displayChatBubble(msg) {
       let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
       if (!target) return;
@@ -671,7 +681,7 @@
       ctx.fillText(sanitizeHTML(msg.message), canvas.width / 2, canvas.height / 2 + 8);
       let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
       sprite.scale.set(4, 1, 1);
-      // Position chat bubble above the nametag
+      // Position chat bubble above the nametag.
       sprite.position.set(0, 4.5, 0);
       target.add(sprite);
       setTimeout(() => { target.remove(sprite); }, 3000);
@@ -708,7 +718,7 @@
       camera.lookAt(localTank.position);
     }
 
-    // Updated minimap: draw an arrow for the local tank to indicate facing direction.
+    // Update minimap: local tank is an arrow, remote tanks as dots.
     function updateMinimap() {
       let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
@@ -718,11 +728,10 @@
       function worldToMinimap(x, z) {
         return { x: (x + half) * (minimap.width / fullMap), y: (half - z) * (minimap.height / fullMap) };
       }
-      // Draw local tank as an arrow
+      // Draw local tank as an arrow.
       let pos = worldToMinimap(localTank.position.x, localTank.position.z);
       ctx.save();
       ctx.translate(pos.x, pos.y);
-      // Rotate arrow according to tank rotation (adjust sign as needed)
       ctx.rotate(-localTank.rotation.y);
       ctx.beginPath();
       ctx.moveTo(0, -7);
@@ -732,7 +741,7 @@
       ctx.fillStyle = playerData.color;
       ctx.fill();
       ctx.restore();
-      // Draw remote tanks as circles
+      // Draw remote tanks as circles.
       ctx.fillStyle = "#fff";
       for (let id in remoteTanks) {
         let pos2 = worldToMinimap(remoteTanks[id].mesh.position.x, remoteTanks[id].mesh.position.z);
@@ -845,6 +854,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
       loadMap(currentMap);
+      // Create your local tank only.
       localTank = createTank(playerData.color);
       localTank.position.set(0, 0.6, 0);
       scene.add(localTank);
