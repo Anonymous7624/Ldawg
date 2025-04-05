@@ -2,7 +2,20 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.5.4</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.5.5</title>
+  <script>
+    // If no username is stored, go to join.html immediately.
+    if (!localStorage.getItem('nickname')) {
+      window.location.href = "join.html";
+    }
+    // When switching tabs, remove the nickname and redirect to join.html.
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        localStorage.removeItem("nickname");
+        window.location.href = "join.html";
+      }
+    });
+  </script>
   <style>
     /* General UI Styles */
     body { margin: 0; overflow: hidden; }
@@ -65,7 +78,7 @@
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
-    <strong>Version:</strong> 1.5.4
+    <strong>Version:</strong> 1.5.5
   </div>
   <div id="damageOverlay"></div>
 
@@ -78,11 +91,13 @@
      * Global Variables and Configuration
      ***********************/
     const WS_URL = "wss://game.ldawg7624.com";
+    // Player data: unique ID, stored nickname, random color.
     const playerData = {
       id: Math.random().toString(36).substr(2, 9),
       nickname: localStorage.getItem("nickname"),
       color: "#" + Math.floor(Math.random() * 16777215).toString(16)
     };
+    // Missile types for shooting.
     const missileTypes = {
       bullet: {
         speed: 100,
@@ -105,11 +120,11 @@
     };
 
     let scene, camera, renderer, clock;
-    let localTank;
-    let remoteTanks = {};
-    let missiles = [];
-    let trailParticles = [];
-    let killFeedMessages = [];
+    let localTank;                // Our local tank.
+    let remoteTanks = {};         // Other players' tanks.
+    let missiles = [];            // Active missiles.
+    let trailParticles = [];      // Missile trail particles.
+    let killFeedMessages = [];    // Kill feed messages.
     let cameraMode = 1;
     let controls = { forward: false, backward: false, left: false, right: false };
     let faster = false;
@@ -118,14 +133,14 @@
     let groundMesh;
     let turretRotationOffset = 0;
     let currentMap = 'desert';
-    let ws;
+    let ws;                     // WebSocket instance.
     let prevTankPosition = new THREE.Vector3();
-    let treeColliders = [];
+    let treeColliders = [];     // Obstacles.
     let cameraShakeTime = 0;
     let cameraShakeIntensity = 0.5;
     let latency = 0;
 
-    // chatInput is already declared in HTML above.
+    // chatInput is declared in HTML above.
 
     /***********************
      * Helper Functions
@@ -138,7 +153,6 @@
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
     }
-
     function ImprovedNoise() {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
          140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -265,10 +279,10 @@
       turret.add(cannon);
       turret.position.set(0, 1.4, 0);
       tank.add(turret);
-      // Store references for turret and cannon.
+      // Store turret and cannon references.
       tank.userData.turret = turret;
       tank.userData.cannon = cannon;
-      // IMPORTANT: Store the original cannon position so we can reset recoil.
+      // Save original cannon position for recoil reset.
       tank.userData.cannonOriginal = cannon.position.clone();
       return tank;
     }
@@ -337,7 +351,6 @@
       camera.lookAt(localTank.position);
     }
 
-    // Draw minimap: local tank as a larger arrow (using turret rotation) and remote tanks as dots.
     function updateMinimap() {
       let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
@@ -487,8 +500,6 @@
     /***********************
      * Shooting Functions: Turret-Based Firing with Recoil Fix
      ***********************/
-    // When shooting, the missile spawns at the tip of the cannon.
-    // IMPORTANT: Reset the cannon position using the stored cannonOriginal.
     function launchMissile() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
       let missileProps = missileTypes[selectedMissileType];
@@ -508,13 +519,11 @@
       missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
       scene.add(missileMesh);
       
-      // Recoil animation:
-      // Reset cannon to its original position each time.
+      // Recoil animation: reset cannon to its original local position.
       let originalPos = localTank.userData.cannonOriginal;
       // Apply recoil offset.
       cannon.position.set(originalPos.x, originalPos.y, originalPos.z - 0.2);
       setTimeout(() => { 
-        // Smoothly reset back to original.
         cannon.position.copy(originalPos);
       }, 100);
     }
@@ -544,7 +553,7 @@
           id: playerData.id,
           nickname: playerData.nickname,
           position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
-          rotation: localTank.userData.turret.rotation.y,  // Use turret rotation.
+          rotation: localTank.userData.turret.rotation.y,
           missileType: selectedMissileType
         }));
       }
