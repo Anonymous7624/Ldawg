@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <title>3D Multiplayer Tank Game - Final Polish v1.5.6.4</title>
   <script>
+    let localHealth = 100;
     // If no nickname is stored, redirect to join.html.
     if (!localStorage.getItem('nickname')) {
       window.location.href = "join.html";
@@ -641,50 +642,82 @@ function handleServerMessage(msg) {
     /***********************
      * Missile and Particle Updates with Ground Collision
      ***********************/
-    function updateMissiles(delta) {
-      for (let i = missiles.length - 1; i >= 0; i--) {
-        let missile = missiles[i];
-        missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
-        missile.life -= delta;
-        // Ground collision check.
-        if (groundMesh) {
-          let groundRay = new THREE.Raycaster(missile.mesh.position, new THREE.Vector3(0, -1, 0));
-          let groundHits = groundRay.intersectObject(groundMesh);
-          if (groundHits.length > 0 && groundHits[0].distance < 0.5) {
-            createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
-            scene.remove(missile.mesh);
-            missiles.splice(i, 1);
-            continue;
-          }
-        }
-        if (performance.now() - missile.mesh.userData.lastTrailTime > 50) {
-          createMissileTrail(missile.mesh.position);
-          missile.mesh.userData.lastTrailTime = performance.now();
-        }
-        if (missile.owner === playerData.id) {
-          for (let id in remoteTanks) {
-            let remoteTank = remoteTanks[id].mesh;
-            if (missile.mesh.position.distanceTo(remoteTank.position) < 1.5) {
-              createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
-              scene.remove(missile.mesh);
-              missiles.splice(i, 1);
-              break;
-            }
-          }
-        } else {
-          if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
-            createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
-            scene.remove(missile.mesh);
-            missiles.splice(i, 1);
-          }
-        }
-        if (missile.life <= 0) {
+ function updateMissiles(delta) {
+  for (let i = missiles.length - 1; i >= 0; i--) {
+    let missile = missiles[i];
+    missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
+    missile.life -= delta;
+    
+    // Ground collision check.
+    if (groundMesh) {
+      let groundRay = new THREE.Raycaster(missile.mesh.position, new THREE.Vector3(0, -1, 0));
+      let groundHits = groundRay.intersectObject(groundMesh);
+      if (groundHits.length > 0 && groundHits[0].distance < 0.5) {
+        createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+        scene.remove(missile.mesh);
+        missiles.splice(i, 1);
+        continue;
+      }
+    }
+    
+    if (performance.now() - missile.mesh.userData.lastTrailTime > 50) {
+      createMissileTrail(missile.mesh.position);
+      missile.mesh.userData.lastTrailTime = performance.now();
+    }
+    
+    // If the missile was fired by you, check for collisions with remote tanks.
+    if (missile.owner === playerData.id) {
+      for (let id in remoteTanks) {
+        let remoteTank = remoteTanks[id].mesh;
+        if (missile.mesh.position.distanceTo(remoteTank.position) < 1.5) {
+          // Subtract 30 health from the remote tank.
+          remoteTanks[id].health -= 30;
           createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
           scene.remove(missile.mesh);
           missiles.splice(i, 1);
+          // If the remote tank's health is 0 or less, remove it and send a kill message.
+          if (remoteTanks[id].health <= 0) {
+            // Optionally, send a kill message over WebSocket:
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({
+                type: "kill",
+                killer: playerData.nickname,
+                victim: remoteTanks[id].nickname
+              }));
+            }
+            scene.remove(remoteTank);
+            delete remoteTanks[id];
+          }
+          break;
+        }
+      }
+    } 
+    // If the missile was fired by someone else, check for collision with your local tank.
+    else {
+      if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
+        // Subtract 30 from your health.
+        localHealth -= 30;
+        // Update health bar width (assumes 100% width at 100 health).
+        document.getElementById("healthBar").style.width = Math.max(localHealth, 0) + "%";
+        createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+        scene.remove(missile.mesh);
+        missiles.splice(i, 1);
+        // If health is zero or below, reload the page.
+        if (localHealth <= 0) {
+          window.location.reload();
         }
       }
     }
+    
+    // If missile life has expired, create an explosion and remove it.
+    if (missile.life <= 0) {
+      createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+      scene.remove(missile.mesh);
+      missiles.splice(i, 1);
+    }
+  }
+}
+
 
     function createMissileTrail(position) {
       const particleGeom = new THREE.SphereGeometry(0.1, 6, 6);
