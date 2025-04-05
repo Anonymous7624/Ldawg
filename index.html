@@ -500,40 +500,44 @@
       ws.onerror = (err) => { console.error("WebSocket error:", err); };
     }
 
-    function handleServerMessage(msg) {
-      if (String(msg.id) === String(playerData.id)) return;
-      switch (msg.type) {
-        case "update":
-          updateRemoteTank(msg);
-          break;
-        case "chat":
-          displayChatBubble(msg);
-          addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
-          break;
-        case "shoot":
-          createRemoteMissile(msg);
-          addKillFeed(`${msg.nickname} fired!`);
-          break;
-        case "join":
-          if (!remoteTanks[msg.id]) {
-            let tank = createTank(msg.color);
-            tank.position.set(msg.position.x, msg.position.y, msg.position.z);
-            scene.add(tank);
-            addNicknameLabel(tank, msg.nickname);
-            remoteTanks[msg.id] = { mesh: tank, nickname: msg.nickname, health: 100 };
-          }
-          break;
-        case "leave":
-          if (remoteTanks[msg.id]) {
-            scene.remove(remoteTanks[msg.id].mesh);
-            delete remoteTanks[msg.id];
-          }
-          break;
-        case "kill":
-          addKillFeed(`${msg.killer} eliminated ${msg.victim}`);
-          break;
+function handleServerMessage(msg) {
+  // Ignore messages from our own player.
+  if (String(msg.id) === String(playerData.id)) return;
+  switch (msg.type) {
+    case "update":
+      updateRemoteTank(msg);
+      break;
+    case "chat":
+      displayChatBubble(msg);
+      addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
+      break;
+    case "shoot":
+      createRemoteMissile(msg);
+      addKillFeed(`${msg.nickname} fired!`);
+      break;
+    case "join":
+      if (remoteTanks[msg.id]) {
+        // Player already exists; ignore duplicate join.
+        console.log(`Duplicate join received for ID ${msg.id}. Ignoring.`);
+      } else {
+        let tank = createTank(msg.color);
+        tank.position.set(msg.position.x, msg.position.y, msg.position.z);
+        scene.add(tank);
+        addNicknameLabel(tank, msg.nickname);
+        remoteTanks[msg.id] = { mesh: tank, nickname: msg.nickname, health: 100 };
       }
-    }
+      break;
+    case "leave":
+      if (remoteTanks[msg.id]) {
+        scene.remove(remoteTanks[msg.id].mesh);
+        delete remoteTanks[msg.id];
+      }
+      break;
+    case "kill":
+      addKillFeed(`${msg.killer} eliminated ${msg.victim}`);
+      break;
+  }
+}
 
     function updateRemoteTank(data) {
       if (!remoteTanks[data.id] || !remoteTanks[data.id].mesh) return;
