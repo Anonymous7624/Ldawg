@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.5.5.2</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.5.6</title>
   <script>
-    // On initial load: if no nickname is stored, redirect to join.html.
+    // Redirect to join.html if no nickname is stored.
     if (!localStorage.getItem('nickname')) {
       window.location.href = "join.html";
     }
-    // On tab switch: clear stored nickname and redirect.
+    // When switching tabs, clear the nickname and redirect.
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
         localStorage.removeItem("nickname");
@@ -69,7 +69,7 @@
       <option value="rocket">Heavy Rocket</option>
     </select>
   </div>
-  <!-- chatInput is declared in HTML above -->
+  <!-- chatInput is declared in HTML -->
   <input type="text" id="chatInput" placeholder="Type a message and hit Enter">
   <div id="killFeed"></div>
   <canvas id="minimap" width="200" height="200"></canvas>
@@ -78,7 +78,7 @@
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
-    <strong>Version:</strong> 1.5.5.2
+    <strong>Version:</strong> 1.5.6
   </div>
   <div id="damageOverlay"></div>
 
@@ -96,6 +96,7 @@
       nickname: localStorage.getItem("nickname"),
       color: "#" + Math.floor(Math.random() * 16777215).toString(16)
     };
+    // Missile types.
     const missileTypes = {
       bullet: {
         speed: 100,
@@ -113,7 +114,7 @@
         speed: 60,
         geometry: () => {
           let geo = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
-          geo.rotateX(-Math.PI / 2);
+          geo.rotateX(-Math.PI / 2); // Pre-rotate so it aligns with turret's forward direction.
           return geo;
         },
         material: new THREE.MeshStandardMaterial({ color: 0x0000ff }),
@@ -350,6 +351,7 @@
       camera.lookAt(localTank.position);
     }
 
+    // Minimap: Show local tank as a colored arrow based on the tank's chassis rotation.
     function updateMinimap() {
       let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
@@ -359,19 +361,22 @@
       function worldToMinimap(x, z) {
         return { x: (x + half) * (minimap.width / fullMap), y: (half - z) * (minimap.height / fullMap) };
       }
+      // Draw local tank as a smaller arrow using the tank's rotation.
       let pos = worldToMinimap(localTank.position.x, localTank.position.z);
       ctx.save();
       ctx.translate(pos.x, pos.y);
-      // Use turret rotation for local tank arrow.
-      ctx.rotate(-localTank.userData.turret.rotation.y);
+      // Use the tank's own rotation (chassis) for arrow direction.
+      ctx.rotate(-localTank.rotation.y);
       ctx.beginPath();
-      ctx.moveTo(0, -10);
-      ctx.lineTo(7, 7);
-      ctx.lineTo(-7, 7);
+      // Smaller arrow dimensions.
+      ctx.moveTo(0, -6);
+      ctx.lineTo(4, 4);
+      ctx.lineTo(-4, 4);
       ctx.closePath();
       ctx.fillStyle = playerData.color;
       ctx.fill();
       ctx.restore();
+      // For remote tanks, draw white dots.
       ctx.fillStyle = "#fff";
       for (let id in remoteTanks) {
         let pos2 = worldToMinimap(remoteTanks[id].mesh.position.x, remoteTanks[id].mesh.position.z);
@@ -416,7 +421,7 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        // Ignore messages from ourselves.
+        // Ignore any messages from ourselves.
         if (String(msg.id) === String(playerData.id)) return;
         if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
         handleServerMessage(msg);
@@ -429,7 +434,7 @@
     }
 
     function handleServerMessage(msg) {
-      // Extra check here as well.
+      // Extra safety check.
       if (String(msg.id) === String(playerData.id)) return;
       switch (msg.type) {
         case "update":
@@ -503,6 +508,7 @@
     /***********************
      * Shooting Functions: Turret-Based Firing with Recoil and Ground Collision
      ***********************/
+    // Adjust spawn so missile comes directly out of the turret but slightly lower.
     function launchMissile() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
       let missileProps = missileTypes[selectedMissileType];
@@ -513,6 +519,8 @@
       cannon.getWorldPosition(position);
       let spawnOffset = 3;
       let spawnPos = position.clone().add(direction.clone().multiplyScalar(spawnOffset));
+      // Lower spawn position by 0.5 units.
+      spawnPos.y -= 0.5;
       let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
       missileMesh.position.copy(spawnPos);
       missileMesh.quaternion.copy(cannon.getWorldQuaternion(new THREE.Quaternion()));
@@ -522,10 +530,10 @@
       missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
       scene.add(missileMesh);
       
-      // Recoil animation: Reset cannon to its original local position.
+      // Recoil: reset cannon position to its original local position.
       let originalPos = localTank.userData.cannonOriginal;
       cannon.position.set(originalPos.x, originalPos.y, originalPos.z - 0.2);
-      setTimeout(() => {
+      setTimeout(() => { 
         cannon.position.copy(originalPos);
       }, 100);
     }
@@ -538,6 +546,8 @@
       let spawnOffset = 3;
       let spawnPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z)
                         .add(direction.clone().multiplyScalar(spawnOffset));
+      // Lower the spawn position by 0.5 units.
+      spawnPos.y -= 0.5;
       missileMesh.position.copy(spawnPos);
       missileMesh.rotation.y = data.rotation;
       missileMesh.userData.lastTrailTime = 0;
@@ -570,7 +580,7 @@
         let missile = missiles[i];
         missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
         missile.life -= delta;
-        // Ground collision: if missile is very close to ground, explode.
+        // Ground collision check.
         if (groundMesh) {
           let groundRay = new THREE.Raycaster(missile.mesh.position, new THREE.Vector3(0, -1, 0));
           let groundHits = groundRay.intersectObject(groundMesh);
