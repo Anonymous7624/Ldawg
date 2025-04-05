@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.5.0</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.5.1</title>
   <style>
     /* General Page and UI Styles */
     body { margin: 0; overflow: hidden; }
@@ -56,6 +56,7 @@
       <option value="rocket">Heavy Rocket</option>
     </select>
   </div>
+  <!-- Declare chatInput early -->
   <input type="text" id="chatInput" placeholder="Type a message and hit Enter">
   <div id="killFeed"></div>
   <canvas id="minimap" width="200" height="200"></canvas>
@@ -64,7 +65,7 @@
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
-    <strong>Version:</strong> 1.5.0
+    <strong>Version:</strong> 1.5.1
   </div>
   <div id="damageOverlay"></div>
 
@@ -74,22 +75,44 @@
   
   <script>
     /***********************
-     * Global Constants and Variables
+     * Global Variables and Configuration
      ***********************/
     const WS_URL = "wss://game.ldawg7624.com";
-    // Player data: unique ID, stored nickname, random color
+    // Player data: unique ID, stored nickname, random color.
     const playerData = {
       id: Math.random().toString(36).substr(2, 9),
       nickname: localStorage.getItem("nickname"),
       color: "#" + Math.floor(Math.random() * 16777215).toString(16)
     };
 
+    // Define missile types for shooting.
+    const missileTypes = {
+      bullet: {
+        speed: 100,
+        geometry: () => new THREE.SphereGeometry(0.2, 8, 8),
+        material: new THREE.MeshStandardMaterial({ color: 0xff0000 }),
+        explosionRadius: 5
+      },
+      splash: {
+        speed: 80,
+        geometry: () => new THREE.SphereGeometry(0.3, 8, 8),
+        material: new THREE.MeshStandardMaterial({ color: 0x00ff00 }),
+        explosionRadius: 8
+      },
+      rocket: {
+        speed: 60,
+        geometry: () => new THREE.CylinderGeometry(0.2, 0.2, 2, 8),
+        material: new THREE.MeshStandardMaterial({ color: 0x0000ff }),
+        explosionRadius: 10
+      }
+    };
+
     let scene, camera, renderer, clock;
-    let localTank;               // Our own tank
-    let remoteTanks = {};        // Other players' tanks
-    let missiles = [];           // Active missiles
-    let trailParticles = [];     // Missile trail particles
-    let killFeedMessages = [];   // Kill feed messages
+    let localTank;                // Our own tank.
+    let remoteTanks = {};         // Other players' tanks.
+    let missiles = [];            // Active missiles.
+    let trailParticles = [];      // Missile trail particles.
+    let killFeedMessages = [];    // Kill feed messages.
     let cameraMode = 1;
     let controls = { forward: false, backward: false, left: false, right: false };
     let faster = false;
@@ -98,18 +121,21 @@
     let groundMesh;
     let turretRotationOffset = 0;
     let currentMap = 'desert';
-    let ws;                    // WebSocket instance
+    let ws;                     // WebSocket instance.
     let prevTankPosition = new THREE.Vector3();
 
-    let treeColliders = [];    // For obstacles (if any)
+    let treeColliders = [];     // For obstacles (if any).
     let cameraShakeTime = 0;
     let cameraShakeIntensity = 0.5;
     let latency = 0;
 
+    // Get chat input element early.
+    const chatInput = document.getElementById("chatInput");
+
     /***********************
      * Helper Functions
      ***********************/
-    // Sanitize HTML to prevent XSS
+    // Sanitize HTML to prevent XSS.
     function sanitizeHTML(str) {
       if (typeof str !== "string") return "";
       return str.replace(/&/g, '&amp;')
@@ -119,7 +145,7 @@
                 .replace(/'/g, '&#39;');
     }
 
-    // ImprovedNoise: generates noise for terrain
+    // ImprovedNoise for terrain generation.
     function ImprovedNoise() {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
          140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -248,11 +274,12 @@
       cannon.castShadow = true;
       cannon.receiveShadow = true;
       cannon.rotation.x = Math.PI / 2;
-      cannon.position.set(0, 0.4, 1.5); // Position so missile spawns from cannon tip
+      // Position so missile spawns from cannon tip.
+      cannon.position.set(0, 0.4, 1.5);
       turret.add(cannon);
       turret.position.set(0, 1.4, 0);
       tank.add(turret);
-      // Store references for turret and cannon for shooting calculations.
+      // Save references for turret and cannon.
       tank.userData.turret = turret;
       tank.userData.cannon = cannon;
       return tank;
@@ -281,7 +308,7 @@
     /***********************
      * Game Mechanics: Movement, Shooting, and Collisions
      ***********************/
-    // Adjust the local tank's height and orientation to match the terrain.
+    // Adjust local tank height and orientation to match terrain.
     function updateTankHeightAndOrientation() {
       if (!groundMesh) return;
       let raycaster = new THREE.Raycaster(
@@ -306,7 +333,7 @@
       }
     }
 
-    // Update camera position based on selected camera mode.
+    // Update camera position based on camera mode.
     function updateCamera() {
       let targetPos;
       if (cameraMode === 1) {
@@ -325,7 +352,7 @@
       camera.lookAt(localTank.position);
     }
 
-    // Update minimap: draw local tank as an arrow and remote tanks as dots.
+    // Update minimap: local tank as a larger arrow, remote tanks as dots.
     function updateMinimap() {
       let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
@@ -335,20 +362,20 @@
       function worldToMinimap(x, z) {
         return { x: (x + half) * (minimap.width / fullMap), y: (half - z) * (minimap.height / fullMap) };
       }
-      // Draw local tank as an arrow.
+      // Draw local tank as a slightly larger arrow.
       let pos = worldToMinimap(localTank.position.x, localTank.position.z);
       ctx.save();
       ctx.translate(pos.x, pos.y);
       ctx.rotate(-localTank.rotation.y);
       ctx.beginPath();
-      ctx.moveTo(0, -7);
-      ctx.lineTo(5, 5);
-      ctx.lineTo(-5, 5);
+      ctx.moveTo(0, -10); // increased size
+      ctx.lineTo(7, 7);
+      ctx.lineTo(-7, 7);
       ctx.closePath();
       ctx.fillStyle = playerData.color;
       ctx.fill();
       ctx.restore();
-      // Draw remote tanks as dots.
+      // Draw remote tanks as simple dots.
       ctx.fillStyle = "#fff";
       for (let id in remoteTanks) {
         let pos2 = worldToMinimap(remoteTanks[id].mesh.position.x, remoteTanks[id].mesh.position.z);
@@ -358,7 +385,7 @@
       }
     }
 
-    // Check collisions with obstacles or map boundaries.
+    // Check collisions with obstacles and map boundaries.
     function checkCollisions() {
       for (let obs of treeColliders) {
         if (localTank.position.distanceTo(obs.position) < 10) {
@@ -376,7 +403,7 @@
     /***********************
      * WebSocket Communication
      ***********************/
-    // Setup WebSocket and handle messages. Self-updates (msg.id === playerData.id) are ignored.
+    // Setup secure WebSocket and handle incoming messages.
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
@@ -395,21 +422,21 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        // Ignore any message originating from ourselves.
+        // Ignore any messages from ourselves.
         if (msg.id === playerData.id) return;
         if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
         handleServerMessage(msg);
       };
       ws.onclose = () => {
         console.log("Disconnected from server. Reconnecting...");
+        // (Optional: Limit reconnection attempts here.)
         setTimeout(setupWebSocket, 5000);
       };
       ws.onerror = (err) => { console.error("WebSocket error:", err); };
     }
 
-    // Handle incoming messages.
+    // Process messages from the server.
     function handleServerMessage(msg) {
-      // Self messages are already filtered in ws.onmessage.
       switch (msg.type) {
         case "update":
           updateRemoteTank(msg);
@@ -464,7 +491,7 @@
       }
     }
 
-    // Send chat message.
+    // Send a chat message.
     function sendChat(message) {
       let now = Date.now();
       if (now - lastChatTime < chatCooldown) return;
@@ -477,14 +504,14 @@
           nickname: playerData.nickname,
           message: safeMessage
         }));
-        // Immediately display our own chat locally.
+        // Immediately display our own chat.
         displayChatBubble({ id: playerData.id, nickname: playerData.nickname, message: safeMessage });
         addGlobalChatMessage(`${playerData.nickname}: ${safeMessage}`);
       }
     }
 
     /***********************
-     * Shooting Functions
+     * Shooting Functions: Turret-Based Firing
      ***********************/
     // Fire missile from local tank using turret's cannon direction.
     function launchMissile() {
@@ -495,7 +522,7 @@
       cannon.getWorldDirection(direction);
       let position = new THREE.Vector3();
       cannon.getWorldPosition(position);
-      // Offset spawn position to the tip of the cannon.
+      // Offset spawn position so missile appears at the tip of the cannon.
       let spawnOffset = 3;
       let spawnPos = position.clone().add(direction.clone().multiplyScalar(spawnOffset));
       let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
@@ -506,7 +533,7 @@
       missileMesh.userData.owner = playerData.id;
       missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
       scene.add(missileMesh);
-      // Simple recoil effect on the cannon.
+      // Simple recoil effect.
       let originalPos = cannon.position.clone();
       cannon.position.z -= 0.2;
       setTimeout(() => { cannon.position.copy(originalPos); }, 100);
@@ -557,12 +584,11 @@
           createMissileTrail(missile.mesh.position);
           missile.mesh.userData.lastTrailTime = performance.now();
         }
-        // Check collisions: if missile hits a remote tank (if fired by us) or hits local tank (if fired by others)
         if (missile.owner === playerData.id) {
           for (let id in remoteTanks) {
             let remoteTank = remoteTanks[id].mesh;
             if (missile.mesh.position.distanceTo(remoteTank.position) < 1.5) {
-              createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+              createExplosion(missile.mesh.position, missileProps = missileTypes[missile.type].explosionRadius);
               scene.remove(missile.mesh);
               missiles.splice(i, 1);
               break;
@@ -603,7 +629,8 @@
           trailParticles.splice(i, 1);
         }
       }
-      if (trailParticles.length > 300) {
+      // Limit trail particles to 200 to save memory.
+      if (trailParticles.length > 200) {
         let oldest = trailParticles.shift();
         scene.remove(oldest);
       }
@@ -694,7 +721,6 @@
       }
     }
 
-    const chatInput = document.getElementById("chatInput");
     chatInput.addEventListener("keydown", function(e) {
       if (e.key === "Enter") {
         if (chatInput.value.trim() !== "") {
@@ -709,7 +735,7 @@
       if (chatInput.style.display === "block") chatInput.focus();
     }
 
-    // Simple drag functionality for the info bar.
+    // Drag functionality for the info bar.
     let isDragging = false, offsetX = 0, offsetY = 0;
     const infoBar = document.getElementById("infoBar");
     infoBar.addEventListener("mousedown", function(e) {
@@ -761,13 +787,23 @@
       setupWebSocket();
       // Set clear sky background.
       const loader = new THREE.TextureLoader();
-      loader.load('ClearSky.png', function(texture) {
-        scene.background = texture;
-      });
+      loader.load('ClearSky.png', function(texture) { scene.background = texture; });
       window.addEventListener('resize', onWindowResize, false);
       window.addEventListener('keydown', onKeyDown, false);
       window.addEventListener('keyup', onKeyUp, false);
+      // Request pointer lock on click to hide the cursor and enable turret control.
+      document.body.addEventListener('click', () => {
+        if (document.pointerLockElement !== document.body) {
+          document.body.requestPointerLock().catch(err => console.error("PointerLock error:", err));
+        }
+      });
       animate();
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
     // Main render and update loop.
