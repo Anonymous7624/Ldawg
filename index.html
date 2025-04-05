@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.5.6.3</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.5.6.4</title>
   <script>
-    // Redirect to join.html if no nickname is stored.
+    // If no nickname is stored, redirect to join.html.
     if (!localStorage.getItem('nickname')) {
       window.location.href = "join.html";
     }
-    // When switching tabs, clear the nickname and redirect.
+    // When switching tabs, clear the stored nickname and redirect.
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
         localStorage.removeItem("nickname");
@@ -19,40 +19,95 @@
   <style>
     body { margin: 0; overflow: hidden; }
     #healthBarContainer {
-      position: fixed; bottom: 220px; left: 50%; transform: translateX(-50%);
-      width: 200px; height: 20px; background: #555; border: 2px solid #333; border-radius: 5px; z-index: 130;
+      position: fixed;
+      bottom: 220px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: 200px;
+      height: 20px;
+      background: #555;
+      border: 2px solid #333;
+      border-radius: 5px;
+      z-index: 130;
     }
     #healthBar { width: 100%; height: 100%; background: green; border-radius: 3px; }
     #chatInput {
-      position: fixed; bottom: 220px; left: 50%; transform: translateX(-50%);
-      display: none; padding: 8px; font-size: 16px; z-index: 150;
+      position: fixed;
+      bottom: 220px;
+      left: 50%;
+      transform: translateX(-50%);
+      display: none;
+      padding: 8px;
+      font-size: 16px;
+      z-index: 150;
     }
     #killFeed {
-      position: fixed; top: 10px; right: 10px; color: white; font-family: sans-serif; z-index: 110;
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      color: white;
+      font-family: sans-serif;
+      z-index: 110;
     }
     #minimap {
-      position: fixed; top: 10px; left: 10px; border: 2px solid #fff;
-      background: rgba(0,0,0,0.5); z-index: 110;
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      border: 2px solid #fff;
+      background: rgba(0,0,0,0.5);
+      z-index: 110;
     }
     #globalChatLog {
-      position: fixed; bottom: 0; left: 0; width: 100%; max-height: 200px;
-      overflow-y: auto; background: rgba(0,0,0,0.7); color: #fff;
-      font-family: Arial, sans-serif; font-size: 14px; padding: 10px; box-sizing: border-box; z-index: 105;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      max-height: 200px;
+      overflow-y: auto;
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      padding: 10px;
+      box-sizing: border-box;
+      z-index: 105;
     }
     #missileMenu {
-      position: fixed; top: 50px; left: 50%; transform: translateX(-50%);
-      background: rgba(0,0,0,0.7); color: #fff; padding: 10px; border-radius: 5px;
-      font-family: Arial, sans-serif; font-size: 16px; z-index: 120;
+      position: fixed;
+      top: 50px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.7);
+      color: #fff;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      font-size: 16px;
+      z-index: 120;
     }
     #infoBar {
-      position: fixed; top: 10px; right: 10px; background: rgba(0,0,0,0.6);
-      color: #ffdd00; padding: 10px; border-radius: 5px; font-family: Arial, sans-serif;
-      font-size: 14px; cursor: move; z-index: 200;
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: rgba(0,0,0,0.6);
+      color: #ffdd00;
+      padding: 10px;
+      border-radius: 5px;
+      font-family: Arial, sans-serif;
+      font-size: 14px;
+      cursor: move;
+      z-index: 200;
     }
     #damageOverlay {
-      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(255,0,0,0); pointer-events: none;
-      z-index: 300; transition: background 0.2s ease-out;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(255,0,0,0);
+      pointer-events: none;
+      z-index: 300;
+      transition: background 0.2s ease-out;
     }
     canvas { display: block; }
   </style>
@@ -76,14 +131,14 @@
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
-    <strong>Version:</strong> 1.5.6.3
+    <strong>Version:</strong> 1.5.6.4
   </div>
   <div id="damageOverlay"></div>
 
   <!-- Three.js Libraries -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
-
+  
   <script>
     /***********************
      * Global Variables and Configuration
@@ -139,7 +194,7 @@
     let cameraShakeTime = 0;
     let cameraShakeIntensity = 0.5;
     let latency = 0;
-    // WebSocket update throttling variables.
+    // WebSocket throttling state.
     let lastUpdateTime = 0;
     let lastSentPosition = new THREE.Vector3();
     let lastSentRotation = 0;
@@ -282,14 +337,14 @@
       cannon.castShadow = true;
       cannon.receiveShadow = true;
       cannon.rotation.x = Math.PI / 2;
-      // Cannon tip.
+      // Position cannon so missile spawns at its tip.
       cannon.position.set(0, 0.4, 1.5);
       turret.add(cannon);
       turret.position.set(0, 1.4, 0);
       tank.add(turret);
       tank.userData.turret = turret;
       tank.userData.cannon = cannon;
-      // Store original cannon position for recoil reset.
+      // Store cannon's original local position for recoil reset.
       tank.userData.cannonOriginal = cannon.position.clone();
       return tank;
     }
@@ -372,6 +427,7 @@
       let pos = worldToMinimap(localTank.position.x, localTank.position.z);
       ctx.save();
       ctx.translate(pos.x, pos.y);
+      // Use the tank's chassis rotation for the arrow.
       ctx.rotate(-localTank.rotation.y);
       ctx.beginPath();
       ctx.moveTo(0, -6);
@@ -429,8 +485,12 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
+        // Ignore messages from ourselves.
         if (String(msg.id) === String(playerData.id)) return;
-        if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
+        if (msg.type === "pong") {
+          latency = performance.now() - msg.timestamp;
+          return;
+        }
         handleServerMessage(msg);
       };
       ws.onclose = () => {
@@ -480,11 +540,7 @@
       let currentPos = remoteTanks[data.id].mesh.position;
       let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
       currentPos.lerp(targetPos, 0.1);
-      remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(
-        remoteTanks[data.id].mesh.rotation.y,
-        data.rotation,
-        0.1
-      );
+      remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1);
     }
 
     /***********************
@@ -526,22 +582,16 @@
       cannon.getWorldPosition(position);
       let spawnOffset = 3;
       let spawnPos = position.clone().add(direction.clone().multiplyScalar(spawnOffset));
-      spawnPos.y -= 0.5; // Lower the spawn position.
+      spawnPos.y -= 0.5; // Lower spawn position.
       let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
       missileMesh.position.copy(spawnPos);
       missileMesh.quaternion.copy(cannon.getWorldQuaternion(new THREE.Quaternion()));
       let velocity = direction.clone().multiplyScalar(missileProps.speed);
       missileMesh.userData.lastTrailTime = 0;
       missileMesh.userData.owner = playerData.id;
-      missiles.push({
-        mesh: missileMesh,
-        velocity: velocity,
-        life: 5,
-        type: selectedMissileType,
-        owner: playerData.id
-      });
+      missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
       scene.add(missileMesh);
-      // Recoil: reset cannon to its original local position.
+      // Recoil: Reset cannon to its original local position.
       let originalPos = localTank.userData.cannonOriginal;
       cannon.position.set(originalPos.x, originalPos.y, originalPos.z - 0.2);
       setTimeout(() => { cannon.position.copy(originalPos); }, 100);
@@ -561,13 +611,7 @@
       missileMesh.userData.lastTrailTime = 0;
       missileMesh.userData.owner = data.id;
       let velocity = direction.multiplyScalar(missileProps.speed);
-      missiles.push({
-        mesh: missileMesh,
-        velocity: velocity,
-        life: 5,
-        type: missileType,
-        owner: data.id
-      });
+      missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: missileType, owner: data.id });
       scene.add(missileMesh);
     }
 
@@ -598,7 +642,7 @@
         let missile = missiles[i];
         missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
         missile.life -= delta;
-        // Ground collision.
+        // Ground collision check.
         if (groundMesh) {
           let groundRay = new THREE.Raycaster(missile.mesh.position, new THREE.Vector3(0, -1, 0));
           let groundHits = groundRay.intersectObject(groundMesh);
@@ -721,6 +765,71 @@
     }
 
     /***********************
+     * Input and Pointer Lock
+     ***********************/
+    function onKeyDown(e) {
+      if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
+      if (e.code === "KeyI") { toggleInfoBar(); return; }
+      if (document.activeElement === chatInput) return;
+      switch (e.code) {
+        case "KeyW": controls.forward = true; break;
+        case "KeyS": controls.backward = true; break;
+        case "KeyA": controls.left = true; break;
+        case "KeyD": controls.right = true; break;
+        case "Space": controls.shoot = true; sendShoot(); break;
+        case "ShiftLeft": faster = true; break;
+        case "Digit1": cameraMode = 1; break;
+        case "Digit2": cameraMode = 2; break;
+        case "Digit3": cameraMode = 3; break;
+      }
+    }
+
+    function onKeyUp(e) {
+      switch (e.code) {
+        case "KeyW": controls.forward = false; break;
+        case "KeyS": controls.backward = false; break;
+        case "KeyA": controls.left = false; break;
+        case "KeyD": controls.right = false; break;
+        case "Space": controls.shoot = false; break;
+        case "ShiftLeft": faster = false; break;
+      }
+    }
+
+    chatInput.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") {
+        if (chatInput.value.trim() !== "") {
+          sendChat(chatInput.value.trim());
+          chatInput.value = "";
+        }
+        chatInput.style.display = "none";
+      }
+    });
+    function toggleChat() {
+      chatInput.style.display = (chatInput.style.display === "none" || chatInput.style.display === "") ? "block" : "none";
+      if (chatInput.style.display === "block") chatInput.focus();
+    }
+
+    let isDragging = false, offsetX = 0, offsetY = 0;
+    const infoBar = document.getElementById("infoBar");
+    infoBar.addEventListener("mousedown", function(e) {
+      isDragging = true;
+      offsetX = e.clientX - infoBar.offsetLeft;
+      offsetY = e.clientY - infoBar.offsetTop;
+    });
+    document.addEventListener("mousemove", function(e) {
+      if (isDragging) {
+        infoBar.style.left = (e.clientX - offsetX) + "px";
+        infoBar.style.top = (e.clientY - offsetY) + "px";
+      }
+    });
+    document.addEventListener("mouseup", function() { isDragging = false; });
+    let infoVisible = true;
+    function toggleInfoBar() {
+      infoVisible = !infoVisible;
+      infoBar.style.display = infoVisible ? "block" : "none";
+    }
+
+    /***********************
      * Fullscreen and Pointer Lock
      ***********************/
     document.addEventListener("fullscreenchange", () => {
@@ -768,7 +877,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
       loadMap(currentMap);
-      // Create the local tank.
+      // Create local tank.
       localTank = createTank(playerData.color);
       localTank.position.set(0, 0.6, 0);
       scene.add(localTank);
@@ -778,6 +887,7 @@
       loader.load('ClearSky.png', function(texture) {
         scene.background = texture;
       });
+      // Initialize throttling state.
       lastSentPosition.copy(localTank.position);
       lastSentRotation = localTank.rotation.y;
       lastUpdateTime = performance.now();
