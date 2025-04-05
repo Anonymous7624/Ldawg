@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.5.2</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.5.3</title>
   <style>
     /* General UI Styles */
     body { margin: 0; overflow: hidden; }
@@ -65,7 +65,7 @@
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
-    <strong>Version:</strong> 1.5.2
+    <strong>Version:</strong> 1.5.3
   </div>
   <div id="damageOverlay"></div>
 
@@ -84,7 +84,7 @@
       nickname: localStorage.getItem("nickname"),
       color: "#" + Math.floor(Math.random() * 16777215).toString(16)
     };
-    // Define missile types.
+    // Missile types for shooting.
     const missileTypes = {
       bullet: {
         speed: 100,
@@ -107,7 +107,7 @@
     };
 
     let scene, camera, renderer, clock;
-    let localTank;                // Our tank.
+    let localTank;                // Our local tank.
     let remoteTanks = {};         // Other players' tanks.
     let missiles = [];            // Active missiles.
     let trailParticles = [];      // Missile trail particles.
@@ -131,7 +131,7 @@
     /***********************
      * Helper Functions
      ***********************/
-    // Sanitize HTML to prevent XSS.
+    // Sanitize HTML.
     function sanitizeHTML(str) {
       if (typeof str !== "string") return "";
       return str.replace(/&/g, '&amp;')
@@ -140,8 +140,7 @@
                 .replace(/"/g, '&quot;')
                 .replace(/'/g, '&#39;');
     }
-
-    // ImprovedNoise for terrain.
+    // ImprovedNoise for terrain generation.
     function ImprovedNoise() {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
          140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -269,7 +268,7 @@
       turret.add(cannon);
       turret.position.set(0, 1.4, 0);
       tank.add(turret);
-      // Store turret and cannon references.
+      // Save turret and cannon references.
       tank.userData.turret = turret;
       tank.userData.cannon = cannon;
       return tank;
@@ -339,7 +338,7 @@
       camera.lookAt(localTank.position);
     }
 
-    // Draw local tank as a larger arrow and remote tanks as dots on the minimap.
+    // Draw minimap: local tank as a larger arrow (using turret rotation) and remote tanks as dots.
     function updateMinimap() {
       let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
@@ -352,7 +351,8 @@
       let pos = worldToMinimap(localTank.position.x, localTank.position.z);
       ctx.save();
       ctx.translate(pos.x, pos.y);
-      ctx.rotate(-localTank.userData.turret.rotation.y); // use turret rotation for arrow direction
+      // Use turret rotation for local tank arrow.
+      ctx.rotate(-localTank.userData.turret.rotation.y);
       ctx.beginPath();
       ctx.moveTo(0, -10);
       ctx.lineTo(7, 7);
@@ -405,8 +405,8 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        // Ignore any messages from ourselves.
-        if (msg.id === playerData.id) return;
+        // Compare IDs as strings to ensure our own messages are ignored.
+        if (String(msg.id) === String(playerData.id)) return;
         if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
         handleServerMessage(msg);
       };
@@ -482,15 +482,15 @@
           nickname: playerData.nickname,
           message: safeMessage
         }));
+        // Immediately display our own chat.
         displayChatBubble({ id: playerData.id, nickname: playerData.nickname, message: safeMessage });
         addGlobalChatMessage(`${playerData.nickname}: ${safeMessage}`);
       }
     }
 
     /***********************
-     * Shooting Functions: Turret-Based Firing
+     * Shooting Functions (Turret-Based)
      ***********************/
-    // When Space is pressed, fire a missile using the turret's cannon.
     function launchMissile() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
       let missileProps = missileTypes[selectedMissileType];
@@ -499,7 +499,7 @@
       cannon.getWorldDirection(direction);
       let position = new THREE.Vector3();
       cannon.getWorldPosition(position);
-      // Spawn the missile at the tip of the cannon.
+      // Spawn missile at the tip of the cannon.
       let spawnOffset = 3;
       let spawnPos = position.clone().add(direction.clone().multiplyScalar(spawnOffset));
       let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
@@ -510,13 +510,12 @@
       missileMesh.userData.owner = playerData.id;
       missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
       scene.add(missileMesh);
-      // Optional recoil animation.
+      // Optional: recoil animation.
       let originalPos = cannon.position.clone();
       cannon.position.z -= 0.2;
       setTimeout(() => { cannon.position.copy(originalPos); }, 100);
     }
 
-    // Create missile for remote shoot events.
     function createRemoteMissile(data) {
       let missileType = data.missileType || "bullet";
       let missileProps = missileTypes[missileType];
@@ -534,11 +533,10 @@
       scene.add(missileMesh);
     }
 
-    // Trigger shooting: send shoot event and launch missile.
     function sendShoot() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
       if (ws && ws.readyState === WebSocket.OPEN) {
-        // Use turret rotation so the missile travels in turret's direction.
+        // Use turret rotation so missile travels in turret's direction.
         ws.send(JSON.stringify({
           type: "shoot",
           id: playerData.id,
@@ -713,7 +711,7 @@
       if (chatInput.style.display === "block") chatInput.focus();
     }
 
-    // Simple drag for info bar.
+    // Drag for info bar.
     let isDragging = false, offsetX = 0, offsetY = 0;
     const infoBar = document.getElementById("infoBar");
     infoBar.addEventListener("mousedown", function(e) {
@@ -732,15 +730,15 @@
     }
 
     /***********************
-     * Fullscreen Pointer Lock Fix
+     * Fullscreen and Pointer Lock
      ***********************/
-    // When entering full screen, request pointer lock so turret continues to follow mouse.
+    // When entering full screen, request pointer lock.
     document.addEventListener("fullscreenchange", () => {
       if (document.fullscreenElement && document.pointerLockElement !== document.body) {
         document.body.requestPointerLock().catch(err => console.error("PointerLock error:", err));
       }
     });
-    // Turret control via mouse movement.
+    // Turret control via mouse.
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body) {
         turretRotationOffset -= e.movementX * 0.002;
@@ -749,7 +747,6 @@
         }
       }
     });
-    // Request pointer lock on click.
     document.body.addEventListener('click', () => {
       if (document.pointerLockElement !== document.body) {
         document.body.requestPointerLock().catch(err => console.error("PointerLock error:", err));
@@ -788,7 +785,7 @@
       scene.add(localTank);
       addNicknameLabel(localTank, playerData.nickname);
       setupWebSocket();
-      // Set clear sky.
+      // Set clear sky background.
       const loader = new THREE.TextureLoader();
       loader.load('ClearSky.png', function(texture) { scene.background = texture; });
       window.addEventListener('resize', onWindowResize, false);
@@ -815,7 +812,7 @@
       checkCollisions();
       updateTankHeightAndOrientation();
       updateCamera();
-      // Make chat bubbles face the camera.
+      // Ensure chat bubbles always face the camera.
       localTank.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
       for (let id in remoteTanks) {
         remoteTanks[id].mesh.children.forEach(child => { if (child.type === "Sprite") child.lookAt(camera.position); });
