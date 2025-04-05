@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.0.5</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.1.0</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -39,10 +39,10 @@
       background-color: green;
       border-radius: 3px;
     }
-    /* Chat Input */
+    /* Chat Input: moved lower so it doesn't get blocked by the health bar */
     #chatInput {
       position: fixed;
-      bottom: 210px;
+      bottom: 20px;
       left: 50%;
       transform: translateX(-50%);
       display: none;
@@ -147,7 +147,7 @@
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
-    <strong>Version:</strong> 1.0.5
+    <strong>Version:</strong> 1.1.0
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -188,10 +188,10 @@
     let prevTankPosition = new THREE.Vector3();
 
     // New variable declarations to prevent errors:
-    let treeColliders = [];          // If you have tree colliders, populate this array; otherwise, it's empty.
-    let cameraShakeTime = 0;         // For camera shake effect.
-    let cameraShakeIntensity = 0.5;  // Default shake intensity.
-    let latency = 0;                 // To store latency from ping responses.
+    let treeColliders = [];
+    let cameraShakeTime = 0;
+    let cameraShakeIntensity = 0.5;
+    let latency = 0;
 
     // -----------------------------
     // Security Helper: Sanitize HTML to prevent XSS
@@ -208,7 +208,6 @@
     // -----------------------------
     // Helper Functions & Definitions
     // -----------------------------
-    // ImprovedNoise for terrain generation
     var ImprovedNoise = function () {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
                140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -285,7 +284,6 @@
       });
     }
 
-    // Use provided ground texture
     function setupTerrainTexture() {
       const loader = new THREE.TextureLoader();
       let groundTexture = loader.load('rocky_trail_02_diff_4k.jpg');
@@ -294,7 +292,6 @@
       return groundTexture;
     }
 
-    // loadMap() function must be defined before init() is called.
     function loadMap(mapType) {
       let mapGroup = scene.getObjectByName("mapGroup");
       if (mapGroup) { scene.remove(mapGroup); }
@@ -320,7 +317,6 @@
       scene.add(mapGroup);
     }
 
-    // Create the tank with correctly aligned barrel.
     function createTank(color) {
       let tank = new THREE.Group();
       let chassisGeom = new THREE.BoxGeometry(3.5, 1.2, 6);
@@ -357,7 +353,6 @@
       turretBase.receiveShadow = true;
       turretBase.position.y = 0.5;
       turret.add(turretBase);
-      // Barrel: rotate about X-axis so it points along positive Z
       let cannonGeom = new THREE.CylinderGeometry(0.2, 0.2, 5, 16);
       let cannonMat = new THREE.MeshStandardMaterial({ color: 0x333333 });
       let cannon = new THREE.Mesh(cannonGeom, cannonMat);
@@ -373,7 +368,6 @@
       return tank;
     }
 
-    // Raise the nametag higher. Sanitize the nickname.
     function addNicknameLabel(tank, nickname) {
       tank.children = tank.children.filter(child => child.name !== "nicknameLabel");
       let canvas = document.createElement('canvas');
@@ -384,7 +378,6 @@
       ctx.font = "30px Arial";
       ctx.fillStyle = "#fff";
       ctx.textAlign = "center";
-      // Use sanitized nickname
       ctx.fillText(sanitizeHTML(nickname), canvas.width / 2, canvas.height / 2 + 10);
       let texture = new THREE.CanvasTexture(canvas);
       let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture }));
@@ -394,7 +387,6 @@
       tank.add(sprite);
     }
 
-    // Adjust tank height and orientation to match ground slope.
     function updateTankHeightAndOrientation() {
       if (!groundMesh) return;
       let raycaster = new THREE.Raycaster(
@@ -419,7 +411,7 @@
       }
     }
 
-    // Pointer lock and turret aiming
+    // Pointer lock for turret aiming and hiding mouse cursor
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body) {
         turretRotationOffset -= e.movementX * 0.002;
@@ -428,8 +420,12 @@
         }
       }
     });
+    document.body.addEventListener('click', () => {
+      if (document.pointerLockElement !== document.body) {
+        document.body.requestPointerLock();
+      }
+    });
 
-    // WebSocket connection using WS_URL.
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
       ws.onopen = () => {
@@ -532,7 +528,6 @@
       }
     }
 
-    // Shooting functions
     function launchMissile() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
       let missileProps = missileTypes[selectedMissileType];
@@ -597,7 +592,6 @@
           for (let id in remoteTanks) {
             let remoteTank = remoteTanks[id].mesh;
             if (missile.mesh.position.distanceTo(remoteTank.position) < 1.5) {
-              // applyDamageToRemote should be defined in your server logic.
               createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
               scene.remove(missile.mesh);
               missiles.splice(i, 1);
@@ -606,7 +600,6 @@
           }
         } else {
           if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
-            // checkExplosionDamage should be defined in your server logic.
             createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
             scene.remove(missile.mesh);
             missiles.splice(i, 1);
@@ -662,7 +655,7 @@
       animateExplosion();
     }
 
-    // Display chat bubble with sanitized message text.
+    // Adjusted chat bubble so that it appears above the nametag
     function displayChatBubble(msg) {
       let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
       if (!target) return;
@@ -676,12 +669,12 @@
       ctx.fillText(sanitizeHTML(msg.message), canvas.width / 2, canvas.height / 2 + 8);
       let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
       sprite.scale.set(4, 1, 1);
-      sprite.position.set(0, 3, 0);
+      // Position chat bubble above the nametag
+      sprite.position.set(0, 4.5, 0);
       target.add(sprite);
       setTimeout(() => { target.remove(sprite); }, 3000);
     }
 
-    // Update kill feed by sanitizing messages to prevent XSS.
     function addKillFeed(text) {
       killFeedMessages.push(sanitizeHTML(text));
       document.getElementById("killFeed").innerHTML = killFeedMessages.slice(-5).join("<br>");
@@ -713,6 +706,7 @@
       camera.lookAt(localTank.position);
     }
 
+    // Updated minimap: draw an arrow for the local tank to indicate facing direction.
     function updateMinimap() {
       let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
@@ -722,11 +716,21 @@
       function worldToMinimap(x, z) {
         return { x: (x + half) * (minimap.width / fullMap), y: (half - z) * (minimap.height / fullMap) };
       }
+      // Draw local tank as an arrow
       let pos = worldToMinimap(localTank.position.x, localTank.position.z);
-      ctx.fillStyle = playerData.color;
+      ctx.save();
+      ctx.translate(pos.x, pos.y);
+      // Rotate arrow according to tank rotation (adjust sign as needed)
+      ctx.rotate(-localTank.rotation.y);
       ctx.beginPath();
-      ctx.arc(pos.x, pos.y, 5, 0, Math.PI * 2);
+      ctx.moveTo(0, -7);
+      ctx.lineTo(5, 5);
+      ctx.lineTo(-5, 5);
+      ctx.closePath();
+      ctx.fillStyle = playerData.color;
       ctx.fill();
+      ctx.restore();
+      // Draw remote tanks as circles
       ctx.fillStyle = "#fff";
       for (let id in remoteTanks) {
         let pos2 = worldToMinimap(remoteTanks[id].mesh.position.x, remoteTanks[id].mesh.position.z);
@@ -816,9 +820,6 @@
       infoBar.style.display = infoVisible ? "block" : "none";
     }
 
-    // -----------------------------
-    // Init Function (Called After All Definitions)
-    // -----------------------------
     function init() {
       clock = new THREE.Clock();
       scene = new THREE.Scene();
@@ -828,7 +829,6 @@
       let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
       ambient.name = "ambientLight";
       scene.add(ambient);
-      // Warm directional light for the desert
       let dirLight = new THREE.DirectionalLight(0xffaa66, 1.5);
       dirLight.position.set(80, 100, -60);
       dirLight.castShadow = true;
