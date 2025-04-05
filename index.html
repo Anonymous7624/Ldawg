@@ -17,7 +17,7 @@
     }
   </script>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.1.0</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.2.0</title>
   <style>
     body { margin: 0; overflow: hidden; }
     /* Health Bar */
@@ -39,16 +39,16 @@
       background-color: green;
       border-radius: 3px;
     }
-    /* Chat Input: moved lower so it doesn't get blocked by the health bar */
+    /* Chat Input: now positioned at the same height as the health bar and above global chat */
     #chatInput {
       position: fixed;
-      bottom: 20px;
+      bottom: 220px;
       left: 50%;
       transform: translateX(-50%);
       display: none;
       padding: 8px;
       font-size: 16px;
-      z-index: 110;
+      z-index: 150;
     }
     /* Kill Feed */
     #killFeed {
@@ -147,7 +147,7 @@
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
-    <strong>Version:</strong> 1.1.0
+    <strong>Version:</strong> 1.2.0
   </div>
   <!-- Damage Overlay -->
   <div id="damageOverlay"></div>
@@ -411,7 +411,7 @@
       }
     }
 
-    // Pointer lock for turret aiming and hiding mouse cursor
+    // Pointer lock for turret aiming and hiding mouse cursor with error catching
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body) {
         turretRotationOffset -= e.movementX * 0.002;
@@ -422,7 +422,7 @@
     });
     document.body.addEventListener('click', () => {
       if (document.pointerLockElement !== document.body) {
-        document.body.requestPointerLock();
+        document.body.requestPointerLock().catch(err => console.error("PointerLock error:", err));
       }
     });
 
@@ -447,7 +447,10 @@
         if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
         handleServerMessage(msg);
       };
-      ws.onclose = () => { console.log("Disconnected from server."); };
+      ws.onclose = () => {
+        console.log("Disconnected from server. Reconnecting...");
+        setTimeout(setupWebSocket, 5000);
+      };
       ws.onerror = (err) => { console.error("WebSocket error:", err); };
     }
 
@@ -486,18 +489,12 @@
     }
 
     function updateRemoteTank(data) {
-      if (!remoteTanks[data.id]) {
-        let tank = createTank(data.color);
-        tank.position.set(data.position.x, data.position.y, data.position.z);
-        scene.add(tank);
-        addNicknameLabel(tank, data.nickname);
-        remoteTanks[data.id] = { mesh: tank, nickname: data.nickname, health: 100 };
-      } else {
-        let currentPos = remoteTanks[data.id].mesh.position;
-        let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
-        currentPos.lerp(targetPos, 0.1);
-        remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1);
-      }
+      // Extra safety check: if remote tank data or mesh is missing, ignore the update.
+      if (!remoteTanks[data.id] || !remoteTanks[data.id].mesh) return;
+      let currentPos = remoteTanks[data.id].mesh.position;
+      let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
+      currentPos.lerp(targetPos, 0.1);
+      remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1);
     }
 
     function sendUpdate() {
@@ -632,6 +629,11 @@
           scene.remove(p);
           trailParticles.splice(i, 1);
         }
+      }
+      // Limit the total number of trail particles to prevent memory leaks.
+      if (trailParticles.length > 300) { 
+        let oldest = trailParticles.shift();
+        scene.remove(oldest);
       }
     }
 
