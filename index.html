@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.5.6</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.5.6.1</title>
   <script>
     // Redirect to join.html if no nickname is stored.
     if (!localStorage.getItem('nickname')) {
       window.location.href = "join.html";
     }
-    // When switching tabs, clear the nickname and redirect.
+    // On tab switch: clear stored nickname and redirect.
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
         localStorage.removeItem("nickname");
@@ -78,7 +78,7 @@
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> --<br>
-    <strong>Version:</strong> 1.5.6
+    <strong>Version:</strong> 1.5.6.1
   </div>
   <div id="damageOverlay"></div>
 
@@ -114,7 +114,7 @@
         speed: 60,
         geometry: () => {
           let geo = new THREE.CylinderGeometry(0.2, 0.2, 2, 8);
-          geo.rotateX(-Math.PI / 2); // Pre-rotate so it aligns with turret's forward direction.
+          geo.rotateX(-Math.PI / 2);
           return geo;
         },
         material: new THREE.MeshStandardMaterial({ color: 0x0000ff }),
@@ -142,6 +142,10 @@
     let cameraShakeTime = 0;
     let cameraShakeIntensity = 0.5;
     let latency = 0;
+    // Throttle variables:
+    let lastUpdateTime = 0;
+    let lastSentPosition = new THREE.Vector3();
+    let lastSentRotation = 0;
 
     /***********************
      * Helper Functions
@@ -351,7 +355,7 @@
       camera.lookAt(localTank.position);
     }
 
-    // Minimap: Show local tank as a colored arrow based on the tank's chassis rotation.
+    // Minimap: Draw only the colored arrow for local tank based on its chassis rotation.
     function updateMinimap() {
       let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
@@ -361,14 +365,13 @@
       function worldToMinimap(x, z) {
         return { x: (x + half) * (minimap.width / fullMap), y: (half - z) * (minimap.height / fullMap) };
       }
-      // Draw local tank as a smaller arrow using the tank's rotation.
       let pos = worldToMinimap(localTank.position.x, localTank.position.z);
       ctx.save();
       ctx.translate(pos.x, pos.y);
-      // Use the tank's own rotation (chassis) for arrow direction.
+      // Use tank's own rotation (chassis) for the arrow.
       ctx.rotate(-localTank.rotation.y);
       ctx.beginPath();
-      // Smaller arrow dimensions.
+      // Smaller arrow.
       ctx.moveTo(0, -6);
       ctx.lineTo(4, 4);
       ctx.lineTo(-4, 4);
@@ -376,7 +379,7 @@
       ctx.fillStyle = playerData.color;
       ctx.fill();
       ctx.restore();
-      // For remote tanks, draw white dots.
+      // Draw remote tanks as white dots.
       ctx.fillStyle = "#fff";
       for (let id in remoteTanks) {
         let pos2 = worldToMinimap(remoteTanks[id].mesh.position.x, remoteTanks[id].mesh.position.z);
@@ -421,7 +424,7 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        // Ignore any messages from ourselves.
+        // Fully ignore messages from ourselves.
         if (String(msg.id) === String(playerData.id)) return;
         if (msg.type === "pong") { latency = performance.now() - msg.timestamp; return; }
         handleServerMessage(msg);
@@ -434,7 +437,6 @@
     }
 
     function handleServerMessage(msg) {
-      // Extra safety check.
       if (String(msg.id) === String(playerData.id)) return;
       switch (msg.type) {
         case "update":
@@ -477,38 +479,43 @@
       remoteTanks[data.id].mesh.rotation.y = THREE.MathUtils.lerp(remoteTanks[data.id].mesh.rotation.y, data.rotation, 0.1);
     }
 
-    function sendUpdate() {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: "update",
-          id: playerData.id,
-          position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
-          rotation: localTank.rotation.y
-        }));
-      }
-    }
+    /***********************
+     * WebSocket Update Throttling
+     ***********************/
+    // Throttle updates: send update only if at least 70ms have passed AND if the tank moved significantly.
+    let lastUpdateTime = 0;
+    let lastSentPosition = new THREE.Vector3();
+    let lastSentRotation = 0;
 
-    function sendChat(message) {
-      let now = Date.now();
-      if (now - lastChatTime < chatCooldown) return;
-      lastChatTime = now;
-      let safeMessage = sanitizeHTML(message);
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: "chat",
-          id: playerData.id,
-          nickname: playerData.nickname,
-          message: safeMessage
-        }));
-        displayChatBubble({ id: playerData.id, nickname: playerData.nickname, message: safeMessage });
-        addGlobalChatMessage(`${playerData.nickname}: ${safeMessage}`);
-      }
+    function sendUpdate() {
+      if (!(ws && ws.readyState === WebSocket.OPEN)) return;
+      let now = performance.now();
+      // Only update 10-15 times per second (~70ms minimum between updates)
+      if (now - lastUpdateTime < 70) return;
+      
+      // Check if position or rotation changed significantly.
+      let currentPos = localTank.position.clone();
+      let posDiff = currentPos.distanceTo(lastSentPosition);
+      let rotDiff = Math.abs(localTank.rotation.y - lastSentRotation);
+      
+      if (posDiff < 0.1 && rotDiff < (5 * Math.PI / 180)) return;
+      
+      // Update last update time and last sent values.
+      lastUpdateTime = now;
+      lastSentPosition.copy(currentPos);
+      lastSentRotation = localTank.rotation.y;
+      
+      ws.send(JSON.stringify({
+        type: "update",
+        id: playerData.id,
+        position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+        rotation: localTank.rotation.y
+      }));
     }
 
     /***********************
      * Shooting Functions: Turret-Based Firing with Recoil and Ground Collision
      ***********************/
-    // Adjust spawn so missile comes directly out of the turret but slightly lower.
     function launchMissile() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
       let missileProps = missileTypes[selectedMissileType];
@@ -519,7 +526,7 @@
       cannon.getWorldPosition(position);
       let spawnOffset = 3;
       let spawnPos = position.clone().add(direction.clone().multiplyScalar(spawnOffset));
-      // Lower spawn position by 0.5 units.
+      // Lower the spawn position slightly.
       spawnPos.y -= 0.5;
       let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
       missileMesh.position.copy(spawnPos);
@@ -530,7 +537,7 @@
       missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
       scene.add(missileMesh);
       
-      // Recoil: reset cannon position to its original local position.
+      // Recoil animation: Reset cannon to its original local position.
       let originalPos = localTank.userData.cannonOriginal;
       cannon.position.set(originalPos.x, originalPos.y, originalPos.z - 0.2);
       setTimeout(() => { 
@@ -546,7 +553,226 @@
       let spawnOffset = 3;
       let spawnPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z)
                         .add(direction.clone().multiplyScalar(spawnOffset));
-      // Lower the spawn position by 0.5 units.
+      spawnPos.y -= 0.5;
+      missileMesh.position.copy(spawnPos);
+      missileMesh.rotation.y = data.rotation;
+      missileMesh.userData.lastTrailTime = 0;
+      missileMesh.userData.owner = data.id;
+      let velocity = direction.multiplyScalar(missileProps.speed);
+      missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: missileType, owner: data.id });
+      scene.add(missileMesh);
+    }
+
+    function sendShoot() {
+      let selectedMissileType = document.getElementById("missileTypeSelect").value;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "shoot",
+          id: playerData.id,
+          nickname: playerData.nickname,
+          position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+          rotation: localTank.userData.turret.rotation.y,
+          missileType: selectedMissileType
+        }));
+      }
+      launchMissile();
+    }
+
+    /***********************
+     * Missile and Particle Updates with Ground Collision
+     ***********************/
+    function updateMissiles(delta) {
+      for (let i = missiles.length - 1; i >= 0; i--) {
+        let missile = missiles[i];
+        missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
+        missile.life -= delta;
+        // Ground collision: if missile is close to the ground, explode.
+        if (groundMesh) {
+          let groundRay = new THREE.Raycaster(missile.mesh.position, new THREE.Vector3(0, -1, 0));
+          let groundHits = groundRay.intersectObject(groundMesh);
+          if (groundHits.length > 0 && groundHits[0].distance < 0.5) {
+            createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+            scene.remove(missile.mesh);
+            missiles.splice(i, 1);
+            continue;
+          }
+        }
+        if (performance.now() - missile.mesh.userData.lastTrailTime > 50) {
+          createMissileTrail(missile.mesh.position);
+          missile.mesh.userData.lastTrailTime = performance.now();
+        }
+        if (missile.owner === playerData.id) {
+          for (let id in remoteTanks) {
+            let remoteTank = remoteTanks[id].mesh;
+            if (missile.mesh.position.distanceTo(remoteTank.position) < 1.5) {
+              createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+              scene.remove(missile.mesh);
+              missiles.splice(i, 1);
+              break;
+            }
+          }
+        } else {
+          if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
+            createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+            scene.remove(missile.mesh);
+            missiles.splice(i, 1);
+          }
+        }
+        if (missile.life <= 0) {
+          createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+          scene.remove(missile.mesh);
+          missiles.splice(i, 1);
+        }
+      }
+    }
+
+    function createMissileTrail(position) {
+      const particleGeom = new THREE.SphereGeometry(0.1, 6, 6);
+      const particleMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.5 });
+      let particle = new THREE.Mesh(particleGeom, particleMat);
+      particle.position.copy(position);
+      particle.userData.life = 0.3;
+      scene.add(particle);
+      trailParticles.push(particle);
+    }
+
+    function updateTrailParticles(delta) {
+      for (let i = trailParticles.length - 1; i >= 0; i--) {
+        let p = trailParticles[i];
+        p.userData.life -= delta;
+        p.material.opacity = Math.max(p.userData.life / 0.3, 0);
+        if (p.userData.life <= 0) {
+          scene.remove(p);
+          trailParticles.splice(i, 1);
+        }
+      }
+      if (trailParticles.length > 200) {
+        let oldest = trailParticles.shift();
+        scene.remove(oldest);
+      }
+    }
+
+    function createExplosion(position, radius = 1.5) {
+      let explosionGeom = new THREE.SphereGeometry(radius, 16, 16);
+      let explosionMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true });
+      let explosionMesh = new THREE.Mesh(explosionGeom, explosionMat);
+      explosionMesh.position.copy(position);
+      scene.add(explosionMesh);
+      cameraShakeTime = 0.3;
+      let explosionLife = 0.5, start = performance.now();
+      function animateExplosion() {
+        let elapsed = (performance.now() - start) / 1000;
+        if (elapsed < explosionLife) {
+          explosionMesh.material.opacity = 1 - (elapsed / explosionLife);
+          requestAnimationFrame(animateExplosion);
+        } else {
+          scene.remove(explosionMesh);
+        }
+      }
+      animateExplosion();
+    }
+
+    /***********************
+     * Chat and UI Functions
+     ***********************/
+    function displayChatBubble(msg) {
+      let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
+      if (!target) return;
+      let canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "20px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.fillText(sanitizeHTML(msg.message), canvas.width / 2, canvas.height / 2 + 8);
+      let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+      sprite.scale.set(4, 1, 1);
+      sprite.position.set(0, 4.5, 0);
+      target.add(sprite);
+      setTimeout(() => { target.remove(sprite); }, 3000);
+    }
+
+    function addKillFeed(text) {
+      killFeedMessages.push(sanitizeHTML(text));
+      document.getElementById("killFeed").innerHTML = killFeedMessages.slice(-5).join("<br>");
+    }
+
+    function addGlobalChatMessage(text) {
+      let chatLog = document.getElementById("globalChatLog");
+      let messageElem = document.createElement("div");
+      messageElem.textContent = text;
+      chatLog.appendChild(messageElem);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    /***********************
+     * WebSocket Update Throttling
+     ***********************/
+    let lastUpdateTime = 0;
+    let lastSentPosition = new THREE.Vector3();
+    let lastSentRotation = 0;
+    function sendUpdate() {
+      if (!(ws && ws.readyState === WebSocket.OPEN)) return;
+      let now = performance.now();
+      // Throttle to ~14 updates per second.
+      if (now - lastUpdateTime < 70) return;
+      let currentPos = localTank.position.clone();
+      let posDiff = currentPos.distanceTo(lastSentPosition);
+      let rotDiff = Math.abs(localTank.rotation.y - lastSentRotation);
+      // Only send if moved more than 0.1 units or rotated more than 5° (≈0.087 radians).
+      if (posDiff < 0.1 && rotDiff < 0.087) return;
+      lastUpdateTime = now;
+      lastSentPosition.copy(currentPos);
+      lastSentRotation = localTank.rotation.y;
+      ws.send(JSON.stringify({
+        type: "update",
+        id: playerData.id,
+        position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+        rotation: localTank.rotation.y
+      }));
+    }
+
+    /***********************
+     * Shooting Functions: Turret-Based Firing with Recoil and Ground Collision
+     ***********************/
+    function launchMissile() {
+      let selectedMissileType = document.getElementById("missileTypeSelect").value;
+      let missileProps = missileTypes[selectedMissileType];
+      let cannon = localTank.userData.cannon;
+      let direction = new THREE.Vector3();
+      cannon.getWorldDirection(direction);
+      let position = new THREE.Vector3();
+      cannon.getWorldPosition(position);
+      let spawnOffset = 3;
+      let spawnPos = position.clone().add(direction.clone().multiplyScalar(spawnOffset));
+      // Lower the spawn position slightly.
+      spawnPos.y -= 0.5;
+      let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
+      missileMesh.position.copy(spawnPos);
+      missileMesh.quaternion.copy(cannon.getWorldQuaternion(new THREE.Quaternion()));
+      let velocity = direction.clone().multiplyScalar(missileProps.speed);
+      missileMesh.userData.lastTrailTime = 0;
+      missileMesh.userData.owner = playerData.id;
+      missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
+      scene.add(missileMesh);
+      
+      // Recoil: Reset cannon to its original local position.
+      let originalPos = localTank.userData.cannonOriginal;
+      cannon.position.set(originalPos.x, originalPos.y, originalPos.z - 0.2);
+      setTimeout(() => { 
+        cannon.position.copy(originalPos);
+      }, 100);
+    }
+
+    function createRemoteMissile(data) {
+      let missileType = data.missileType || "bullet";
+      let missileProps = missileTypes[missileType];
+      let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
+      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0,1,0), data.rotation);
+      let spawnOffset = 3;
+      let spawnPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z)
+                        .add(direction.clone().multiplyScalar(spawnOffset));
       spawnPos.y -= 0.5;
       missileMesh.position.copy(spawnPos);
       missileMesh.rotation.y = data.rotation;
@@ -581,6 +807,439 @@
         missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
         missile.life -= delta;
         // Ground collision check.
+        if (groundMesh) {
+          let groundRay = new THREE.Raycaster(missile.mesh.position, new THREE.Vector3(0, -1, 0));
+          let groundHits = groundRay.intersectObject(groundMesh);
+          if (groundHits.length > 0 && groundHits[0].distance < 0.5) {
+            createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+            scene.remove(missile.mesh);
+            missiles.splice(i, 1);
+            continue;
+          }
+        }
+        if (performance.now() - missile.mesh.userData.lastTrailTime > 50) {
+          createMissileTrail(missile.mesh.position);
+          missile.mesh.userData.lastTrailTime = performance.now();
+        }
+        if (missile.owner === playerData.id) {
+          for (let id in remoteTanks) {
+            let remoteTank = remoteTanks[id].mesh;
+            if (missile.mesh.position.distanceTo(remoteTank.position) < 1.5) {
+              createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+              scene.remove(missile.mesh);
+              missiles.splice(i, 1);
+              break;
+            }
+          }
+        } else {
+          if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
+            createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+            scene.remove(missile.mesh);
+            missiles.splice(i, 1);
+          }
+        }
+        if (missile.life <= 0) {
+          createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+          scene.remove(missile.mesh);
+          missiles.splice(i, 1);
+        }
+      }
+    }
+
+    function createMissileTrail(position) {
+      const particleGeom = new THREE.SphereGeometry(0.1, 6, 6);
+      const particleMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.5 });
+      let particle = new THREE.Mesh(particleGeom, particleMat);
+      particle.position.copy(position);
+      particle.userData.life = 0.3;
+      scene.add(particle);
+      trailParticles.push(particle);
+    }
+
+    function updateTrailParticles(delta) {
+      for (let i = trailParticles.length - 1; i >= 0; i--) {
+        let p = trailParticles[i];
+        p.userData.life -= delta;
+        p.material.opacity = Math.max(p.userData.life / 0.3, 0);
+        if (p.userData.life <= 0) {
+          scene.remove(p);
+          trailParticles.splice(i, 1);
+        }
+      }
+      if (trailParticles.length > 200) {
+        let oldest = trailParticles.shift();
+        scene.remove(oldest);
+      }
+    }
+
+    function createExplosion(position, radius = 1.5) {
+      let explosionGeom = new THREE.SphereGeometry(radius, 16, 16);
+      let explosionMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true });
+      let explosionMesh = new THREE.Mesh(explosionGeom, explosionMat);
+      explosionMesh.position.copy(position);
+      scene.add(explosionMesh);
+      cameraShakeTime = 0.3;
+      let explosionLife = 0.5, start = performance.now();
+      function animateExplosion() {
+        let elapsed = (performance.now() - start) / 1000;
+        if (elapsed < explosionLife) {
+          explosionMesh.material.opacity = 1 - (elapsed / explosionLife);
+          requestAnimationFrame(animateExplosion);
+        } else {
+          scene.remove(explosionMesh);
+        }
+      }
+      animateExplosion();
+    }
+
+    /***********************
+     * Chat and UI Functions
+     ***********************/
+    function displayChatBubble(msg) {
+      let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
+      if (!target) return;
+      let canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "20px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.fillText(sanitizeHTML(msg.message), canvas.width / 2, canvas.height / 2 + 8);
+      let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+      sprite.scale.set(4, 1, 1);
+      sprite.position.set(0, 4.5, 0);
+      target.add(sprite);
+      setTimeout(() => { target.remove(sprite); }, 3000);
+    }
+
+    function addKillFeed(text) {
+      killFeedMessages.push(sanitizeHTML(text));
+      document.getElementById("killFeed").innerHTML = killFeedMessages.slice(-5).join("<br>");
+    }
+
+    function addGlobalChatMessage(text) {
+      let chatLog = document.getElementById("globalChatLog");
+      let messageElem = document.createElement("div");
+      messageElem.textContent = text;
+      chatLog.appendChild(messageElem);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    /***********************
+     * WebSocket Update Throttling
+     ***********************/
+    let lastUpdateTime = 0;
+    let lastSentPosition = new THREE.Vector3();
+    let lastSentRotation = 0;
+    function sendUpdate() {
+      if (!(ws && ws.readyState === WebSocket.OPEN)) return;
+      let now = performance.now();
+      if (now - lastUpdateTime < 70) return;
+      let currentPos = localTank.position.clone();
+      let posDiff = currentPos.distanceTo(lastSentPosition);
+      let rotDiff = Math.abs(localTank.rotation.y - lastSentRotation);
+      if (posDiff < 0.1 && rotDiff < 0.087) return;
+      lastUpdateTime = now;
+      lastSentPosition.copy(currentPos);
+      lastSentRotation = localTank.rotation.y;
+      ws.send(JSON.stringify({
+        type: "update",
+        id: playerData.id,
+        position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+        rotation: localTank.rotation.y
+      }));
+    }
+
+    /***********************
+     * Shooting Functions: Turret-Based Firing with Recoil and Ground Collision
+     ***********************/
+    function launchMissile() {
+      let selectedMissileType = document.getElementById("missileTypeSelect").value;
+      let missileProps = missileTypes[selectedMissileType];
+      let cannon = localTank.userData.cannon;
+      let direction = new THREE.Vector3();
+      cannon.getWorldDirection(direction);
+      let position = new THREE.Vector3();
+      cannon.getWorldPosition(position);
+      let spawnOffset = 3;
+      let spawnPos = position.clone().add(direction.clone().multiplyScalar(spawnOffset));
+      // Lower spawn position by 0.5 units.
+      spawnPos.y -= 0.5;
+      let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
+      missileMesh.position.copy(spawnPos);
+      missileMesh.quaternion.copy(cannon.getWorldQuaternion(new THREE.Quaternion()));
+      let velocity = direction.clone().multiplyScalar(missileProps.speed);
+      missileMesh.userData.lastTrailTime = 0;
+      missileMesh.userData.owner = playerData.id;
+      missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
+      scene.add(missileMesh);
+      
+      // Recoil: Reset cannon to its original local position.
+      let originalPos = localTank.userData.cannonOriginal;
+      cannon.position.set(originalPos.x, originalPos.y, originalPos.z - 0.2);
+      setTimeout(() => { 
+        cannon.position.copy(originalPos);
+      }, 100);
+    }
+
+    function createRemoteMissile(data) {
+      let missileType = data.missileType || "bullet";
+      let missileProps = missileTypes[missileType];
+      let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
+      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0,1,0), data.rotation);
+      let spawnOffset = 3;
+      let spawnPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z)
+                        .add(direction.clone().multiplyScalar(spawnOffset));
+      spawnPos.y -= 0.5;
+      missileMesh.position.copy(spawnPos);
+      missileMesh.rotation.y = data.rotation;
+      missileMesh.userData.lastTrailTime = 0;
+      missileMesh.userData.owner = data.id;
+      let velocity = direction.multiplyScalar(missileProps.speed);
+      missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: missileType, owner: data.id });
+      scene.add(missileMesh);
+    }
+
+    function sendShoot() {
+      let selectedMissileType = document.getElementById("missileTypeSelect").value;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "shoot",
+          id: playerData.id,
+          nickname: playerData.nickname,
+          position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+          rotation: localTank.userData.turret.rotation.y,
+          missileType: selectedMissileType
+        }));
+      }
+      launchMissile();
+    }
+
+    /***********************
+     * Missile and Particle Updates with Ground Collision
+     ***********************/
+    function updateMissiles(delta) {
+      for (let i = missiles.length - 1; i >= 0; i--) {
+        let missile = missiles[i];
+        missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
+        missile.life -= delta;
+        if (groundMesh) {
+          let groundRay = new THREE.Raycaster(missile.mesh.position, new THREE.Vector3(0, -1, 0));
+          let groundHits = groundRay.intersectObject(groundMesh);
+          if (groundHits.length > 0 && groundHits[0].distance < 0.5) {
+            createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+            scene.remove(missile.mesh);
+            missiles.splice(i, 1);
+            continue;
+          }
+        }
+        if (performance.now() - missile.mesh.userData.lastTrailTime > 50) {
+          createMissileTrail(missile.mesh.position);
+          missile.mesh.userData.lastTrailTime = performance.now();
+        }
+        if (missile.owner === playerData.id) {
+          for (let id in remoteTanks) {
+            let remoteTank = remoteTanks[id].mesh;
+            if (missile.mesh.position.distanceTo(remoteTank.position) < 1.5) {
+              createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+              scene.remove(missile.mesh);
+              missiles.splice(i, 1);
+              break;
+            }
+          }
+        } else {
+          if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
+            createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+            scene.remove(missile.mesh);
+            missiles.splice(i, 1);
+          }
+        }
+        if (missile.life <= 0) {
+          createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
+          scene.remove(missile.mesh);
+          missiles.splice(i, 1);
+        }
+      }
+    }
+
+    function createMissileTrail(position) {
+      const particleGeom = new THREE.SphereGeometry(0.1, 6, 6);
+      const particleMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.5 });
+      let particle = new THREE.Mesh(particleGeom, particleMat);
+      particle.position.copy(position);
+      particle.userData.life = 0.3;
+      scene.add(particle);
+      trailParticles.push(particle);
+    }
+
+    function updateTrailParticles(delta) {
+      for (let i = trailParticles.length - 1; i >= 0; i--) {
+        let p = trailParticles[i];
+        p.userData.life -= delta;
+        p.material.opacity = Math.max(p.userData.life / 0.3, 0);
+        if (p.userData.life <= 0) {
+          scene.remove(p);
+          trailParticles.splice(i, 1);
+        }
+      }
+      if (trailParticles.length > 200) {
+        let oldest = trailParticles.shift();
+        scene.remove(oldest);
+      }
+    }
+
+    function createExplosion(position, radius = 1.5) {
+      let explosionGeom = new THREE.SphereGeometry(radius, 16, 16);
+      let explosionMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true });
+      let explosionMesh = new THREE.Mesh(explosionGeom, explosionMat);
+      explosionMesh.position.copy(position);
+      scene.add(explosionMesh);
+      cameraShakeTime = 0.3;
+      let explosionLife = 0.5, start = performance.now();
+      function animateExplosion() {
+        let elapsed = (performance.now() - start) / 1000;
+        if (elapsed < explosionLife) {
+          explosionMesh.material.opacity = 1 - (elapsed / explosionLife);
+          requestAnimationFrame(animateExplosion);
+        } else {
+          scene.remove(explosionMesh);
+        }
+      }
+      animateExplosion();
+    }
+
+    /***********************
+     * Chat and UI Functions
+     ***********************/
+    function displayChatBubble(msg) {
+      let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
+      if (!target) return;
+      let canvas = document.createElement('canvas'); canvas.width = 256; canvas.height = 64;
+      let ctx = canvas.getContext('2d');
+      ctx.fillStyle = "rgba(0,0,0,0.5)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "20px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.fillText(sanitizeHTML(msg.message), canvas.width / 2, canvas.height / 2 + 8);
+      let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
+      sprite.scale.set(4, 1, 1);
+      sprite.position.set(0, 4.5, 0);
+      target.add(sprite);
+      setTimeout(() => { target.remove(sprite); }, 3000);
+    }
+
+    function addKillFeed(text) {
+      killFeedMessages.push(sanitizeHTML(text));
+      document.getElementById("killFeed").innerHTML = killFeedMessages.slice(-5).join("<br>");
+    }
+
+    function addGlobalChatMessage(text) {
+      let chatLog = document.getElementById("globalChatLog");
+      let messageElem = document.createElement("div");
+      messageElem.textContent = text;
+      chatLog.appendChild(messageElem);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    /***********************
+     * WebSocket Update Throttling
+     ***********************/
+    let lastUpdateTime = 0;
+    let lastSentPosition = new THREE.Vector3();
+    let lastSentRotation = 0;
+    function sendUpdate() {
+      if (!(ws && ws.readyState === WebSocket.OPEN)) return;
+      let now = performance.now();
+      if (now - lastUpdateTime < 70) return;
+      let currentPos = localTank.position.clone();
+      let posDiff = currentPos.distanceTo(lastSentPosition);
+      let rotDiff = Math.abs(localTank.rotation.y - lastSentRotation);
+      if (posDiff < 0.1 && rotDiff < 0.087) return;
+      lastUpdateTime = now;
+      lastSentPosition.copy(currentPos);
+      lastSentRotation = localTank.rotation.y;
+      ws.send(JSON.stringify({
+        type: "update",
+        id: playerData.id,
+        position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+        rotation: localTank.rotation.y
+      }));
+    }
+
+    /***********************
+     * Shooting Functions: Turret-Based Firing with Recoil and Ground Collision
+     ***********************/
+    function launchMissile() {
+      let selectedMissileType = document.getElementById("missileTypeSelect").value;
+      let missileProps = missileTypes[selectedMissileType];
+      let cannon = localTank.userData.cannon;
+      let direction = new THREE.Vector3();
+      cannon.getWorldDirection(direction);
+      let position = new THREE.Vector3();
+      cannon.getWorldPosition(position);
+      let spawnOffset = 3;
+      let spawnPos = position.clone().add(direction.clone().multiplyScalar(spawnOffset));
+      spawnPos.y -= 0.5;
+      let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
+      missileMesh.position.copy(spawnPos);
+      missileMesh.quaternion.copy(cannon.getWorldQuaternion(new THREE.Quaternion()));
+      let velocity = direction.clone().multiplyScalar(missileProps.speed);
+      missileMesh.userData.lastTrailTime = 0;
+      missileMesh.userData.owner = playerData.id;
+      missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
+      scene.add(missileMesh);
+      
+      // Recoil: reset cannon to its original local position.
+      let originalPos = localTank.userData.cannonOriginal;
+      cannon.position.set(originalPos.x, originalPos.y, originalPos.z - 0.2);
+      setTimeout(() => { 
+        cannon.position.copy(originalPos);
+      }, 100);
+    }
+
+    function createRemoteMissile(data) {
+      let missileType = data.missileType || "bullet";
+      let missileProps = missileTypes[missileType];
+      let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
+      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0,1,0), data.rotation);
+      let spawnOffset = 3;
+      let spawnPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z)
+                        .add(direction.clone().multiplyScalar(spawnOffset));
+      spawnPos.y -= 0.5;
+      missileMesh.position.copy(spawnPos);
+      missileMesh.rotation.y = data.rotation;
+      missileMesh.userData.lastTrailTime = 0;
+      missileMesh.userData.owner = data.id;
+      let velocity = direction.multiplyScalar(missileProps.speed);
+      missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: missileType, owner: data.id });
+      scene.add(missileMesh);
+    }
+
+    function sendShoot() {
+      let selectedMissileType = document.getElementById("missileTypeSelect").value;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "shoot",
+          id: playerData.id,
+          nickname: playerData.nickname,
+          position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+          rotation: localTank.userData.turret.rotation.y,
+          missileType: selectedMissileType
+        }));
+      }
+      launchMissile();
+    }
+
+    /***********************
+     * Missile and Particle Updates with Ground Collision
+     ***********************/
+    function updateMissiles(delta) {
+      for (let i = missiles.length - 1; i >= 0; i--) {
+        let missile = missiles[i];
+        missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
+        missile.life -= delta;
         if (groundMesh) {
           let groundRay = new THREE.Raycaster(missile.mesh.position, new THREE.Vector3(0, -1, 0));
           let groundHits = groundRay.intersectObject(groundMesh);
@@ -785,6 +1444,31 @@
     });
 
     /***********************
+     * WebSocket Update Throttling
+     ***********************/
+    let lastUpdateTime = 0;
+    let lastSentPosition = new THREE.Vector3();
+    let lastSentRotation = 0;
+    function sendUpdate() {
+      if (!(ws && ws.readyState === WebSocket.OPEN)) return;
+      let now = performance.now();
+      if (now - lastUpdateTime < 70) return;
+      let currentPos = localTank.position.clone();
+      let posDiff = currentPos.distanceTo(lastSentPosition);
+      let rotDiff = Math.abs(localTank.rotation.y - lastSentRotation);
+      if (posDiff < 0.1 && rotDiff < 0.087) return;
+      lastUpdateTime = now;
+      lastSentPosition.copy(currentPos);
+      lastSentRotation = localTank.rotation.y;
+      ws.send(JSON.stringify({
+        type: "update",
+        id: playerData.id,
+        position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
+        rotation: localTank.rotation.y
+      }));
+    }
+
+    /***********************
      * Main Game Loop and Initialization
      ***********************/
     function init() {
@@ -818,6 +1502,10 @@
       setupWebSocket();
       const loader = new THREE.TextureLoader();
       loader.load('ClearSky.png', function(texture) { scene.background = texture; });
+      // Initialize throttling state.
+      lastSentPosition.copy(localTank.position);
+      lastSentRotation = localTank.rotation.y;
+      lastUpdateTime = performance.now();
       window.addEventListener('resize', onWindowResize, false);
       window.addEventListener('keydown', onKeyDown, false);
       window.addEventListener('keyup', onKeyUp, false);
