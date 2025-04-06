@@ -102,7 +102,7 @@
   
   <script>
     /***********************
-     * Global Variables and Configuration
+     * 1. Global Variables & Configuration
      ***********************/
     const WS_URL = "wss://game.ldawg7624.com";
     const playerData = {
@@ -140,35 +140,30 @@
     let remoteTanks = {};
     let missiles = [];
     let trailParticles = [];
-    let killFeedMessages = [];
     let cameraMode = 1;
     let controls = { forward: false, backward: false, left: false, right: false };
     let faster = false;
-    let chatCooldown = 1000;
-    let lastChatTime = 0;
-    let groundMesh;
-    let turretRotationOffset = 0;
-    let currentMap = 'desert';
-    let ws;
-    let prevTankPosition = new THREE.Vector3();
-    let treeColliders = [];
-    let cameraShakeTime = 0;
-    let cameraShakeIntensity = 0.5;
     let latency = 0;
     let mapSize = 1000; // Updated in loadMap().
     let lastUpdateTime = 0;
     let lastSentPosition = new THREE.Vector3();
     let lastSentRotation = 0;
     let localHealth = 100;
+    let turretRotationOffset = 0; // This offset is added to the tank's base rotation for turret control.
+    let ws;
+    let prevTankPosition = new THREE.Vector3();
     const chatInput = document.getElementById("chatInput");
-    let localTankCreated = false;
 
-    // Pre-created missile trail geometry and material.
+    // Pre-create geometry and material for missile trail particles (optimized for performance)
     const missileTrailParticleGeom = new THREE.SphereGeometry(0.1, 6, 6);
-    const missileTrailParticleMat = new THREE.MeshBasicMaterial({ color: 0xaaaaaa, transparent: true, opacity: 0.5 });
+    const missileTrailParticleMat = new THREE.MeshBasicMaterial({
+      color: 0xaaaaaa,
+      transparent: true,
+      opacity: 0.5
+    });
 
     /***********************
-     * Helper Functions
+     * 2. Helper Functions
      ***********************/
     function sanitizeHTML(str) {
       if (typeof str !== "string") return "";
@@ -179,6 +174,7 @@
                 .replace(/'/g, '&#39;');
     }
 
+    // ImprovedNoise for terrain generation.
     function ImprovedNoise() {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
          140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -226,7 +222,7 @@
     }
 
     /***********************
-     * Terrain and Map Setup
+     * 3. Terrain & Map Setup
      ***********************/
     function loadMap(mapType) {
       let mapGroup = scene.getObjectByName("mapGroup");
@@ -252,14 +248,14 @@
       groundTexture.wrapS = groundTexture.wrapT = THREE.RepeatWrapping;
       groundTexture.repeat.set(50, 50);
       const material = new THREE.MeshStandardMaterial({ map: groundTexture });
-      groundMesh = new THREE.Mesh(geometry, material);
+      let groundMesh = new THREE.Mesh(geometry, material);
       groundMesh.receiveShadow = true;
       mapGroup.add(groundMesh);
       scene.add(mapGroup);
     }
 
     /***********************
-     * Tank Creation and Labels
+     * 4. Tank Creation & Labels
      ***********************/
     function createTank(color) {
       let tank = new THREE.Group();
@@ -292,7 +288,7 @@
       hatch.castShadow = true;
       hatch.receiveShadow = true;
       tank.add(hatch);
-      // Turret and Cannon.
+      // Turret & Cannon.
       let turret = new THREE.Group();
       let turretBaseGeom = new THREE.BoxGeometry(2.5, 1, 3);
       let turretBaseMat = new THREE.MeshStandardMaterial({ color: color, metalness: 0.7, roughness: 0.3 });
@@ -310,6 +306,7 @@
       turret.add(cannon);
       turret.position.set(0, 1.4, 0);
       tank.add(turret);
+      // Store turret and original cannon position for later use.
       tank.userData.turret = turret;
       tank.userData.cannon = cannon;
       tank.userData.cannonOriginal = cannon.position.clone();
@@ -338,7 +335,7 @@
     }
 
     /***********************
-     * Chat Function
+     * 5. Chat System
      ***********************/
     function sendChat(text) {
       if (ws && ws.readyState === WebSocket.OPEN) {
@@ -352,20 +349,22 @@
     }
 
     /***********************
-     * Game Mechanics: Movement, Shooting, and Collisions
+     * 6. Game Mechanics: Movement, Collisions & UI Updates
      ***********************/
     function updateTankHeightAndOrientation() {
-      if (!groundMesh) return;
+      // Adjust the tank's height to follow the terrain.
+      let ground = scene.getObjectByName("mapGroup")?.children[0];
+      if (!ground) return;
       let raycaster = new THREE.Raycaster(
         new THREE.Vector3(localTank.position.x, localTank.position.y + 10, localTank.position.z),
         new THREE.Vector3(0, -1, 0)
       );
-      let intersects = raycaster.intersectObject(groundMesh);
+      let intersects = raycaster.intersectObject(ground);
       if (intersects.length > 0) {
         let hit = intersects[0];
         localTank.position.y = hit.point.y + 0.6;
         let normal = hit.face.normal.clone();
-        normal.transformDirection(groundMesh.matrixWorld);
+        normal.transformDirection(ground.matrixWorld);
         let yaw = localTank.rotation.y;
         let forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
         forward.projectOnPlane(normal).normalize();
@@ -379,6 +378,7 @@
     }
 
     function updateCamera() {
+      // Set the camera position based on the selected mode.
       let targetPos;
       if (cameraMode === 1) {
         targetPos = new THREE.Vector3(0, 5, -10).applyMatrix4(localTank.matrixWorld);
@@ -388,8 +388,8 @@
         targetPos = localTank.position.clone().add(new THREE.Vector3(0, 30, 0));
       }
       if (cameraShakeTime > 0) {
-        targetPos.x += (Math.random() - 0.5) * cameraShakeIntensity;
-        targetPos.y += (Math.random() - 0.5) * cameraShakeIntensity;
+        targetPos.x += (Math.random() - 0.5) * 0.5;
+        targetPos.y += (Math.random() - 0.5) * 0.5;
         cameraShakeTime -= clock.getDelta();
       }
       camera.position.lerp(targetPos, 0.1);
@@ -397,7 +397,8 @@
     }
 
     function updateMinimap() {
-      let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
+      let minimap = document.getElementById("minimap"),
+          ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
       ctx.fillStyle = "rgba(0,0,0,0.5)";
       ctx.fillRect(0, 0, minimap.width, minimap.height);
@@ -427,7 +428,9 @@
     }
 
     function checkCollisions() {
-      for (let obs of treeColliders) {
+      // Check collisions with trees or boundaries.
+      // (Assuming treeColliders are added elsewhere if needed.)
+      for (let obs of []) { // Placeholder for treeColliders.
         if (localTank.position.distanceTo(obs.position) < 10) {
           localTank.position.copy(prevTankPosition);
           return;
@@ -441,7 +444,7 @@
     }
 
     /***********************
-     * WebSocket Communication
+     * 7. Network Handling (WebSockets)
      ***********************/
     function setupWebSocket() {
       ws = new WebSocket(WS_URL);
@@ -461,7 +464,7 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        if (!msg.id) return; // Safeguard for messages without an id.
+        if (!msg.id) return; // Safeguard: ignore messages without an id.
         if (msg.type === "pong") {
           latency = performance.now() - msg.timestamp;
           document.getElementById("latencyDisplay").innerText = Math.round(latency);
@@ -480,7 +483,7 @@
     }
 
     function handleServerMessage(msg) {
-      if (!msg.id) return; // Additional safeguard.
+      // Ignore messages from self.
       if (msg.id == playerData.id) {
         if (msg.type === "join") {
           console.log("Ignoring duplicate join for local player.");
@@ -548,7 +551,7 @@
     }
 
     /***********************
-     * Shooting Functions
+     * 8. Shooting Mechanics
      ***********************/
     function launchMissile() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
@@ -558,7 +561,7 @@
       cannon.getWorldDirection(direction);
       let position = new THREE.Vector3();
       cannon.getWorldPosition(position);
-      // Spawn missile 3 units ahead and raise its Y by 1 unit.
+      // Spawn missile 3 units ahead and slightly above.
       let spawnPos = position.clone().add(direction.clone().multiplyScalar(3));
       spawnPos.y += 1;
       let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
@@ -569,7 +572,7 @@
       missileMesh.userData.owner = playerData.id;
       missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
       scene.add(missileMesh);
-      // Recoil: reset cannon.
+      // Recoil: simulate cannon movement.
       let originalPos = localTank.userData.cannonOriginal;
       cannon.position.set(originalPos.x, originalPos.y, originalPos.z - 0.2);
       setTimeout(() => { cannon.position.copy(originalPos); }, 100);
@@ -579,7 +582,7 @@
       let missileType = data.missileType || "bullet";
       let missileProps = missileTypes[missileType];
       let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
-      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0,1,0), data.rotation);
+      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), data.rotation);
       let spawnPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z)
                         .add(direction.clone().multiplyScalar(3));
       spawnPos.y += 1;
@@ -612,17 +615,18 @@
     }
 
     /***********************
-     * Missile and Particle Updates with Health Effects
+     * 9. Missile & Particle Updates
      ***********************/
     function updateMissiles(delta) {
       for (let i = missiles.length - 1; i >= 0; i--) {
         let missile = missiles[i];
         missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
         missile.life -= delta;
-        // Ground collision.
-        if (groundMesh) {
+        // Ground collision detection.
+        let ground = scene.getObjectByName("mapGroup")?.children[0];
+        if (ground) {
           let groundRay = new THREE.Raycaster(missile.mesh.position, new THREE.Vector3(0, -1, 0));
-          let groundHits = groundRay.intersectObject(groundMesh);
+          let groundHits = groundRay.intersectObject(ground);
           if (groundHits.length > 0 && groundHits[0].distance < 0.5) {
             createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
             scene.remove(missile.mesh);
@@ -630,11 +634,12 @@
             continue;
           }
         }
+        // Create trail if enough time has passed.
         if (performance.now() - missile.mesh.userData.lastTrailTime > 50) {
           createMissileTrail(missile.mesh.position);
           missile.mesh.userData.lastTrailTime = performance.now();
         }
-        // If missile fired by you, check collision with remote tanks.
+        // Collision detection with tanks.
         if (missile.owner === playerData.id) {
           for (let id in remoteTanks) {
             let remoteTank = remoteTanks[id].mesh;
@@ -658,7 +663,7 @@
             }
           }
         } else {
-          // Missile fired by someone else: check collision with local tank.
+          // Check collision with the local tank.
           if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
             localHealth -= 30;
             document.getElementById("healthBar").style.width = Math.max(localHealth, 0) + "%";
@@ -670,6 +675,7 @@
             }
           }
         }
+        // Remove missile if its life expires.
         if (missile.life <= 0) {
           createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
           scene.remove(missile.mesh);
@@ -678,8 +684,8 @@
       }
     }
 
+    // Create missile trail using pre-created geometry/material.
     function createMissileTrail(position) {
-      // Use the pre-created geometry and material.
       let particle = new THREE.Mesh(missileTrailParticleGeom, missileTrailParticleMat);
       particle.position.copy(position);
       particle.userData.life = 0.3;
@@ -724,7 +730,7 @@
     }
 
     /***********************
-     * Input and Pointer Lock
+     * 10. Player Control & Input
      ***********************/
     function onKeyDown(e) {
       if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
@@ -769,6 +775,7 @@
       if (chatInput.style.display === "block") chatInput.focus();
     }
 
+    // InfoBar drag functionality.
     let isDragging = false, offsetX = 0, offsetY = 0;
     const infoBar = document.getElementById("infoBar");
     infoBar.addEventListener("mousedown", function(e) {
@@ -789,20 +796,18 @@
       infoBar.style.display = infoVisible ? "block" : "none";
     }
 
-    /***********************
-     * Fullscreen and Pointer Lock
-     ***********************/
+    // Pointer Lock & Turret Control: Fix turret rotation so that it rotates relative to the tank’s facing direction.
     document.addEventListener("fullscreenchange", () => {
       if (document.fullscreenElement && document.pointerLockElement !== document.body) {
         document.body.requestPointerLock().catch(err => console.error("PointerLock error:", err));
       }
     });
     document.addEventListener("mousemove", (e) => {
-      if (document.pointerLockElement === document.body) {
-        turretRotationOffset -= e.movementX * 0.002;
-        if (localTank && localTank.userData.turret) {
-          localTank.userData.turret.rotation.y = turretRotationOffset;
-        }
+      if (document.pointerLockElement === document.body && localTank && localTank.userData.turret) {
+        // Update turretRotationOffset based on mouse movement.
+        turretRotationOffset += e.movementX * 0.002;
+        // Set turret rotation relative to the tank's current rotation.
+        localTank.userData.turret.rotation.y = localTank.rotation.y + turretRotationOffset;
       }
     });
     document.body.addEventListener('click', () => {
@@ -812,7 +817,44 @@
     });
 
     /***********************
-     * Main Game Loop and Initialization
+     * 11. Rendering & Animation
+     ***********************/
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      let delta = clock.getDelta();
+      prevTankPosition.copy(localTank.position);
+      let speed = 15 * delta * (faster ? 2 : 1);
+      if (controls.forward) localTank.translateZ(speed);
+      if (controls.backward) localTank.translateZ(-speed);
+      if (controls.left) localTank.rotation.y += 2 * delta;
+      if (controls.right) localTank.rotation.y -= 2 * delta;
+      checkCollisions();
+      updateTankHeightAndOrientation();
+      updateCamera();
+      // Ensure nickname labels always face the camera.
+      localTank.children.forEach(child => {
+        if (child.type === "Sprite") child.lookAt(camera.position);
+      });
+      for (let id in remoteTanks) {
+        remoteTanks[id].mesh.children.forEach(child => {
+          if (child.type === "Sprite") child.lookAt(camera.position);
+        });
+      }
+      sendUpdate();
+      updateMissiles(delta);
+      updateTrailParticles(delta);
+      renderer.render(scene, camera);
+      updateMinimap();
+    }
+
+    /***********************
+     * 12. Initialization
      ***********************/
     function init() {
       clock = new THREE.Clock();
@@ -836,13 +878,12 @@
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
-      loadMap(currentMap);
-      // Create local tank.
+      loadMap("desert");
+      // Create the local player's tank.
       localTank = createTank(playerData.color);
       localTank.position.set(0, 0.6, 0);
       scene.add(localTank);
       addNicknameLabel(localTank, playerData.nickname);
-      localTankCreated = true;
       setupWebSocket();
       const loader = new THREE.TextureLoader();
       loader.load('ClearSky.png', function(texture) {
@@ -863,39 +904,30 @@
       document.getElementById("healthBar").style.width = "100%";
     }
 
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
+    // Optional: Stub functions for chat bubble and kill feed display.
+    function displayChatBubble(msg) {
+      // Implement as needed.
     }
 
-    function animate() {
-      requestAnimationFrame(animate);
-      let delta = clock.getDelta();
-      prevTankPosition.copy(localTank.position);
-      let speed = 15 * delta * (faster ? 2 : 1);
-      if (controls.forward) localTank.translateZ(speed);
-      if (controls.backward) localTank.translateZ(-speed);
-      if (controls.left) localTank.rotation.y += 2 * delta;
-      if (controls.right) localTank.rotation.y -= 2 * delta;
-      checkCollisions();
-      updateTankHeightAndOrientation();
-      updateCamera();
-      localTank.children.forEach(child => {
-        if (child.type === "Sprite") child.lookAt(camera.position);
-      });
-      for (let id in remoteTanks) {
-        remoteTanks[id].mesh.children.forEach(child => {
-          if (child.type === "Sprite") child.lookAt(camera.position);
-        });
-      }
-      sendUpdate();
-      updateMissiles(delta);
-      updateTrailParticles(delta);
-      renderer.render(scene, camera);
-      updateMinimap();
+    function addGlobalChatMessage(message) {
+      // Append message to the global chat log.
+      const chatLog = document.getElementById("globalChatLog");
+      const p = document.createElement("p");
+      p.innerText = message;
+      chatLog.appendChild(p);
+      chatLog.scrollTop = chatLog.scrollHeight;
     }
 
+    function addKillFeed(message) {
+      const killFeed = document.getElementById("killFeed");
+      const p = document.createElement("p");
+      p.innerText = message;
+      killFeed.appendChild(p);
+      // Optionally remove old messages after a delay.
+      setTimeout(() => killFeed.removeChild(p), 5000);
+    }
+
+    // Start the game.
     init();
   </script>
 </body>
