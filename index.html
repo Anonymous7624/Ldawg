@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>3D Multiplayer Tank Game - Final Polish v1.5.7.2</title>
+  <title>3D Multiplayer Tank Game - Final Polish v1.5.7.3</title>
   <script>
     // Redirect to join.html if no nickname is stored.
     if (!localStorage.getItem('nickname')) {
@@ -92,7 +92,7 @@
     <strong>Controls:</strong> WASD, SPACE, 1-3 (Camera), SHIFT, T (Chat), I (Toggle Info)<br>
     <strong>Connection:</strong> <span id="latencyDisplay">--</span> ms<br>
     <strong>Players:</strong> <span id="playerCount">--</span><br>
-    <strong>Version:</strong> 1.5.7.2
+    <strong>Version:</strong> 1.5.7.3
   </div>
   <div id="damageOverlay"></div>
 
@@ -155,8 +155,8 @@
     let cameraShakeTime = 0;
     let cameraShakeIntensity = 0.5;
     let latency = 0;
-    let mapSize = 1000; // Will update in loadMap().
-    // WebSocket update throttling variables.
+    let mapSize = 1000; // Updated in loadMap().
+    // WebSocket update throttling.
     let lastUpdateTime = 0;
     let lastSentPosition = new THREE.Vector3();
     let lastSentRotation = 0;
@@ -164,6 +164,8 @@
     let localHealth = 100;
     // Define chatInput element.
     const chatInput = document.getElementById("chatInput");
+    // Flag to ensure our local tank is created only once.
+    let localTankCreated = false;
 
     /***********************
      * Helper Functions
@@ -394,7 +396,7 @@
       camera.lookAt(localTank.position);
     }
 
-    // Minimap: Use dynamic mapSize.
+    // Minimap: Using dynamic mapSize.
     function updateMinimap() {
       let minimap = document.getElementById("minimap"), ctx = minimap.getContext("2d");
       ctx.clearRect(0, 0, minimap.width, minimap.height);
@@ -477,47 +479,46 @@
       ws.onerror = (err) => { console.error("WebSocket error:", err); };
     }
 
-   function handleServerMessage(msg) {
-  // Optional: Debug logging to check join messages.
-  console.log("Received join message:", msg);
-  
-  // Filter out our own messages using loose equality.
-  if (msg.id == playerData.id) return;
-  
-  switch (msg.type) {
-    case "update":
-      updateRemoteTank(msg);
-      break;
-    case "chat":
-      displayChatBubble(msg);
-      addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
-      break;
-    case "shoot":
-      createRemoteMissile(msg);
-      addKillFeed(`${msg.nickname} fired!`);
-      break;
-    case "join":
-      // Create a remote tank only if one doesn't already exist.
-      if (!remoteTanks[msg.id]) {
-        let tank = createTank(msg.color);
-        tank.position.set(msg.position.x, msg.position.y, msg.position.z);
-        scene.add(tank);
-        addNicknameLabel(tank, msg.nickname);
-        remoteTanks[msg.id] = { mesh: tank, nickname: msg.nickname, health: 100 };
+    function handleServerMessage(msg) {
+      // Use loose equality to filter out our own messages.
+      if (msg.id == playerData.id) {
+        if (msg.type === "join") {
+          console.log("Ignoring duplicate join for local player.");
+        }
+        return;
       }
-      break;
-    case "leave":
-      if (remoteTanks[msg.id]) {
-        scene.remove(remoteTanks[msg.id].mesh);
-        delete remoteTanks[msg.id];
+      switch (msg.type) {
+        case "update":
+          updateRemoteTank(msg);
+          break;
+        case "chat":
+          displayChatBubble(msg);
+          addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
+          break;
+        case "shoot":
+          createRemoteMissile(msg);
+          addKillFeed(`${msg.nickname} fired!`);
+          break;
+        case "join":
+          if (!remoteTanks[msg.id]) {
+            let tank = createTank(msg.color);
+            tank.position.set(msg.position.x, msg.position.y, msg.position.z);
+            scene.add(tank);
+            addNicknameLabel(tank, msg.nickname);
+            remoteTanks[msg.id] = { mesh: tank, nickname: msg.nickname, health: 100 };
+          }
+          break;
+        case "leave":
+          if (remoteTanks[msg.id]) {
+            scene.remove(remoteTanks[msg.id].mesh);
+            delete remoteTanks[msg.id];
+          }
+          break;
+        case "kill":
+          addKillFeed(`${msg.killer} eliminated ${msg.victim}`);
+          break;
       }
-      break;
-    case "kill":
-      addKillFeed(`${msg.killer} eliminated ${msg.victim}`);
-      break;
-  }
-}
-
+    }
 
     function updateRemoteTank(data) {
       if (!remoteTanks[data.id] || !remoteTanks[data.id].mesh) return;
@@ -660,7 +661,7 @@
             }
           }
         } else {
-          // Missile fired by someone else: check collision with your tank.
+          // Missile fired by someone else: check collision with local tank.
           if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
             localHealth -= 30;
             document.getElementById("healthBar").style.width = Math.max(localHealth, 0) + "%";
@@ -724,42 +725,6 @@
         }
       }
       animateExplosion();
-    }
-
-    /***********************
-     * Chat and UI Functions
-     ***********************/
-    function displayChatBubble(msg) {
-      let target = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
-      if (!target) return;
-      let canvas = document.createElement('canvas');
-      canvas.width = 256;
-      canvas.height = 64;
-      let ctx = canvas.getContext('2d');
-      ctx.fillStyle = "rgba(0,0,0,0.5)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.font = "20px Arial";
-      ctx.fillStyle = "#fff";
-      ctx.textAlign = "center";
-      ctx.fillText(sanitizeHTML(msg.message), canvas.width / 2, canvas.height / 2 + 8);
-      let sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(canvas), transparent: true }));
-      sprite.scale.set(4, 1, 1);
-      sprite.position.set(0, 4.5, 0);
-      target.add(sprite);
-      setTimeout(() => { target.remove(sprite); }, 3000);
-    }
-
-    function addKillFeed(text) {
-      killFeedMessages.push(sanitizeHTML(text));
-      document.getElementById("killFeed").innerHTML = killFeedMessages.slice(-5).join("<br>");
-    }
-
-    function addGlobalChatMessage(text) {
-      let chatLog = document.getElementById("globalChatLog");
-      let messageElem = document.createElement("div");
-      messageElem.textContent = text;
-      chatLog.appendChild(messageElem);
-      chatLog.scrollTop = chatLog.scrollHeight;
     }
 
     /***********************
@@ -889,7 +854,13 @@
     }
 
     function handleServerMessage(msg) {
-      if (String(msg.id) === String(playerData.id)) return;
+      // Use loose equality to filter out our own messages.
+      if (msg.id == playerData.id) {
+        if (msg.type === "join") {
+          console.log("Ignoring duplicate join for local player.");
+        }
+        return;
+      }
       switch (msg.type) {
         case "update":
           updateRemoteTank(msg);
@@ -1000,6 +971,7 @@
 
     function sendShoot() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
+      // Compute turret's world direction for proper angle.
       let turretDir = new THREE.Vector3();
       localTank.userData.turret.getWorldDirection(turretDir);
       let turretAngle = Math.atan2(turretDir.x, turretDir.z);
@@ -1160,6 +1132,8 @@
       localTank.position.set(0, 0.6, 0);
       scene.add(localTank);
       addNicknameLabel(localTank, playerData.nickname);
+      // Mark local tank as created to avoid duplicate join processing.
+      localTankCreated = true;
       setupWebSocket();
       const loader = new THREE.TextureLoader();
       loader.load('ClearSky.png', function(texture) {
