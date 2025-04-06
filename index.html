@@ -154,6 +154,9 @@
     let prevTankPosition = new THREE.Vector3();
     const chatInput = document.getElementById("chatInput");
 
+    // IMPORTANT: Added declaration for cameraShakeTime to fix error.
+    let cameraShakeTime = 0;
+
     // Pre-created geometry and material for missile trail particles (optimized for performance)
     const missileTrailParticleGeom = new THREE.SphereGeometry(0.1, 6, 6);
     const missileTrailParticleMat = new THREE.MeshBasicMaterial({
@@ -346,7 +349,7 @@
       chatLog.scrollTop = chatLog.scrollHeight;
     }
 
-    // Display a chat bubble above the tank's username.
+    // Display a chat bubble above the tank's nickname label.
     function displayChatBubble(msg) {
       // Find the tank that sent the message.
       let tank = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
@@ -357,7 +360,7 @@
       canvas.width = 256;
       canvas.height = 64;
       let ctx = canvas.getContext('2d');
-      // Semi-transparent black background.
+      // Semi-transparent background.
       ctx.fillStyle = "rgba(0,0,0,0.7)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.font = "20px Arial";
@@ -478,7 +481,6 @@
     }
 
     function checkCollisions() {
-      // Check collisions with boundaries.
       const boundary = 500;
       if (localTank.position.x < -boundary || localTank.position.x > boundary ||
           localTank.position.z < -boundary || localTank.position.z > boundary) {
@@ -507,7 +509,7 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        if (!msg.id) return; // Ignore messages without an id.
+        if (!msg.id) return;
         if (msg.type === "pong") {
           latency = performance.now() - msg.timestamp;
           document.getElementById("latencyDisplay").innerText = Math.round(latency);
@@ -526,7 +528,6 @@
     }
 
     function handleServerMessage(msg) {
-      // Ignore messages from self.
       if (msg.id == playerData.id) {
         if (msg.type === "join") {
           console.log("Ignoring duplicate join for local player.");
@@ -538,7 +539,6 @@
           updateRemoteTank(msg);
           break;
         case "chat":
-          // Display chat bubble above the sending tank.
           displayChatBubble(msg);
           addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
           break;
@@ -605,7 +605,6 @@
       cannon.getWorldDirection(direction);
       let position = new THREE.Vector3();
       cannon.getWorldPosition(position);
-      // Spawn missile 3 units ahead and slightly above.
       let spawnPos = position.clone().add(direction.clone().multiplyScalar(3));
       spawnPos.y += 1;
       let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
@@ -616,7 +615,6 @@
       missileMesh.userData.owner = playerData.id;
       missiles.push({ mesh: missileMesh, velocity: velocity, life: 5, type: selectedMissileType, owner: playerData.id });
       scene.add(missileMesh);
-      // Recoil: simulate cannon movement.
       let originalPos = localTank.userData.cannonOriginal;
       cannon.position.set(originalPos.x, originalPos.y, originalPos.z - 0.2);
       setTimeout(() => { cannon.position.copy(originalPos); }, 100);
@@ -641,7 +639,6 @@
 
     function sendShoot() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
-      // Compute turret's world direction for proper angle.
       let turretDir = new THREE.Vector3();
       localTank.userData.turret.getWorldDirection(turretDir);
       let turretAngle = Math.atan2(turretDir.x, turretDir.z);
@@ -666,7 +663,6 @@
         let missile = missiles[i];
         missile.mesh.position.add(missile.velocity.clone().multiplyScalar(delta));
         missile.life -= delta;
-        // Ground collision detection.
         let ground = scene.getObjectByName("mapGroup")?.children[0];
         if (ground) {
           let groundRay = new THREE.Raycaster(missile.mesh.position, new THREE.Vector3(0, -1, 0));
@@ -678,12 +674,10 @@
             continue;
           }
         }
-        // Create trail if enough time has passed.
         if (performance.now() - missile.mesh.userData.lastTrailTime > 50) {
           createMissileTrail(missile.mesh.position);
           missile.mesh.userData.lastTrailTime = performance.now();
         }
-        // Collision detection with tanks.
         if (missile.owner === playerData.id) {
           for (let id in remoteTanks) {
             let remoteTank = remoteTanks[id].mesh;
@@ -707,7 +701,6 @@
             }
           }
         } else {
-          // Check collision with the local tank.
           if (missile.mesh.position.distanceTo(localTank.position) < 1.5) {
             localHealth -= 30;
             document.getElementById("healthBar").style.width = Math.max(localHealth, 0) + "%";
@@ -719,7 +712,6 @@
             }
           }
         }
-        // Remove missile if its life expires.
         if (missile.life <= 0) {
           createExplosion(missile.mesh.position, missileTypes[missile.type].explosionRadius);
           scene.remove(missile.mesh);
@@ -728,7 +720,6 @@
       }
     }
 
-    // Create missile trail using pre-created geometry/material.
     function createMissileTrail(position) {
       let particle = new THREE.Mesh(missileTrailParticleGeom, missileTrailParticleMat);
       particle.position.copy(position);
@@ -819,7 +810,6 @@
       if (chatInput.style.display === "block") chatInput.focus();
     }
 
-    // InfoBar drag functionality.
     let isDragging = false, offsetX = 0, offsetY = 0;
     const infoBar = document.getElementById("infoBar");
     infoBar.addEventListener("mousedown", function(e) {
@@ -840,7 +830,7 @@
       infoBar.style.display = infoVisible ? "block" : "none";
     }
 
-    // Pointer Lock & Turret Control: Ensure turret rotation is smooth and relative to the tank's facing.
+    // Pointer Lock & Turret Control: Ensure turret rotates smoothly relative to tank's facing.
     document.addEventListener("fullscreenchange", () => {
       if (document.fullscreenElement && document.pointerLockElement !== document.body) {
         document.body.requestPointerLock().catch(err => console.error("PointerLock error:", err));
@@ -848,9 +838,7 @@
     });
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body && localTank && localTank.userData.turret) {
-        // Update turretRotationOffset based on mouse movement.
         turretRotationOffset += e.movementX * 0.002;
-        // Apply the offset relative to the tank's current rotation.
         localTank.userData.turret.rotation.y = localTank.rotation.y + turretRotationOffset;
       }
     });
@@ -881,7 +869,6 @@
       checkCollisions();
       updateTankHeightAndOrientation();
       updateCamera();
-      // Ensure nickname labels and chat bubbles face the camera.
       localTank.children.forEach(child => {
         if (child.type === "Sprite") child.lookAt(camera.position);
       });
@@ -923,7 +910,6 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
       loadMap("desert");
-      // Create the local player's tank.
       localTank = createTank(playerData.color);
       localTank.position.set(0, 0.6, 0);
       scene.add(localTank);
@@ -948,17 +934,15 @@
       document.getElementById("healthBar").style.width = "100%";
     }
 
-    // Optional: Stub function for kill feed display.
+    // Optional: Kill feed display.
     function addKillFeed(message) {
       const killFeed = document.getElementById("killFeed");
       const p = document.createElement("p");
       p.innerText = message;
       killFeed.appendChild(p);
-      // Remove message after 5 seconds.
       setTimeout(() => killFeed.removeChild(p), 5000);
     }
 
-    // Start the game.
     init();
   </script>
 </body>
