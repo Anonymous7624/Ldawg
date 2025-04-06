@@ -149,12 +149,12 @@
     let lastSentPosition = new THREE.Vector3();
     let lastSentRotation = 0;
     let localHealth = 100;
-    let turretRotationOffset = 0; // This offset is added to the tank's base rotation for turret control.
+    let turretRotationOffset = 0; // Offset for turret rotation relative to the tank's facing.
     let ws;
     let prevTankPosition = new THREE.Vector3();
     const chatInput = document.getElementById("chatInput");
 
-    // Pre-create geometry and material for missile trail particles (optimized for performance)
+    // Pre-created geometry and material for missile trail particles (optimized for performance)
     const missileTrailParticleGeom = new THREE.SphereGeometry(0.1, 6, 6);
     const missileTrailParticleMat = new THREE.MeshBasicMaterial({
       color: 0xaaaaaa,
@@ -337,6 +337,57 @@
     /***********************
      * 5. Chat System
      ***********************/
+    // Global chat log is updated here.
+    function addGlobalChatMessage(message) {
+      const chatLog = document.getElementById("globalChatLog");
+      const p = document.createElement("p");
+      p.innerText = message;
+      chatLog.appendChild(p);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    // Display a chat bubble above the tank's username.
+    function displayChatBubble(msg) {
+      // Find the tank that sent the message.
+      let tank = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
+      if (!tank) return;
+      
+      // Create a canvas to draw the chat bubble.
+      let canvas = document.createElement('canvas');
+      canvas.width = 256;
+      canvas.height = 64;
+      let ctx = canvas.getContext('2d');
+      // Semi-transparent black background.
+      ctx.fillStyle = "rgba(0,0,0,0.7)";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.font = "20px Arial";
+      ctx.fillStyle = "#fff";
+      ctx.textAlign = "center";
+      ctx.fillText(sanitizeHTML(msg.message), canvas.width / 2, canvas.height / 2 + 7);
+      
+      let texture = new THREE.CanvasTexture(canvas);
+      let spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+      let sprite = new THREE.Sprite(spriteMaterial);
+      sprite.name = "chatBubble";
+      sprite.scale.set(4, 1, 1);
+      // Position the bubble above the nickname label.
+      sprite.position.set(0, 5, 0);
+      
+      // Remove any previous chat bubble.
+      let oldBubble = tank.getObjectByName("chatBubble");
+      if (oldBubble) tank.remove(oldBubble);
+      
+      tank.add(sprite);
+      
+      // Remove the chat bubble after 3 seconds.
+      setTimeout(() => {
+        if (tank.getObjectByName("chatBubble") === sprite) {
+          tank.remove(sprite);
+        }
+      }, 3000);
+    }
+
+    // Send chat message over WebSocket.
     function sendChat(text) {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
@@ -378,7 +429,6 @@
     }
 
     function updateCamera() {
-      // Set the camera position based on the selected mode.
       let targetPos;
       if (cameraMode === 1) {
         targetPos = new THREE.Vector3(0, 5, -10).applyMatrix4(localTank.matrixWorld);
@@ -428,14 +478,7 @@
     }
 
     function checkCollisions() {
-      // Check collisions with trees or boundaries.
-      // (Assuming treeColliders are added elsewhere if needed.)
-      for (let obs of []) { // Placeholder for treeColliders.
-        if (localTank.position.distanceTo(obs.position) < 10) {
-          localTank.position.copy(prevTankPosition);
-          return;
-        }
-      }
+      // Check collisions with boundaries.
       const boundary = 500;
       if (localTank.position.x < -boundary || localTank.position.x > boundary ||
           localTank.position.z < -boundary || localTank.position.z > boundary) {
@@ -464,7 +507,7 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        if (!msg.id) return; // Safeguard: ignore messages without an id.
+        if (!msg.id) return; // Ignore messages without an id.
         if (msg.type === "pong") {
           latency = performance.now() - msg.timestamp;
           document.getElementById("latencyDisplay").innerText = Math.round(latency);
@@ -495,6 +538,7 @@
           updateRemoteTank(msg);
           break;
         case "chat":
+          // Display chat bubble above the sending tank.
           displayChatBubble(msg);
           addGlobalChatMessage(`${msg.nickname}: ${msg.message}`);
           break;
@@ -582,7 +626,7 @@
       let missileType = data.missileType || "bullet";
       let missileProps = missileTypes[missileType];
       let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
-      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), data.rotation);
+      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0,1,0), data.rotation);
       let spawnPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z)
                         .add(direction.clone().multiplyScalar(3));
       spawnPos.y += 1;
@@ -796,7 +840,7 @@
       infoBar.style.display = infoVisible ? "block" : "none";
     }
 
-    // Pointer Lock & Turret Control: Fix turret rotation so that it rotates relative to the tank’s facing direction.
+    // Pointer Lock & Turret Control: Ensure turret rotation is smooth and relative to the tank's facing.
     document.addEventListener("fullscreenchange", () => {
       if (document.fullscreenElement && document.pointerLockElement !== document.body) {
         document.body.requestPointerLock().catch(err => console.error("PointerLock error:", err));
@@ -806,7 +850,7 @@
       if (document.pointerLockElement === document.body && localTank && localTank.userData.turret) {
         // Update turretRotationOffset based on mouse movement.
         turretRotationOffset += e.movementX * 0.002;
-        // Set turret rotation relative to the tank's current rotation.
+        // Apply the offset relative to the tank's current rotation.
         localTank.userData.turret.rotation.y = localTank.rotation.y + turretRotationOffset;
       }
     });
@@ -837,7 +881,7 @@
       checkCollisions();
       updateTankHeightAndOrientation();
       updateCamera();
-      // Ensure nickname labels always face the camera.
+      // Ensure nickname labels and chat bubbles face the camera.
       localTank.children.forEach(child => {
         if (child.type === "Sprite") child.lookAt(camera.position);
       });
@@ -904,26 +948,13 @@
       document.getElementById("healthBar").style.width = "100%";
     }
 
-    // Optional: Stub functions for chat bubble and kill feed display.
-    function displayChatBubble(msg) {
-      // Implement as needed.
-    }
-
-    function addGlobalChatMessage(message) {
-      // Append message to the global chat log.
-      const chatLog = document.getElementById("globalChatLog");
-      const p = document.createElement("p");
-      p.innerText = message;
-      chatLog.appendChild(p);
-      chatLog.scrollTop = chatLog.scrollHeight;
-    }
-
+    // Optional: Stub function for kill feed display.
     function addKillFeed(message) {
       const killFeed = document.getElementById("killFeed");
       const p = document.createElement("p");
       p.innerText = message;
       killFeed.appendChild(p);
-      // Optionally remove old messages after a delay.
+      // Remove message after 5 seconds.
       setTimeout(() => killFeed.removeChild(p), 5000);
     }
 
