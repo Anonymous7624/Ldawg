@@ -37,6 +37,11 @@
       color: white; font-family: sans-serif;
       z-index: 110;
     }
+    /* Less spacing for kill feed messages */
+    #killFeed p {
+      margin: 2px;
+      padding: 2px;
+    }
     #minimap {
       position: fixed; top: 10px; left: 10px;
       border: 2px solid #fff; background: rgba(0,0,0,0.5);
@@ -48,6 +53,11 @@
       overflow-y: auto; background: rgba(0,0,0,0.7);
       color: #fff; font-family: Arial, sans-serif; font-size: 14px;
       padding: 10px; box-sizing: border-box; z-index: 105;
+    }
+    /* Reduce spacing for chat messages */
+    #globalChatLog p {
+      margin: 2px;
+      padding: 2px;
     }
     #missileMenu {
       position: fixed; top: 50px; left: 50%;
@@ -154,10 +164,10 @@
     let prevTankPosition = new THREE.Vector3();
     const chatInput = document.getElementById("chatInput");
 
-    // IMPORTANT: Added declaration for cameraShakeTime to fix error.
+    // Added declaration for cameraShakeTime to fix error.
     let cameraShakeTime = 0;
 
-    // Pre-created geometry and material for missile trail particles (optimized for performance)
+    // Pre-created geometry and material for missile trail particles.
     const missileTrailParticleGeom = new THREE.SphereGeometry(0.1, 6, 6);
     const missileTrailParticleMat = new THREE.MeshBasicMaterial({
       color: 0xaaaaaa,
@@ -233,7 +243,7 @@
       mapGroup = new THREE.Group();
       mapGroup.name = "mapGroup";
       const size = 1000, segments = 200;
-      mapSize = size; // Update global mapSize
+      mapSize = size;
       const geometry = new THREE.PlaneGeometry(size, size, segments, segments);
       geometry.rotateX(-Math.PI / 2);
       const amplitude = 8, scale = 150;
@@ -309,7 +319,7 @@
       turret.add(cannon);
       turret.position.set(0, 1.4, 0);
       tank.add(turret);
-      // Store turret and original cannon position for later use.
+      // Store turret and original cannon position.
       tank.userData.turret = turret;
       tank.userData.cannon = cannon;
       tank.userData.cannonOriginal = cannon.position.clone();
@@ -340,7 +350,7 @@
     /***********************
      * 5. Chat System
      ***********************/
-    // Global chat log is updated here.
+    // Update the global chat log.
     function addGlobalChatMessage(message) {
       const chatLog = document.getElementById("globalChatLog");
       const p = document.createElement("p");
@@ -351,16 +361,15 @@
 
     // Display a chat bubble above the tank's nickname label.
     function displayChatBubble(msg) {
-      // Find the tank that sent the message.
+      // Use localTank for self; remoteTank for others.
       let tank = (msg.id === playerData.id) ? localTank : (remoteTanks[msg.id] ? remoteTanks[msg.id].mesh : null);
       if (!tank) return;
       
-      // Create a canvas to draw the chat bubble.
+      // Create canvas for the bubble.
       let canvas = document.createElement('canvas');
       canvas.width = 256;
       canvas.height = 64;
       let ctx = canvas.getContext('2d');
-      // Semi-transparent background.
       ctx.fillStyle = "rgba(0,0,0,0.7)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.font = "20px Arial";
@@ -373,16 +382,13 @@
       let sprite = new THREE.Sprite(spriteMaterial);
       sprite.name = "chatBubble";
       sprite.scale.set(4, 1, 1);
-      // Position the bubble above the nickname label.
       sprite.position.set(0, 5, 0);
       
-      // Remove any previous chat bubble.
       let oldBubble = tank.getObjectByName("chatBubble");
       if (oldBubble) tank.remove(oldBubble);
       
       tank.add(sprite);
       
-      // Remove the chat bubble after 3 seconds.
       setTimeout(() => {
         if (tank.getObjectByName("chatBubble") === sprite) {
           tank.remove(sprite);
@@ -406,7 +412,6 @@
      * 6. Game Mechanics: Movement, Collisions & UI Updates
      ***********************/
     function updateTankHeightAndOrientation() {
-      // Adjust the tank's height to follow the terrain.
       let ground = scene.getObjectByName("mapGroup")?.children[0];
       if (!ground) return;
       let raycaster = new THREE.Raycaster(
@@ -509,7 +514,8 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        if (!msg.id) return;
+        // Ignore messages without an id or messages from self.
+        if (!msg.id || msg.id === playerData.id) return;
         if (msg.type === "pong") {
           latency = performance.now() - msg.timestamp;
           document.getElementById("latencyDisplay").innerText = Math.round(latency);
@@ -528,12 +534,8 @@
     }
 
     function handleServerMessage(msg) {
-      if (msg.id == playerData.id) {
-        if (msg.type === "join") {
-          console.log("Ignoring duplicate join for local player.");
-        }
-        return;
-      }
+      // If message has no id or comes from self, do nothing.
+      if (!msg.id || msg.id === playerData.id) return;
       switch (msg.type) {
         case "update":
           updateRemoteTank(msg);
@@ -830,7 +832,7 @@
       infoBar.style.display = infoVisible ? "block" : "none";
     }
 
-    // Pointer Lock & Turret Control: Ensure turret rotates smoothly relative to tank's facing.
+    // Pointer Lock & Turret Control.
     document.addEventListener("fullscreenchange", () => {
       if (document.fullscreenElement && document.pointerLockElement !== document.body) {
         document.body.requestPointerLock().catch(err => console.error("PointerLock error:", err));
@@ -910,6 +912,7 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(renderer.domElement);
       loadMap("desert");
+      // Create local player's tank.
       localTank = createTank(playerData.color);
       localTank.position.set(0, 0.6, 0);
       scene.add(localTank);
@@ -934,7 +937,7 @@
       document.getElementById("healthBar").style.width = "100%";
     }
 
-    // Optional: Kill feed display.
+    // Kill feed display.
     function addKillFeed(message) {
       const killFeed = document.getElementById("killFeed");
       const p = document.createElement("p");
