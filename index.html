@@ -159,7 +159,7 @@
     let lastSentPosition = new THREE.Vector3();
     let lastSentRotation = 0;
     let localHealth = 100;
-    let turretRotationOffset = 0; // Offset for turret rotation relative to the tank's facing.
+    let turretRotationOffset = 0; // Offset for turret rotation relative to the tank's base.
     let ws;
     let prevTankPosition = new THREE.Vector3();
     const chatInput = document.getElementById("chatInput");
@@ -833,7 +833,7 @@
     });
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body && localTank && localTank.userData.turret) {
-        // Now add the movement value so that moving the mouse left produces a leftward offset.
+        // Now, positive e.movementX adds to the turret's offset relative to the tank's base.
         turretRotationOffset += e.movementX * 0.002;
         localTank.userData.turret.rotation.y = localTank.rotation.y + turretRotationOffset;
       }
