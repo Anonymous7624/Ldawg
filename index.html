@@ -509,6 +509,7 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
+        // Fully ignore any messages from our own id.
         if (!msg.id || msg.id === playerData.id) return;
         if (msg.type === "pong") {
           latency = performance.now() - msg.timestamp;
@@ -528,6 +529,7 @@
     }
 
     function handleServerMessage(msg) {
+      // Ignore any messages for our own id.
       if (!msg.id || msg.id === playerData.id) return;
       switch (msg.type) {
         case "update":
@@ -563,6 +565,8 @@
     }
 
     function updateRemoteTank(data) {
+      // Extra safeguard: do not update a tank if the id matches the local player's id.
+      if (data.id === playerData.id) return;
       if (!remoteTanks[data.id] || !remoteTanks[data.id].mesh) return;
       let currentPos = remoteTanks[data.id].mesh.position;
       let targetPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z);
@@ -833,7 +837,9 @@
     });
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body && localTank && localTank.userData.turret) {
-        // Now, positive e.movementX adds to the turret's offset relative to the tank's base.
+        // With this update, positive e.movementX adds to turretRotationOffset.
+        // Because our coordinate system requires a negative rotation for a clockwise (rightward) turn,
+        // adding positive movement produces the desired effect: moving mouse right rotates turret right.
         turretRotationOffset += e.movementX * 0.002;
         localTank.userData.turret.rotation.y = localTank.rotation.y + turretRotationOffset;
       }
