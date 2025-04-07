@@ -164,7 +164,7 @@
     let prevTankPosition = new THREE.Vector3();
     const chatInput = document.getElementById("chatInput");
 
-    // Declaration for cameraShakeTime to avoid errors.
+    // Declaration for cameraShakeTime.
     let cameraShakeTime = 0;
 
     // Pre-created geometry and material for missile trail particles.
@@ -833,8 +833,8 @@
     });
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body && localTank && localTank.userData.turret) {
-        // Invert the movement direction so that dragging right rotates turret right.
-        turretRotationOffset -= e.movementX * 0.002;
+        // Now add the movement value so that moving the mouse left produces a leftward offset.
+        turretRotationOffset += e.movementX * 0.002;
         localTank.userData.turret.rotation.y = localTank.rotation.y + turretRotationOffset;
       }
     });
