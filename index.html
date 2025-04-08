@@ -509,7 +509,7 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        // Fully ignore messages without an id or from our own id.
+        // Ignore messages without an id or messages from our own id.
         if (!msg.id || msg.id === playerData.id) return;
         if (msg.type === "pong") {
           latency = performance.now() - msg.timestamp;
@@ -842,8 +842,10 @@
     });
     document.addEventListener("mousemove", (e) => {
       if (document.pointerLockElement === document.body && localTank && localTank.userData.turret) {
-        // Invert the turret movement by adding the movement value.
-        turretRotationOffset += e.movementX * 0.002;
+        // With this update, positive e.movementX results in a positive turretRotationOffset.
+        // In our coordinate system, a positive turret offset rotates the turret counter-clockwise relative to the tank's base.
+        // To achieve natural behavior—moving the mouse right rotates the turret to the right (clockwise)—we subtract the movement value.
+        turretRotationOffset -= e.movementX * 0.002;
         localTank.userData.turret.rotation.y = localTank.rotation.y + turretRotationOffset;
       }
     });
