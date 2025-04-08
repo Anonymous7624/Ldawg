@@ -8,7 +8,7 @@
     if (!localStorage.getItem('nickname')) {
       window.location.href = "join.html";
     }
-    // When switching tabs, clear the stored nickname and redirect.
+    // When switching tabs, clear stored nickname and redirect.
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
         localStorage.removeItem("nickname");
@@ -38,10 +38,7 @@
       z-index: 110;
     }
     /* Reduced spacing for kill feed messages */
-    #killFeed p {
-      margin: 2px;
-      padding: 2px;
-    }
+    #killFeed p { margin: 2px; padding: 2px; }
     #minimap {
       position: fixed; top: 10px; left: 10px;
       border: 2px solid #fff; background: rgba(0,0,0,0.5);
@@ -55,10 +52,7 @@
       padding: 10px; box-sizing: border-box; z-index: 105;
     }
     /* Reduced spacing for global chat messages */
-    #globalChatLog p {
-      margin: 2px;
-      padding: 2px;
-    }
+    #globalChatLog p { margin: 2px; padding: 2px; }
     #missileMenu {
       position: fixed; top: 50px; left: 50%;
       transform: translateX(-50%);
@@ -109,7 +103,7 @@
   <!-- Three.js Libraries -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
   <script src="https://unpkg.com/three@0.152.2/examples/js/loaders/GLTFLoader.js"></script>
-  
+
   <script>
     /***********************
      * 1. Global Variables & Configuration
@@ -159,7 +153,10 @@
     let lastSentPosition = new THREE.Vector3();
     let lastSentRotation = 0;
     let localHealth = 100;
-    let turretRotationOffset = 0; // Offset for turret rotation relative to the tank's base.
+    // Store intended heading separately.
+    localTank = null; // Will be created later.
+    // We'll use localTank.userData.heading (in radians) as the desired yaw.
+    let turretRotationOffset = 0; // Turret offset (relative to chassis).
     let ws;
     let prevTankPosition = new THREE.Vector3();
     const chatInput = document.getElementById("chatInput");
@@ -187,7 +184,7 @@
                 .replace(/'/g, '&#39;');
     }
 
-    // ImprovedNoise for terrain generation.
+    // ImprovedNoise (as provided).
     function ImprovedNoise() {
       var p = [151,160,137,91,90,15,131,13,201,95,96,53,194,233,7,225,
          140,36,103,30,69,142,8,99,37,240,21,10,23,190,6,148,
@@ -323,6 +320,8 @@
       tank.userData.turret = turret;
       tank.userData.cannon = cannon;
       tank.userData.cannonOriginal = cannon.position.clone();
+      // Initialize the desired heading (yaw) for the tank.
+      tank.userData.heading = 0;
       return tank;
     }
 
@@ -406,28 +405,36 @@
     /***********************
      * 6. Game Mechanics: Movement, Collisions & UI Updates
      ***********************/
+    // Update the tank's height and orientation so that it aligns with the ground
+    // and preserves the intended heading (stored in localTank.userData.heading).
     function updateTankHeightAndOrientation() {
       let ground = scene.getObjectByName("mapGroup")?.children[0];
       if (!ground) return;
-      let raycaster = new THREE.Raycaster(
-        new THREE.Vector3(localTank.position.x, localTank.position.y + 10, localTank.position.z),
-        new THREE.Vector3(0, -1, 0)
-      );
+      let rayOrigin = localTank.position.clone();
+      rayOrigin.y += 10;
+      let raycaster = new THREE.Raycaster(rayOrigin, new THREE.Vector3(0, -1, 0));
       let intersects = raycaster.intersectObject(ground);
       if (intersects.length > 0) {
         let hit = intersects[0];
+        // Set tank height on ground
         localTank.position.y = hit.point.y + 0.6;
-        let normal = hit.face.normal.clone();
-        normal.transformDirection(ground.matrixWorld);
-        let yaw = localTank.rotation.y;
-        let forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
-        forward.projectOnPlane(normal).normalize();
-        let right = new THREE.Vector3().crossVectors(normal, forward).normalize();
+        // Compute the transformed ground normal
+        let groundNormal = hit.face.normal.clone().applyMatrix3(
+          new THREE.Matrix3().getNormalMatrix(ground.matrixWorld)
+        ).normalize();
+        // Use the desired heading (stored in userData.heading)
+        let heading = (typeof localTank.userData.heading !== "undefined") ? localTank.userData.heading : localTank.rotation.y;
+        // Compute forward vector from heading (assuming Y-up).
+        let forward = new THREE.Vector3(Math.sin(heading), 0, Math.cos(heading));
+        // Project forward vector onto the plane defined by the ground normal.
+        forward.projectOnPlane(groundNormal).normalize();
+        // Compute right vector as the cross product of ground normal and forward.
+        let right = new THREE.Vector3().crossVectors(groundNormal, forward).normalize();
+        // Build a basis matrix from right, groundNormal (up), and forward.
         let m = new THREE.Matrix4();
-        m.makeBasis(right, normal, forward);
-        let euler = new THREE.Euler().setFromRotationMatrix(m);
-        euler.y = yaw;
-        localTank.rotation.set(euler.x, euler.y, euler.z);
+        m.makeBasis(right, groundNormal, forward);
+        // Set the tank's quaternion based on the matrix.
+        localTank.quaternion.setFromRotationMatrix(m);
       }
     }
 
@@ -509,7 +516,7 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        // Fully ignore messages without an id or from our own id.
+        // Ignore messages without an id or from our own id.
         if (!msg.id || msg.id === playerData.id) return;
         if (msg.type === "pong") {
           latency = performance.now() - msg.timestamp;
@@ -585,16 +592,16 @@
       if (now - lastUpdateTime < 70) return;
       let currentPos = localTank.position.clone();
       let posDiff = currentPos.distanceTo(lastSentPosition);
-      let rotDiff = Math.abs(localTank.rotation.y - lastSentRotation);
+      let rotDiff = Math.abs(localTank.userData.heading - lastSentRotation);
       if (posDiff < 0.1 && rotDiff < 0.087) return;
       lastUpdateTime = now;
       lastSentPosition.copy(currentPos);
-      lastSentRotation = localTank.rotation.y;
+      lastSentRotation = localTank.userData.heading;
       ws.send(JSON.stringify({
         type: "update",
         id: playerData.id,
         position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z },
-        rotation: localTank.rotation.y
+        rotation: localTank.userData.heading
       }));
     }
 
@@ -643,9 +650,8 @@
 
     function sendShoot() {
       let selectedMissileType = document.getElementById("missileTypeSelect").value;
-      let turretDir = new THREE.Vector3();
-      localTank.userData.turret.getWorldDirection(turretDir);
-      let turretAngle = Math.atan2(turretDir.x, turretDir.z);
+      // Use the tank's stored heading for turret rotation
+      let turretAngle = localTank.userData.heading + turretRotationOffset;
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({
           type: "shoot",
@@ -758,196 +764,4 @@
       let explosionLife = 0.5, start = performance.now();
       function animateExplosion() {
         let elapsed = (performance.now() - start) / 1000;
-        if (elapsed < explosionLife) {
-          explosionMesh.material.opacity = 1 - (elapsed / explosionLife);
-          requestAnimationFrame(animateExplosion);
-        } else {
-          scene.remove(explosionMesh);
-        }
-      }
-      animateExplosion();
-    }
-
-    /***********************
-     * 10. Player Control & Input
-     ***********************/
-    function onKeyDown(e) {
-      if (e.code === "KeyT" && document.activeElement !== chatInput) { toggleChat(); return; }
-      if (e.code === "KeyI") { toggleInfoBar(); return; }
-      if (document.activeElement === chatInput) return;
-      switch (e.code) {
-        case "KeyW": controls.forward = true; break;
-        case "KeyS": controls.backward = true; break;
-        case "KeyA": controls.left = true; break;
-        case "KeyD": controls.right = true; break;
-        case "Space": controls.shoot = true; sendShoot(); break;
-        case "ShiftLeft": faster = true; break;
-        case "Digit1": cameraMode = 1; break;
-        case "Digit2": cameraMode = 2; break;
-        case "Digit3": cameraMode = 3; break;
-      }
-    }
-
-    function onKeyUp(e) {
-      switch (e.code) {
-        case "KeyW": controls.forward = false; break;
-        case "KeyS": controls.backward = false; break;
-        case "KeyA": controls.left = false; break;
-        case "KeyD": controls.right = false; break;
-        case "Space": controls.shoot = false; break;
-        case "ShiftLeft": faster = false; break;
-      }
-    }
-
-    chatInput.addEventListener("keydown", function(e) {
-      if (e.key === "Enter") {
-        if (chatInput.value.trim() !== "") {
-          sendChat(chatInput.value.trim());
-          chatInput.value = "";
-        }
-        chatInput.style.display = "none";
-      }
-    });
-
-    function toggleChat() {
-      chatInput.style.display = (chatInput.style.display === "none" || chatInput.style.display === "") ? "block" : "none";
-      if (chatInput.style.display === "block") chatInput.focus();
-    }
-
-    let isDragging = false, offsetX = 0, offsetY = 0;
-    const infoBar = document.getElementById("infoBar");
-    infoBar.addEventListener("mousedown", function(e) {
-      isDragging = true;
-      offsetX = e.clientX - infoBar.offsetLeft;
-      offsetY = e.clientY - infoBar.offsetTop;
-    });
-    document.addEventListener("mousemove", function(e) {
-      if (isDragging) {
-        infoBar.style.left = (e.clientX - offsetX) + "px";
-        infoBar.style.top = (e.clientY - offsetY) + "px";
-      }
-    });
-    document.addEventListener("mouseup", function() { isDragging = false; });
-    let infoVisible = true;
-    function toggleInfoBar() {
-      infoVisible = !infoVisible;
-      infoBar.style.display = infoVisible ? "block" : "none";
-    }
-
-    // Pointer Lock & Turret Control.
-    document.addEventListener("fullscreenchange", () => {
-      if (document.fullscreenElement && document.pointerLockElement !== document.body) {
-        document.body.requestPointerLock().catch(err => console.error("PointerLock error:", err));
-      }
-    });
-    document.addEventListener("mousemove", (e) => {
-      if (document.pointerLockElement === document.body && localTank && localTank.userData.turret) {
-        // Invert the turret movement by adding the movement value.
-        turretRotationOffset += e.movementX * 0.002;
-        localTank.userData.turret.rotation.y = localTank.rotation.y + turretRotationOffset;
-      }
-    });
-    document.body.addEventListener('click', () => {
-      if (document.pointerLockElement !== document.body) {
-        document.body.requestPointerLock().catch(err => console.error("PointerLock error:", err));
-      }
-    });
-
-    /***********************
-     * 11. Rendering & Animation
-     ***********************/
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
-    function animate() {
-      requestAnimationFrame(animate);
-      let delta = clock.getDelta();
-      prevTankPosition.copy(localTank.position);
-      let speed = 15 * delta * (faster ? 2 : 1);
-      if (controls.forward) localTank.translateZ(speed);
-      if (controls.backward) localTank.translateZ(-speed);
-      if (controls.left) localTank.rotation.y += 2 * delta;
-      if (controls.right) localTank.rotation.y -= 2 * delta;
-      checkCollisions();
-      updateTankHeightAndOrientation();
-      updateCamera();
-      localTank.children.forEach(child => {
-        if (child.type === "Sprite") child.lookAt(camera.position);
-      });
-      for (let id in remoteTanks) {
-        remoteTanks[id].mesh.children.forEach(child => {
-          if (child.type === "Sprite") child.lookAt(camera.position);
-        });
-      }
-      sendUpdate();
-      updateMissiles(delta);
-      updateTrailParticles(delta);
-      renderer.render(scene, camera);
-      updateMinimap();
-    }
-
-    /***********************
-     * 12. Initialization
-     ***********************/
-    function init() {
-      clock = new THREE.Clock();
-      scene = new THREE.Scene();
-      scene.fog = new THREE.FogExp2(0xEDC9AF, 0.002);
-      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
-      camera.position.set(0, 5, -10);
-      let ambient = new THREE.AmbientLight(0xfff4e5, 0.6);
-      ambient.name = "ambientLight";
-      scene.add(ambient);
-      let dirLight = new THREE.DirectionalLight(0xffaa66, 1.5);
-      dirLight.position.set(80, 100, -60);
-      dirLight.castShadow = true;
-      dirLight.shadow.camera.left = -200;
-      dirLight.shadow.camera.right = 200;
-      dirLight.shadow.camera.top = 200;
-      dirLight.shadow.camera.bottom = -200;
-      scene.add(dirLight);
-      renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.shadowMap.enabled = true;
-      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      document.body.appendChild(renderer.domElement);
-      loadMap("desert");
-      localTank = createTank(playerData.color);
-      localTank.position.set(0, 0.6, 0);
-      scene.add(localTank);
-      addNicknameLabel(localTank, playerData.nickname);
-      setupWebSocket();
-      const loader = new THREE.TextureLoader();
-      loader.load('ClearSky.png', function(texture) {
-        scene.background = texture;
-      });
-      lastSentPosition.copy(localTank.position);
-      lastSentRotation = localTank.rotation.y;
-      lastUpdateTime = performance.now();
-      initHealth();
-      window.addEventListener('resize', onWindowResize, false);
-      window.addEventListener('keydown', onKeyDown, false);
-      window.addEventListener('keyup', onKeyUp, false);
-      animate();
-    }
-
-    function initHealth() {
-      localHealth = 100;
-      document.getElementById("healthBar").style.width = "100%";
-    }
-
-    function addKillFeed(message) {
-      const killFeed = document.getElementById("killFeed");
-      const p = document.createElement("p");
-      p.innerText = message;
-      killFeed.appendChild(p);
-      setTimeout(() => killFeed.removeChild(p), 5000);
-    }
-
-    init();
-  </script>
-</body>
-</html>
+        if (
