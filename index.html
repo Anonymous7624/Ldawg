@@ -8,7 +8,7 @@
     if (!localStorage.getItem('nickname')) {
       window.location.href = "join.html";
     }
-    // When switching tabs, clear the stored nickname and redirect.
+    // Clear the stored nickname and redirect whenever the page becomes hidden (e.g., switching tabs or minimizing).
     document.addEventListener("visibilitychange", () => {
       if (document.visibilityState === "hidden") {
         localStorage.removeItem("nickname");
