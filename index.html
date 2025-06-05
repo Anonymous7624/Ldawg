@@ -509,8 +509,6 @@
       };
       ws.onmessage = (event) => {
         let msg = JSON.parse(event.data);
-        // Ignore messages without an id or messages from our own id.
-        if (!msg.id || msg.id === playerData.id) return;
         if (msg.type === "pong") {
           latency = performance.now() - msg.timestamp;
           let status = "";
@@ -525,6 +523,8 @@
           }
           return;
         }
+        // Ignore messages without an id or messages from our own id.
+        if (!msg.id || msg.id === playerData.id) return;
         handleServerMessage(msg);
       };
       ws.onclose = () => {
