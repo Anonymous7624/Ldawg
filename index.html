@@ -628,9 +628,12 @@
       let missileType = data.missileType || "bullet";
       let missileProps = missileTypes[missileType];
       let missileMesh = new THREE.Mesh(missileProps.geometry(), missileProps.material);
-      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0,1,0), data.rotation);
-      let spawnPos = new THREE.Vector3(data.position.x, data.position.y, data.position.z)
-                        .add(direction.clone().multiplyScalar(3));
+      let direction = new THREE.Vector3(0, 0, 1).applyAxisAngle(new THREE.Vector3(0, 1, 0), data.rotation);
+      let spawnPos = new THREE.Vector3(
+        data.position.x,
+        data.position.y + 2.4,
+        data.position.z
+      ).add(direction.clone().multiplyScalar(3));
       spawnPos.y += 1;
       missileMesh.position.copy(spawnPos);
       missileMesh.rotation.y = data.rotation;
@@ -880,9 +883,9 @@
       prevTankPosition.copy(localTank.position);
       let speed = 15 * delta * (faster ? 2 : 1);
       if (controls.forward) localTank.translateZ(speed);
-        if (controls.backward) localTank.translateZ(-speed);
-        if (controls.left) localTank.rotation.y += 2 * delta;
-        if (controls.right) localTank.rotation.y -= 2 * delta;
+      if (controls.backward) localTank.translateZ(-speed);
+      if (controls.left) localTank.rotation.y += 2 * delta;
+      if (controls.right) localTank.rotation.y -= 2 * delta;
         // Normalize the tank's yaw to prevent floating point drift that can
         // cause unintended rotation direction after holding a key down for
         // an extended period of time.
