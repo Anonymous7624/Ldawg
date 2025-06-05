@@ -780,7 +780,11 @@
         case "KeyS": controls.backward = true; break;
         case "KeyA": controls.left = true; break;
         case "KeyD": controls.right = true; break;
-        case "Space": controls.shoot = true; sendShoot(); break;
+        case "Space":
+          e.preventDefault();
+          controls.shoot = true;
+          sendShoot();
+          break;
         case "ShiftLeft": faster = true; break;
         case "Digit1": cameraMode = 1; break;
         case "Digit2": cameraMode = 2; break;
@@ -796,6 +800,12 @@
         case "KeyD": controls.right = false; break;
         case "Space": controls.shoot = false; break;
         case "ShiftLeft": faster = false; break;
+      }
+    }
+
+    function onMouseDown(e) {
+      if (e.button === 0 && document.pointerLockElement === document.body) {
+        sendShoot();
       }
     }
 
@@ -933,6 +943,7 @@
       window.addEventListener('resize', onWindowResize, false);
       window.addEventListener('keydown', onKeyDown, false);
       window.addEventListener('keyup', onKeyUp, false);
+      window.addEventListener('mousedown', onMouseDown, false);
       animate();
     }
 
