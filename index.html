@@ -880,9 +880,16 @@
       prevTankPosition.copy(localTank.position);
       let speed = 15 * delta * (faster ? 2 : 1);
       if (controls.forward) localTank.translateZ(speed);
-      if (controls.backward) localTank.translateZ(-speed);
-      if (controls.left) localTank.rotation.y += 2 * delta;
-      if (controls.right) localTank.rotation.y -= 2 * delta;
+        if (controls.backward) localTank.translateZ(-speed);
+        if (controls.left) localTank.rotation.y += 2 * delta;
+        if (controls.right) localTank.rotation.y -= 2 * delta;
+        // Normalize the tank's yaw to prevent floating point drift that can
+        // cause unintended rotation direction after holding a key down for
+        // an extended period of time.
+        localTank.rotation.y = THREE.MathUtils.euclideanModulo(
+          localTank.rotation.y + Math.PI,
+          Math.PI * 2
+        ) - Math.PI;
       checkCollisions();
       updateTankHeightAndOrientation();
       updateCamera();
