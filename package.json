@@ -2,6 +2,11 @@
   "name": "ldawg",
   "version": "1.0.0",
   "scripts": {
-    "test": "node tests/sanitizeHTML.test.js"
+    "test": "node tests/sanitizeHTML.test.js",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "ws": "^8.13.0"
   }
 }

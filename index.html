@@ -114,7 +114,8 @@
     /***********************
      * 1. Global Variables & Configuration
      ***********************/
-    const WS_URL = "wss://game.ldawg7624.com";
+    // Connect to the WebSocket server running on the same host.
+    const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.hostname + ':8080';
     const playerData = {
       id: Math.random().toString(36).substr(2, 9),
       nickname: localStorage.getItem("nickname"),
