@@ -2,48 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>3D Multiplayer Tank Game — v2.1.0</title>
+  <title>3D Multiplayer Tank Game — v2.2.0</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- Favicons -->
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
   <style>
     :root{
       --ui-bg: rgba(0,0,0,.65);
-      --ui-bg-strong: rgba(0,0,0,.8);
-      --ui-text: #ffdd00;
-      --ui-white:#fff;
-      --ok:#16c60c; --warn:#ffb020; --bad:#ff5252;
-      --panel:#11161c;
-      --accent:#58a6ff;
+      --ui-text:#ffdd00;
     }
     html,body{margin:0;padding:0;height:100%;background:#0e1317;overflow:hidden;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
     canvas{display:block}
-
-    /* Login screen (always first) */
-    #loginScreen{
-      position:fixed; inset:0; display:flex; align-items:center; justify-content:center;
-      background: radial-gradient(circle at 30% 30%, #1a2430 0%, #0e1317 60%);
-      z-index:500;
-    }
-    .card{
-      background:var(--panel);
-      border:1px solid #243040;
-      padding:22px 20px;
-      border-radius:14px;
-      width:min(92vw,440px);
-      color:#e7eef5;
-      box-shadow:0 10px 40px rgba(0,0,0,.45);
-    }
-    .card h1{margin:0 0 14px 0; font-size:20px; color:#e7eef5}
-    .row{display:flex; gap:10px; margin:10px 0}
-    .row input[type="text"], .row input[type="color"]{
-      flex:1; background:#0c1218; color:#e7eef5; border:1px solid #2b3848; border-radius:10px; padding:10px 12px; font-size:15px; outline:none;
-    }
-    .row input[type="color"]{flex:0 0 56px; padding:0; height:42px;}
-    .btn{
-      display:inline-flex; align-items:center; justify-content:center; gap:8px;
-      padding:10px 14px; border-radius:10px; background:#1f6feb; color:#fff; border:1px solid #2c6bd1; font-weight:600; cursor:pointer;
-      width:100%; margin-top:8px;
-    }
-    .hint{font-size:12px; color:#9bb4cc; margin-top:8px}
 
     /* Info bar (top-right, draggable) */
     #infoBar{
@@ -52,9 +22,7 @@
     }
     #infoBar .line{display:flex; align-items:center; gap:10px; margin:4px 0}
     #capacityWrap{display:flex; align-items:center; gap:8px}
-    #capacityBar{
-      width:120px; height:8px; background:#2a3340; border-radius:6px; overflow:hidden; border:1px solid #3b4756;
-    }
+    #capacityBar{ width:120px; height:8px; background:#2a3340; border-radius:6px; overflow:hidden; border:1px solid #3b4756;}
     #capacityFill{height:100%; width:0%; background:#56d364}
 
     /* Minimap (top-left) */
@@ -76,33 +44,30 @@
     }
     #healthBarContainer{
       position:fixed; bottom:210px; left:50%; transform:translateX(-50%); width:240px; height:18px; border-radius:10px;
-      background:#3b3b3b; border:2px solid #222; z-index:140; display:none; /* hidden until game starts */
+      background:#3b3b3b; border:2px solid #222; z-index:140; display:none; /* shown after game start */
     }
     #healthBar{height:100%; width:100%; background:#16c60c; border-radius:8px}
 
-    #killFeed{position:fixed; top:10px; right:12px; transform:translateX(calc(220px + 12px)); /* keep out of minimap */ color:#fff; z-index:120}
+    #killFeed{position:fixed; top:12px; right:12px; color:#fff; z-index:120; transform:translateY(72px);}
     #killFeed p{margin:2px 0}
 
     #damageOverlay{position:fixed; inset:0; pointer-events:none; z-index:160; background:rgba(255,0,0,0); transition:background .18s ease-out}
-
-    /* Version badge */
     #versionTag{position:fixed; bottom:12px; left:12px; color:#9aa3af; font-size:12px; z-index:120; opacity:.85}
   </style>
+
+  <script>
+    // ===== Redirect to login.html unless nickname & color are set =====
+    (function(){
+      const nick = localStorage.getItem("nickname");
+      const color = localStorage.getItem("tankColor");
+      if (!nick || !color) {
+        // redirect early before any heavy initialization
+        window.location.replace("login.html");
+      }
+    })();
+  </script>
 </head>
 <body>
-  <!-- Login Screen -->
-  <div id="loginScreen">
-    <div class="card">
-      <h1>Tank Arena — Login</h1>
-      <div class="row">
-        <input id="nickInput" type="text" placeholder="Nickname (max 24 chars)" maxlength="24" />
-        <input id="colorInput" type="color" value="#2ecc71" />
-      </div>
-      <button id="playBtn" class="btn">Play</button>
-      <div class="hint">WASD/Arrows move • Mouse aims turret • Space fires • 1/2/3 cameras • C chat</div>
-    </div>
-  </div>
-
   <!-- Info Bar -->
   <div id="infoBar">
     <div class="line"><strong>Connection:</strong> <span id="latencyDisplay">Waiting…</span></div>
@@ -119,33 +84,29 @@
   <input id="chatInput" type="text" placeholder="Type a message and press Enter…" />
   <div id="healthBarContainer"><div id="healthBar"></div></div>
   <div id="damageOverlay"></div>
-  <div id="versionTag">v2.1.0</div>
+  <div id="versionTag">v2.2.0</div>
 
   <!-- Three.js -->
   <script src="https://unpkg.com/three@0.152.2/build/three.min.js"></script>
 
   <script>
-    /************ 0. Login-first behavior ************/
-    // Always force the login screen on first visit / reload:
-    localStorage.removeItem("nickname");
-    localStorage.removeItem("tankColor");
+    /************ 0) Performance knobs ************/
+    const PERF = {
+      pixelRatioCap: 1.2,
+      dynamicScale: true,
+      dynamicScaleMin: 0.7,
+      shadows: false,
+      shadowMapSize: 1024,
+      terrainSegments: 80,
+      tiltOnGround: false,  // keeps turret steady
+      minimapHz: 8,
+      trailMax: 120,
+      trailEveryMs: 80,
+      labelFaceHz: 12,
+    };
 
-    const loginScreen = document.getElementById("loginScreen");
-    const nickInput   = document.getElementById("nickInput");
-    const colorInput  = document.getElementById("colorInput");
-    const playBtn     = document.getElementById("playBtn");
-
-    playBtn.addEventListener("click", () => {
-      const nick = (nickInput.value || "").trim().slice(0,24);
-      if (!nick) { nickInput.focus(); return; }
-      localStorage.setItem("nickname", nick);
-      localStorage.setItem("tankColor", colorInput.value);
-      loginScreen.style.display = "none";
-      startGame();
-    });
-
-    /************ 1. Globals & Config ************/
-    const VERSION = "2.1.0";
+    /************ 1) Globals & Config ************/
+    const VERSION = "2.2.0";
     const WS_URL = (location.protocol === "https:" ? "wss://" : "ws://") + location.host;
 
     const els = {
@@ -164,10 +125,12 @@
 
     const thresholds = { excellent:50, good:100, ok:200, poor:400 };
     const world = { size: 1000, half: 500 };
-    const moveSpeed = 16;     // units/sec
-    const turnSpeed = 2.2;    // rad/sec
-    const updateHz  = 14;     // network sends per sec
-    const fireCooldownMs = 350; // no spacebar spamming
+    const moveSpeed = 16;       // units/sec
+    const turnSpeed = 2.2;      // rad/sec
+    const turnHoldLimit = 5.0;  // seconds; after holding L/R this long, turning stops until release
+    const updateHz  = 14;       // network sends per sec
+    const fireCooldownMs = 350; // no spacebar hold spam
+    const maxPlayers = 20;
 
     const missileTypes = {
       bullet: { speed: 110, radius: 0.22, damage: 28, explosion: 5 },
@@ -175,7 +138,7 @@
       rocket: { speed: 65,  radius: 0.20, damage: 45, explosion: 10 },
     };
 
-    // Game state (created after login)
+    // Game state
     let scene, camera, renderer, clock;
     let localTank, ws;
     let remoteTanks = new Map(); // id -> { mesh, nickname, health }
@@ -185,19 +148,20 @@
     let localHealth = 100;
     let lastNetUpdate = 0, lastSentPos, lastSentRot;
     let controls = { f:false, b:false, l:false, r:false, boost:false };
+    let turnHold = { l:0, r:0 }; // seconds held
     let connected = false, lastPong = 0, pingTimer = null;
-    let playerData = null;
+    let playerData = {
+      id: Math.random().toString(36).slice(2,12),
+      nickname: localStorage.getItem("nickname"),
+      color: localStorage.getItem("tankColor") || ("#"+Math.floor(Math.random()*0xffffff).toString(16).padStart(6,"0")),
+    };
     let spaceHeld = false, lastFireTime = 0;
 
-    /************ 2. Utils ************/
+    /************ 2) Utils ************/
     function sanitize(s){return (s||"").toString().replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
     function clamp(x,min,max){return Math.max(min,Math.min(max,x))}
-    function normAngle(a){ // wrap to [-PI, PI]
-      a = (a + Math.PI) % (2*Math.PI); if (a < 0) a += 2*Math.PI; return a - Math.PI;
-    }
-    function lerpAngle(a,b,t){ // shortest-path angle lerp
-      let d = normAngle(b - a); return a + d * t;
-    }
+    function normAngle(a){ a = (a + Math.PI) % (2*Math.PI); if (a < 0) a += 2*Math.PI; return a - Math.PI; }
+    function lerpAngle(a,b,t){ let d = normAngle(b - a); return a + d * t; }
     function latencyLabel(ms){
       if (ms < thresholds.excellent) return "Excellent";
       if (ms < thresholds.good) return "Good";
@@ -206,8 +170,8 @@
       return "Poor";
     }
     function updateCapacityBar(count){
-      const pct = clamp(Math.round((count/20)*100), 0, 100);
-      els.players.textContent = `${count}/20`;
+      const pct = clamp(Math.round((count/maxPlayers)*100), 0, 100);
+      els.players.textContent = `${count}/${maxPlayers}`;
       els.capFill.style.width = pct + "%";
       els.capFill.style.background = pct < 70 ? "#56d364" : (pct < 90 ? "#ffb020" : "#ff5252");
     }
@@ -220,7 +184,12 @@
       els.chatLog.scrollTop=els.chatLog.scrollHeight;
     }
 
-    /************ 3. Scene & Tank ************/
+    /************ 3) Three.js: Terrain helpers (no raycasts) ************/
+    function terrainHeightAt(x, z) {
+      return (Math.sin(x * 0.01) + Math.cos(z * 0.012) + Math.sin((x + z) * 0.006)) * 1.4;
+    }
+
+    /************ 4) Scene & Tank ************/
     function makeLabelSprite(name,text){
       const can=document.createElement("canvas"); can.width=256; can.height=64;
       const ctx=can.getContext("2d");
@@ -240,13 +209,22 @@
     }
     function createTank(color,nickText){
       const tank=new THREE.Group();
-      const body=new THREE.Mesh(new THREE.BoxGeometry(3.6,1.2,6.2), new THREE.MeshStandardMaterial({color,metalness:.5,roughness:.45}));
-      body.castShadow=body.receiveShadow=true; body.position.y=0.6; tank.add(body);
+      const body=new THREE.Mesh(
+        new THREE.BoxGeometry(3.6,1.2,6.2),
+        new THREE.MeshLambertMaterial({ color })
+      );
+      body.castShadow=body.receiveShadow=PERF.shadows; body.position.y=0.6; tank.add(body);
       const turret=new THREE.Group();
-      const base=new THREE.Mesh(new THREE.BoxGeometry(2.6,1.0,3.0), new THREE.MeshStandardMaterial({color,metalness:.65,roughness:.35}));
-      base.position.y=0.5; base.castShadow=base.receiveShadow=true; turret.add(base);
-      const cannon=new THREE.Mesh(new THREE.CylinderGeometry(0.2,0.2,5.2,16), new THREE.MeshStandardMaterial({color:0x333333}));
-      cannon.rotation.x=Math.PI/2; cannon.position.set(0,0.45,1.6); cannon.castShadow=cannon.receiveShadow=true; turret.add(cannon);
+      const base=new THREE.Mesh(
+        new THREE.BoxGeometry(2.6,1.0,3.0),
+        new THREE.MeshLambertMaterial({ color })
+      );
+      base.position.y=0.5; base.castShadow=base.receiveShadow=PERF.shadows; turret.add(base);
+      const cannon=new THREE.Mesh(
+        new THREE.CylinderGeometry(0.2,0.2,5.2,16),
+        new THREE.MeshLambertMaterial({ color: 0x333333 })
+      );
+      cannon.rotation.x=Math.PI/2; cannon.position.set(0,0.45,1.6); cannon.castShadow=cannon.receiveShadow=PERF.shadows; turret.add(cannon);
       turret.position.set(0,1.36,0); tank.add(turret);
       const label=makeLabelSprite("nickname", nickText);
       label.position.set(0,3.6,0); tank.add(label);
@@ -255,19 +233,32 @@
       return tank;
     }
     function buildTerrain(){
-      const geo=new THREE.PlaneGeometry(world.size,world.size,160,160); geo.rotateX(-Math.PI/2);
+      const seg = PERF.terrainSegments;
+      const geo = new THREE.PlaneGeometry(world.size, world.size, seg, seg);
+      geo.rotateX(-Math.PI/2);
       const pos=geo.attributes.position;
       for(let i=0;i<pos.count;i++){
         const x=pos.getX(i), z=pos.getZ(i);
-        const h=(Math.sin(x*0.01)+Math.cos(z*0.012)+Math.sin((x+z)*0.006))*1.8;
+        const h=terrainHeightAt(x,z);
         pos.setY(i,h);
       }
       pos.needsUpdate=true; geo.computeVertexNormals();
-      const mesh=new THREE.Mesh(geo,new THREE.MeshStandardMaterial({color:0x8b7d6b,roughness:.95,metalness:0}));
-      mesh.receiveShadow=true; mesh.name="terrain"; return mesh;
+
+      const loader = new THREE.TextureLoader();
+      const tex = loader.load('rocky_trail_02_diff_4k.jpg');
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(50,50);
+      // keep it light for GPU:
+      tex.anisotropy = 1;
+
+      const mat = new THREE.MeshLambertMaterial({ map: tex });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.receiveShadow = PERF.shadows;
+      mesh.name = "terrain";
+      return mesh;
     }
 
-    /************ 4. Input ************/
+    /************ 5) Input ************/
     function onKeyDown(e){
       if (document.activeElement === els.chatInput) {
         if (e.key === "Escape") els.chatInput.blur();
@@ -293,8 +284,8 @@
       switch(e.code){
         case "KeyW": case "ArrowUp": controls.f=false; break;
         case "KeyS": case "ArrowDown": controls.b=false; break;
-        case "KeyA": case "ArrowLeft": controls.l=false; break;
-        case "KeyD": case "ArrowRight": controls.r=false; break;
+        case "KeyA": case "ArrowLeft": controls.l=false; turnHold.l = 0; break;
+        case "KeyD": case "ArrowRight": controls.r=false; turnHold.r = 0; break;
         case "ShiftLeft": controls.boost=false; break;
         case "Space": spaceHeld=false; break;
       }
@@ -305,7 +296,7 @@
     function onMouseMove(e){
       if (document.pointerLockElement !== document.body) return;
       if (!localTank) return;
-      // Natural mapping; smooth target, angle-wrapped
+      // Smooth, wrap-safe turret control
       turretLocalTarget = normAngle(turretLocalTarget - e.movementX * 0.002);
     }
     function toggleChat(){
@@ -331,14 +322,14 @@
       }
     });
 
-    /************ 5. Networking ************/
+    /************ 6) Networking ************/
     function setupWebSocket(){
       ws = new WebSocket(WS_URL);
 
       ws.onopen = () => {
         connected = true;
-        els.latency.textContent = "Connecting…";
-        // send join after scene/tank created
+        els.latency.textContent = "Connected"; // show connected immediately
+        // send join
         ws.send(JSON.stringify({
           type:"join",
           id: playerData.id,
@@ -346,7 +337,7 @@
           color: playerData.color,
           position: { x: localTank.position.x, y: localTank.position.y, z: localTank.position.z }
         }));
-        // start ping loop
+        // ping loop (if server replies with pong, we’ll show quality + player count)
         pingTimer = setInterval(()=>{
           if (ws && ws.readyState===WebSocket.OPEN) {
             ws.send(JSON.stringify({type:"ping", timestamp: performance.now()}));
@@ -363,15 +354,14 @@
             els.latency.textContent = latencyLabel(rtt);
             lastPong = performance.now();
           } else {
-            // Fallback: connected but no timestamp echo
             els.latency.textContent = "Connected";
           }
           if (typeof msg.players==="number") updateCapacityBar(msg.players);
           return;
         }
         if (msg.type==="welcome"){
-          if (typeof msg.players==="number") updateCapacityBar(msg.players);
           els.latency.textContent = "Connected";
+          if (typeof msg.players==="number") updateCapacityBar(msg.players);
           return;
         }
 
@@ -387,7 +377,6 @@
         connected = false;
         els.latency.textContent = "Disconnected";
         clearInterval(pingTimer); pingTimer=null;
-        // allow quick reconnect
         setTimeout(setupWebSocket, 1500);
       };
 
@@ -437,7 +426,7 @@
       }
     }
 
-    /************ 6. Missiles ************/
+    /************ 7) Missiles ************/
     function tryFire(){
       const now = performance.now();
       if (now - lastFireTime < fireCooldownMs) return;
@@ -468,8 +457,8 @@
     function spawnMissile(position, velocity, type, ownerId){
       const props=missileTypes[type]||missileTypes.bullet;
       const geom=new THREE.SphereGeometry(props.radius,10,10);
-      const mat=new THREE.MeshStandardMaterial({color:0xff5500,emissive:0x331400});
-      const mesh=new THREE.Mesh(geom,mat); mesh.position.copy(position); mesh.castShadow=true;
+      const mat=new THREE.MeshLambertMaterial({color:0xff5500});
+      const mesh=new THREE.Mesh(geom,mat); mesh.position.copy(position); mesh.castShadow=PERF.shadows;
       missiles.push({mesh, velocity, type, ownerId, life:5, lastTrail:0});
       scene.add(mesh);
     }
@@ -487,127 +476,63 @@
       setTimeout(()=>{ els.damageOverlay.style.background="rgba(255,0,0,0)"; },140);
     }
 
-    /************ 7. Minimap, Camera, Grounding ************/
+    /************ 8) Minimap, Camera, Grounding (no raycasts) ************/
     function updateMinimap(){
       const ctx=els.minimap.getContext("2d");
       const w=els.minimap.width, h=els.minimap.height;
       ctx.clearRect(0,0,w,h); ctx.fillStyle="rgba(0,0,0,.55)"; ctx.fillRect(0,0,w,h);
       function toMini(x,z){ return { x:(x+world.half)*(w/world.size), y:(world.half - z)*(h/world.size) }; }
-      // local (triangle)
       const lp=toMini(localTank.position.x, localTank.position.z);
       ctx.save(); ctx.translate(lp.x, lp.y); ctx.rotate(-localTank.rotation.y);
       ctx.beginPath(); ctx.moveTo(0,-7); ctx.lineTo(5.5,5); ctx.lineTo(-5.5,5); ctx.closePath();
       ctx.fillStyle = playerData.color; ctx.fill(); ctx.restore();
-      // remotes (dots)
       ctx.fillStyle="#fff";
       remoteTanks.forEach(r=>{
         const p=toMini(r.mesh.position.x, r.mesh.position.z);
         ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill();
       });
     }
-    function groundRayHeight(group){
-      const terrain=scene.getObjectByName("terrain"); if (!terrain) return;
-      const ray=new THREE.Raycaster(new THREE.Vector3(group.position.x, group.position.y+15, group.position.z), new THREE.Vector3(0,-1,0));
-      const hits=ray.intersectObject(terrain);
-      if (!hits.length) return;
-      const hit=hits[0]; group.position.y = hit.point.y + 0.6;
-      const normal=hit.face.normal.clone().transformDirection(terrain.matrixWorld);
-      const yaw=group.rotation.y;
-      const f=new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw)).projectOnPlane(normal).normalize();
-      const r=new THREE.Vector3().crossVectors(normal,f).normalize();
-      const m=new THREE.Matrix4().makeBasis(r,normal,f);
-      const e=new THREE.Euler().setFromRotationMatrix(m);
-      e.y=yaw; group.rotation.set(e.x,e.y,e.z);
-    }
-    function updateCamera(dt){
-      let target;
-      if (cameraMode===1) target=new THREE.Vector3(0,5,-10).applyMatrix4(localTank.matrixWorld);
-      else if (cameraMode===2) target=localTank.localToWorld(new THREE.Vector3(0,2.3,0.6));
-      else target=localTank.position.clone().add(new THREE.Vector3(0,28,0));
-      camera.position.lerp(target,0.1); camera.lookAt(localTank.position);
-    }
 
-    /************ 8. Loop ************/
-    function animate(){
-      requestAnimationFrame(animate);
-      const dt=clock.getDelta(), now=performance.now();
+    function groundRayHeightCheap(group){
+      const y = terrainHeightAt(group.position.x, group.position.z);
+      group.position.y = y + 0.6;
 
-      // Movement (no drift)
-      const spd = moveSpeed*dt*(controls.boost?1.6:1);
-      if (controls.f) localTank.translateZ(spd);
-      if (controls.b) localTank.translateZ(-spd);
-      if (controls.l) localTank.rotation.y += turnSpeed*dt;
-      if (controls.r) localTank.rotation.y -= turnSpeed*dt;
-      localTank.rotation.y = THREE.MathUtils.euclideanModulo(localTank.rotation.y + Math.PI, Math.PI*2) - Math.PI;
-
-      // Bounds + grounding
-      const b = world.half - 4;
-      localTank.position.x = clamp(localTank.position.x, -b, b);
-      localTank.position.z = clamp(localTank.position.z, -b, b);
-      groundRayHeight(localTank);
-
-      // Smooth turret (reduce jitter)
-      const currentLocal = localTank.userData.turret.rotation.y - localTank.rotation.y;
-      const nextLocal = lerpAngle(currentLocal, turretLocalTarget, 0.25);
-      localTank.userData.turret.rotation.y = localTank.rotation.y + nextLocal;
-
-      // Face labels & health bars to camera
-      [localTank, ...Array.from(remoteTanks.values()).map(r=>r.mesh)].forEach(t=>{
-        t.children.forEach(ch=>{
-          if (ch.type==="Sprite") ch.lookAt(camera.position);
-        });
-        if (t.userData && t.userData.healthBar) t.userData.healthBar.group.lookAt(camera.position);
-      });
-
-      // Camera, missiles, minimap
-      updateCamera(dt); updateMissiles(dt); updateMinimap();
-
-      // Network updates
-      if (ws && ws.readyState===WebSocket.OPEN){
-        if (!lastSentPos) { lastSentPos = localTank.position.clone(); lastSentRot = localTank.rotation.y; }
-        if (now - lastNetUpdate >= (1000/updateHz)){
-          const pos=localTank.position.clone(); const dist=pos.distanceTo(lastSentPos);
-          const rotDiff=Math.abs(localTank.rotation.y - lastSentRot);
-          if (dist >= 0.05 || rotDiff >= 0.05){
-            ws.send(JSON.stringify({type:"update", id:playerData.id, position:{x:pos.x,y:pos.y,z:pos.z}, rotation:localTank.rotation.y}));
-            lastSentPos.copy(pos); lastSentRot=localTank.rotation.y; lastNetUpdate=now;
-          }
-        }
-      }
-
-      renderer.render(scene,camera);
-
-      // Connection fallback: if no pongs for 8s but socket open, say Connected
-      if (ws && ws.readyState===WebSocket.OPEN){
-        if (now - lastPong > 8000 && els.latency.textContent!=="Connected"){
-          els.latency.textContent="Connected";
-        }
+      if (PERF.tiltOnGround) {
+        const eps = 2;
+        const h = y;
+        const hX = terrainHeightAt(group.position.x + eps, group.position.z);
+        const hZ = terrainHeightAt(group.position.x, group.position.z + eps);
+        const normal = new THREE.Vector3(-(hX - h), eps, -(hZ - h)).normalize();
+        const yaw = group.rotation.y;
+        const f = new THREE.Vector3(Math.sin(yaw),0,Math.cos(yaw)).projectOnPlane(normal).normalize();
+        const r = new THREE.Vector3().crossVectors(normal,f).normalize();
+        const m = new THREE.Matrix4().makeBasis(r,normal,f);
+        const e = new THREE.Euler().setFromRotationMatrix(m);
+        e.y=yaw; group.rotation.set(e.x,e.y,e.z);
       }
     }
 
-    /************ 9. Missiles Update ************/
+    /************ 9) Trails + Missiles update ************/
     function updateMissiles(dt){
-      const terrain=scene.getObjectByName("terrain");
       for (let i=missiles.length-1;i>=0;i--){
         const m=missiles[i];
         m.mesh.position.add(m.velocity.clone().multiplyScalar(dt));
         m.life -= dt;
 
-        // ground hit
-        if (terrain){
-          const ray=new THREE.Raycaster(m.mesh.position, new THREE.Vector3(0,-1,0));
-          const hit=ray.intersectObject(terrain,false);
-          if (hit.length && hit[0].distance < 0.5){
-            createExplosion(m.mesh.position, missileTypes[m.type]?.explosion || 5);
-            scene.remove(m.mesh); missiles.splice(i,1); continue;
-          }
+        // ground collision (cheap)
+        const groundY = terrainHeightAt(m.mesh.position.x, m.mesh.position.z);
+        if (m.mesh.position.y <= groundY + 0.5){
+          createExplosion(m.mesh.position, missileTypes[m.type]?.explosion || 5);
+          scene.remove(m.mesh); missiles.splice(i,1); continue;
         }
-        // trail
-        if (!m.lastTrail || (performance.now()-m.lastTrail)>55){
+
+        // trail (throttled)
+        if ((!m.lastTrail || (performance.now()-m.lastTrail) > PERF.trailEveryMs) && trailParticles.length < PERF.trailMax){
           const dot=new THREE.Mesh(new THREE.SphereGeometry(0.1,6,6), new THREE.MeshBasicMaterial({color:0xaaaaaa,transparent:true,opacity:.55}));
           dot.position.copy(m.mesh.position); dot.userData={life:.28}; scene.add(dot); trailParticles.push(dot);
           m.lastTrail = performance.now();
         }
+
         // hits
         if (m.ownerId===playerData.id){
           remoteTanks.forEach((r,rid)=>{
@@ -644,43 +569,89 @@
         const p=trailParticles[j]; p.userData.life -= dt; p.material.opacity = Math.max(0, p.userData.life/.28);
         if (p.userData.life<=0){ scene.remove(p); trailParticles.splice(j,1); }
       }
-      if (trailParticles.length>220){ const old=trailParticles.shift(); scene.remove(old); }
     }
 
-    /************ 10. Start Game ************/
-    function startGame(){
-      // player profile
-      playerData = {
-        id: Math.random().toString(36).slice(2,12),
-        nickname: localStorage.getItem("nickname"),
-        color: localStorage.getItem("tankColor") || ("#"+Math.floor(Math.random()*0xffffff).toString(16).padStart(6,"0")),
-      };
-      // scene
+    /************ 10) Scene init ************/
+    function initScene(){
       clock=new THREE.Clock();
       scene=new THREE.Scene();
-      scene.background=new THREE.Color(0x89b6f0);
-      scene.fog=new THREE.Fog(0x89b6f0,250,1600);
+
+      // Use your sky texture (lightweight)
+      const loader = new THREE.TextureLoader();
+      loader.load('ClearSky.png', (tex) => { scene.background = tex; });
+
+      scene.fog = null; // skybox handles background
+
       camera=new THREE.PerspectiveCamera(75, innerWidth/innerHeight, .1, 2000); camera.position.set(0,5.5,-10);
-      const amb=new THREE.AmbientLight(0xfff4e5,.6); scene.add(amb);
-      const dir=new THREE.DirectionalLight(0xffaa66,1.45); dir.position.set(90,120,-70); dir.castShadow=true;
-      dir.shadow.camera.left=-240; dir.shadow.camera.right=240; dir.shadow.camera.top=240; dir.shadow.camera.bottom=-240; scene.add(dir);
-      renderer=new THREE.WebGLRenderer({antialias:true}); renderer.setPixelRatio(devicePixelRatio); renderer.setSize(innerWidth,innerHeight);
-      renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap; document.body.appendChild(renderer.domElement);
+
+      const amb=new THREE.AmbientLight(0xffffff,.7); scene.add(amb);
+      const dir=new THREE.DirectionalLight(0xffffff, 0.9); dir.position.set(90,120,-70);
+      dir.castShadow = PERF.shadows;
+      if (PERF.shadows){
+        dir.shadow.mapSize.set(PERF.shadowMapSize, PERF.shadowMapSize);
+        dir.shadow.camera.left=-240; dir.shadow.camera.right=240; dir.shadow.camera.top=240; dir.shadow.camera.bottom=-240;
+      }
+      scene.add(dir);
+
+      renderer=new THREE.WebGLRenderer({ antialias: true });
+      // cap pixel ratio
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio, PERF.pixelRatioCap));
+      renderer.setSize(innerWidth,innerHeight);
+      renderer.shadowMap.enabled = PERF.shadows;
+      if (PERF.shadows) renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      document.body.appendChild(renderer.domElement);
+
+      // dynamic scaling
+      let renderScale = 1;
+      function applyScale() {
+        const w = Math.floor(innerWidth * renderScale);
+        const h = Math.floor(innerHeight * renderScale);
+        renderer.setSize(w, h, false);
+        renderer.domElement.style.width = innerWidth + "px";
+        renderer.domElement.style.height = innerHeight + "px";
+      }
+      applyScale();
+      let ema = 0;
+      function autoscale(dt) {
+        if (!PERF.dynamicScale) return;
+        ema = 0.9 * ema + 0.1 * dt;
+        if (ema > 0.022 && renderScale > PERF.dynamicScaleMin) { renderScale -= 0.05; applyScale(); ema = 0; }
+        else if (ema < 0.017 && renderScale < 1.0) { renderScale += 0.05; applyScale(); ema = 0; }
+      }
+      // stash for animate
+      renderer.__applyScale = applyScale;
+      renderer.__autoscale = autoscale;
+      renderer.__renderScale = () => renderScale;
+
+      // Ground
       scene.add(buildTerrain());
-      // player tank
-      localTank=createTank(playerData.color, playerData.nickname); localTank.position.set(0,0.6,0); scene.add(localTank);
-      els.healthWrap.style.display="block";
-      // pointer lock
-      document.body.addEventListener("click", ()=>{ if (document.activeElement!==els.chatInput && document.pointerLockElement!==document.body) document.body.requestPointerLock?.(); });
-      // draggable info bar
+
+      // Local tank
+      localTank = createTank(playerData.color, playerData.nickname);
+      localTank.position.set(0, 0.6, 0);
+      scene.add(localTank);
+
+      els.healthWrap.style.display = "block";
+
+      // Pointer lock on click
+      document.body.addEventListener("click", ()=>{
+        if (document.activeElement!==els.chatInput && document.pointerLockElement!==document.body) document.body.requestPointerLock?.();
+      });
+
+      // Draggable info bar
       makeDraggable(els.infoBar);
-      // inputs
-      window.addEventListener("resize",()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+
+      // Inputs
+      window.addEventListener("resize",()=>{
+        camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.__applyScale();
+      });
       window.addEventListener("keydown",onKeyDown); window.addEventListener("keyup",onKeyUp);
       window.addEventListener("mousedown",onMouseDown); document.addEventListener("mousemove",onMouseMove);
-      // net
+
+      // Net
       setupWebSocket();
-      // loop
+
+      // Loop
       animate();
     }
 
@@ -703,6 +674,95 @@
       const old=target.getObjectByName("chatBubble"); if(old) target.remove(old);
       target.add(spr); setTimeout(()=>{ if(target.getObjectByName("chatBubble")===spr) target.remove(spr); },3200);
     }
+
+    /************ 11) Animate ************/
+    let lastMini = 0, lastFace = 0;
+    function animate(){
+      requestAnimationFrame(animate);
+      const dt=clock.getDelta(), now=performance.now();
+
+      // Dynamic resolution autoscale
+      renderer.__autoscale(dt);
+
+      // Movement with turn-hold limit
+      const spd = moveSpeed*dt*(controls.boost?1.6:1);
+      if (controls.f) localTank.translateZ(spd);
+      if (controls.b) localTank.translateZ(-spd);
+
+      // Count hold time, stop turning after limit until key release
+      if (controls.l) turnHold.l += dt; else turnHold.l = 0;
+      if (controls.r) turnHold.r += dt; else turnHold.r = 0;
+
+      if (controls.l && turnHold.l < turnHoldLimit) localTank.rotation.y += turnSpeed*dt;
+      if (controls.r && turnHold.r < turnHoldLimit) localTank.rotation.y -= turnSpeed*dt;
+
+      // yaw normalization to avoid drift
+      localTank.rotation.y = THREE.MathUtils.euclideanModulo(localTank.rotation.y + Math.PI, Math.PI*2) - Math.PI;
+
+      // Bounds + cheap grounding
+      const b = world.half - 4;
+      localTank.position.x = clamp(localTank.position.x, -b, b);
+      localTank.position.z = clamp(localTank.position.z, -b, b);
+      groundRayHeightCheap(localTank);
+
+      // Turret smoothing (no jitter)
+      const currentLocal = localTank.userData.turret.rotation.y - localTank.rotation.y;
+      const nextLocal = lerpAngle(currentLocal, turretLocalTarget, 0.18);
+      localTank.userData.turret.rotation.y = localTank.rotation.y + nextLocal;
+
+      // Face labels/health less frequently
+      if (now - lastFace > (1000 / PERF.labelFaceHz)) {
+        lastFace = now;
+        [localTank, ...Array.from(remoteTanks.values()).map(r=>r.mesh)].forEach(t=>{
+          t.children.forEach(ch=>{
+            if (ch.type==="Sprite") ch.lookAt(camera.position);
+          });
+          if (t.userData && t.userData.healthBar) t.userData.healthBar.group.lookAt(camera.position);
+        });
+      }
+
+      // Camera
+      updateCamera(dt);
+
+      // Missiles & trails
+      updateMissiles(dt);
+
+      // Minimap throttled
+      if (now - lastMini > (1000 / PERF.minimapHz)) { lastMini = now; updateMinimap(); }
+
+      // Network updates
+      if (ws && ws.readyState===WebSocket.OPEN){
+        if (!lastSentPos) { lastSentPos = localTank.position.clone(); lastSentRot = localTank.rotation.y; }
+        if (now - lastNetUpdate >= (1000/updateHz)){
+          const pos=localTank.position.clone(); const dist=pos.distanceTo(lastSentPos);
+          const rotDiff=Math.abs(localTank.rotation.y - lastSentRot);
+          if (dist >= 0.05 || rotDiff >= 0.05){
+            ws.send(JSON.stringify({type:"update", id:playerData.id, position:{x:pos.x,y:pos.y,z:pos.z}, rotation:localTank.rotation.y}));
+            lastSentPos.copy(pos); lastSentRot=localTank.rotation.y; lastNetUpdate=now;
+          }
+        }
+      }
+
+      renderer.render(scene,camera);
+
+      // If socket open but no pong, still show Connected (not Disconnected)
+      if (ws && ws.readyState===WebSocket.OPEN){
+        if (now - lastPong > 8000 && els.latency.textContent!=="Connected"){
+          els.latency.textContent="Connected";
+        }
+      }
+    }
+
+    function updateCamera(dt){
+      let target;
+      if (cameraMode===1) target=new THREE.Vector3(0,5,-10).applyMatrix4(localTank.matrixWorld);
+      else if (cameraMode===2) target=localTank.localToWorld(new THREE.Vector3(0,2.3,0.6));
+      else target=localTank.position.clone().add(new THREE.Vector3(0,28,0));
+      camera.position.lerp(target,0.1); camera.lookAt(localTank.position);
+    }
+
+    /************ 12) Start ************/
+    initScene();
   </script>
 </body>
 </html>
