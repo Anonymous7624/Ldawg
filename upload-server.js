@@ -3,6 +3,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { execFile } = require('child_process');
 
 const app = express();
 const PORT = 8082;
@@ -70,6 +71,28 @@ const upload = multer({
   }
 });
 
+// Convert audio to MP3 using ffmpeg
+function toMp3(inputPath, outPath) {
+  return new Promise((resolve, reject) => {
+    execFile('ffmpeg', [
+      '-y',                    // Overwrite output
+      '-i', inputPath,         // Input file
+      '-vn',                   // No video
+      '-acodec', 'libmp3lame', // MP3 codec
+      '-b:a', '128k',          // Bitrate
+      outPath
+    ], (err, stdout, stderr) => {
+      if (err) {
+        console.error('[FFMPEG] Error:', err.message);
+        console.error('[FFMPEG] stderr:', stderr);
+        return reject(err);
+      }
+      console.log('[FFMPEG] Converted to MP3:', outPath);
+      resolve();
+    });
+  });
+}
+
 // Health check
 app.get('/', (req, res) => {
   res.json({ 
@@ -88,7 +111,7 @@ app.post('/upload', (req, res) => {
   const origin = req.headers.origin || 'direct';
   console.log(`[UPLOAD] POST /upload from ${origin}`);
   
-  upload.single('file')(req, res, (err) => {
+  upload.single('file')(req, res, async (err) => {
     // Ensure CORS on error too
     if (origin && ALLOWED_ORIGINS.includes(origin)) {
       res.header('Access-Control-Allow-Origin', origin);
@@ -119,8 +142,41 @@ app.post('/upload', (req, res) => {
       const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
       const isImage = imageExts.includes(ext) && mime.startsWith('image/');
       
+      // Check if it's audio that needs conversion
+      const audioExts = ['.webm', '.ogg', '.wav'];
+      const isAudio = audioExts.includes(ext) || mime.startsWith('audio/');
+      
+      let finalFilename = req.file.filename;
+      let finalPath = req.file.path;
+      let finalMime = req.file.mimetype;
+      
+      // Convert audio to MP3 if needed
+      if (isAudio && !ext.endsWith('.mp3')) {
+        const mp3Filename = path.basename(req.file.filename, ext) + '.mp3';
+        const mp3Path = path.join(UPLOADS_DIR, mp3Filename);
+        
+        console.log(`[UPLOAD] Converting audio to MP3: ${req.file.filename} -> ${mp3Filename}`);
+        
+        try {
+          await toMp3(req.file.path, mp3Path);
+          
+          // Delete original file after successful conversion
+          fs.unlinkSync(req.file.path);
+          
+          finalFilename = mp3Filename;
+          finalPath = mp3Path;
+          finalMime = 'audio/mpeg';
+          
+          console.log(`[UPLOAD] Audio conversion successful: ${mp3Filename}`);
+        } catch (conversionError) {
+          console.error('[UPLOAD] Audio conversion failed:', conversionError.message);
+          // If conversion fails, keep the original file
+          console.log('[UPLOAD] Keeping original audio file');
+        }
+      }
+      
       // Return URL that points to this upload service
-      const uploadUrl = `https://upload.ldawg7624.com/uploads/${req.file.filename}`;
+      const uploadUrl = `https://upload.ldawg7624.com/uploads/${finalFilename}`;
       
       console.log(`[UPLOAD] Success: ${req.file.originalname} (${req.file.size} bytes)`);
       console.log(`[UPLOAD] URL: ${uploadUrl}`);
@@ -131,8 +187,8 @@ app.post('/upload', (req, res) => {
         url: uploadUrl,
         name: req.file.originalname,
         filename: req.file.originalname,
-        mime: req.file.mimetype,
-        size: req.file.size,
+        mime: finalMime,
+        size: fs.statSync(finalPath).size,
         isImage
       });
     } catch (error) {
