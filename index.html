@@ -225,6 +225,89 @@
       gap: 10px;
     }
 
+    .photo-composer {
+      display: none;
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 10px;
+      padding: 15px;
+      margin-bottom: 10px;
+    }
+
+    body.dark-mode .photo-composer {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .photo-composer.active {
+      display: block;
+    }
+
+    .composer-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      opacity: 0.8;
+    }
+
+    .composer-preview {
+      display: flex;
+      gap: 15px;
+      align-items: flex-start;
+    }
+
+    .preview-image {
+      max-width: 150px;
+      max-height: 150px;
+      border-radius: 8px;
+      object-fit: cover;
+    }
+
+    .preview-details {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .preview-filename {
+      font-size: 13px;
+      font-weight: 500;
+      word-break: break-all;
+    }
+
+    .preview-size {
+      font-size: 12px;
+      opacity: 0.7;
+    }
+
+    .btn-remove {
+      background: #dc3545;
+      color: white;
+      padding: 8px 16px;
+      font-size: 13px;
+    }
+
+    .btn-remove:hover {
+      background: #c82333;
+    }
+
+    .message-sending {
+      opacity: 0.6;
+    }
+
+    .message-error {
+      border-left: 3px solid #dc3545;
+    }
+
+    .message-status {
+      font-size: 11px;
+      opacity: 0.6;
+      margin-top: 5px;
+      font-style: italic;
+    }
+
     .input-row {
       display: flex;
       gap: 10px;
@@ -475,10 +558,26 @@
             maxlength="100"
             autocomplete="off"
           >
+          
+          <!-- Photo Composer Preview -->
+          <div id="photoComposer" class="photo-composer">
+            <div class="composer-header">
+              <span>📷 Photo Attached</span>
+              <button class="btn-remove" onclick="removePhotoAttachment()">Remove</button>
+            </div>
+            <div class="composer-preview">
+              <img id="previewImage" class="preview-image" src="" alt="Preview">
+              <div class="preview-details">
+                <div class="preview-filename" id="previewFilename"></div>
+                <div class="preview-size" id="previewSize"></div>
+              </div>
+            </div>
+          </div>
+
           <div class="input-row">
             <textarea 
               id="messageInput" 
-              placeholder="Type your message (max 1000 chars)" 
+              placeholder="Type your message or caption (max 1000 chars)" 
               maxlength="1000"
             ></textarea>
           </div>
@@ -491,7 +590,7 @@
             </button>
             <button class="btn-primary" onclick="sendMessage()" id="sendBtn">Send</button>
           </div>
-          <input type="file" id="fileInput" onchange="handleFileUpload()" accept="*/*">
+          <input type="file" id="fileInput" onchange="handleFileSelect()" accept="image/*">
         </div>
       </div>
     </div>
@@ -533,6 +632,11 @@
     let cameraStream;
     const isDarkMode = localStorage.getItem('darkMode') === 'true';
 
+    // Photo composer state
+    let selectedFile = null;
+    let previewURL = null;
+    let pendingMessages = new Map(); // Map of client message ID to message data
+
     // Apply saved theme
     if (isDarkMode) {
       document.body.className = 'dark-mode';
@@ -542,6 +646,15 @@
     // WebSocket configuration
     const WS_URL = 'wss://ws.ldawg7624.com';
     const API_BASE = 'https://ws.ldawg7624.com';
+
+    // Generate UUID v4
+    function generateUUID() {
+      return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+        const r = Math.random() * 16 | 0;
+        const v = c === 'x' ? r : (r & 0x3 | 0x8);
+        return v.toString(16);
+      });
+    }
 
     // Connect to WebSocket
     function connect() {
@@ -560,7 +673,37 @@
         if (data.type === 'history') {
           displayHistory(data.items);
         } else if (data.type === 'text' || data.type === 'image' || data.type === 'file') {
-          addMessage(data);
+          // Check if this is a confirmation of a pending message
+          const myNickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
+          let isPending = false;
+          
+          // Try to match with pending messages by nickname, type, and content
+          for (const [clientId, pendingMsg] of pendingMessages.entries()) {
+            if (pendingMsg.nickname === data.nickname && 
+                pendingMsg.type === data.type &&
+                Math.abs(pendingMsg.timestamp - data.timestamp) < 2000) { // Within 2 seconds
+              
+              // Update the pending message element to confirmed
+              const msgElement = document.querySelector(`[data-client-id="${clientId}"]`);
+              if (msgElement) {
+                msgElement.removeAttribute('data-client-id');
+                msgElement.classList.remove('message-sending');
+                const statusSpan = msgElement.querySelector('.message-status');
+                if (statusSpan) {
+                  statusSpan.remove();
+                }
+              }
+              
+              pendingMessages.delete(clientId);
+              isPending = true;
+              break;
+            }
+          }
+          
+          // If not a pending message echo, add it as new
+          if (!isPending) {
+            addMessage(data);
+          }
         } else if (data.type === 'muted') {
           handleMuted(data);
         }
@@ -600,10 +743,20 @@
       scrollToBottom();
     }
 
-    function addMessage(data, scroll = true) {
+    function addMessage(data, scroll = true, clientId = null, status = 'sent') {
       const messagesDiv = document.getElementById('messages');
       const messageDiv = document.createElement('div');
       messageDiv.className = 'message';
+      
+      if (status === 'sending') {
+        messageDiv.classList.add('message-sending');
+      } else if (status === 'error') {
+        messageDiv.classList.add('message-error');
+      }
+      
+      if (clientId) {
+        messageDiv.setAttribute('data-client-id', clientId);
+      }
 
       const timestamp = new Date(data.timestamp).toLocaleString();
       
@@ -611,9 +764,10 @@
       if (data.type === 'text') {
         content = `<div class="message-content">${escapeHtml(data.text)}</div>`;
       } else if (data.type === 'image') {
+        const caption = data.caption ? `<div class="message-content">${escapeHtml(data.caption)}</div>` : '';
         content = `
-          <div class="message-content">Shared an image</div>
-          <img src="${data.url}" class="message-image" onclick="openImagePreview('${data.url}')" alt="${escapeHtml(data.filename)}">
+          ${caption}
+          <img src="${data.url}" class="message-image" onclick="openImagePreview('${data.url}')" alt="${escapeHtml(data.filename || 'Image')}">
         `;
       } else if (data.type === 'file') {
         const sizeStr = formatFileSize(data.size);
@@ -625,6 +779,13 @@
           </div>
         `;
       }
+      
+      let statusHTML = '';
+      if (status === 'sending') {
+        statusHTML = '<div class="message-status">Sending...</div>';
+      } else if (status === 'error') {
+        statusHTML = '<div class="message-status">Failed to send</div>';
+      }
 
       messageDiv.innerHTML = `
         <div class="message-header">
@@ -632,20 +793,24 @@
           <span class="timestamp">${timestamp}</span>
         </div>
         ${content}
+        ${statusHTML}
       `;
 
       messagesDiv.appendChild(messageDiv);
       if (scroll) {
         scrollToBottom();
       }
+      
+      return messageDiv;
     }
 
-    function sendMessage() {
+    async function sendMessage() {
       const nicknameInput = document.getElementById('nickname');
       const messageInput = document.getElementById('messageInput');
       const text = messageInput.value.trim();
 
-      if (!text) {
+      // Check if we have a photo attachment or text
+      if (!text && !selectedFile) {
         return;
       }
 
@@ -654,17 +819,130 @@
         return;
       }
 
-      const nickname = nicknameInput.value.trim() || 'Anonymous';
+      const nickname = (nicknameInput.value.trim() || 'Anonymous').substring(0, 100);
+      const clientId = generateUUID();
+      const timestamp = Date.now();
 
-      console.log('Sending message:', { type: 'text', nickname, text: text.substring(0, 50) + '...' });
+      // Disable send button during operation
+      const sendBtn = document.getElementById('sendBtn');
+      sendBtn.disabled = true;
 
-      ws.send(JSON.stringify({
-        type: 'text',
-        nickname: nickname.substring(0, 100),
-        text: text.substring(0, 1000)
-      }));
+      try {
+        if (selectedFile) {
+          // Photo upload flow
+          console.log('Uploading photo with caption:', text.substring(0, 50));
+          
+          // Show optimistic message
+          const optimisticData = {
+            type: 'image',
+            nickname,
+            timestamp,
+            url: previewURL, // Show preview while uploading
+            filename: selectedFile.name,
+            caption: text || '',
+            size: selectedFile.size
+          };
+          
+          const msgElement = addMessage(optimisticData, true, clientId, 'sending');
+          pendingMessages.set(clientId, { ...optimisticData, type: 'image' });
+          
+          // Clear input and composer immediately
+          messageInput.value = '';
+          
+          // Upload the file
+          const formData = new FormData();
+          formData.append('file', selectedFile);
+          
+          const response = await fetch(API_BASE + '/upload', {
+            method: 'POST',
+            body: formData
+          });
 
-      messageInput.value = '';
+          console.log('Upload response status:', response.status);
+          console.log('Upload response content-type:', response.headers.get('content-type'));
+
+          // Check if response is JSON
+          const contentType = response.headers.get('content-type');
+          if (!contentType || !contentType.includes('application/json')) {
+            const text = await response.text();
+            console.error('Upload error - expected JSON but got:', text.substring(0, 200));
+            throw new Error('Server returned non-JSON response. Upload endpoint may not be accessible.');
+          }
+
+          const result = await response.json();
+          console.log('Upload result:', result);
+
+          if (result.success || result.ok) {
+            // Upload successful - send via WebSocket
+            const absoluteUrl = result.url.startsWith('http') ? result.url : API_BASE + result.url;
+            
+            ws.send(JSON.stringify({
+              type: 'image',
+              nickname,
+              url: absoluteUrl,
+              filename: result.filename || result.name,
+              mime: result.mime,
+              size: result.size,
+              caption: text || ''
+            }));
+            
+            console.log('Photo message sent via WebSocket');
+            
+            // Clean up the preview
+            removePhotoAttachment();
+            
+            // Update the optimistic message to show the real URL
+            if (msgElement) {
+              const img = msgElement.querySelector('.message-image');
+              if (img) {
+                img.src = absoluteUrl;
+              }
+            }
+          } else {
+            throw new Error(result.error || 'Upload failed');
+          }
+        } else {
+          // Text-only message with local echo
+          console.log('Sending text message:', text.substring(0, 50));
+          
+          const messageData = {
+            type: 'text',
+            nickname,
+            timestamp,
+            text: text.substring(0, 1000)
+          };
+          
+          // Add to UI immediately with "sending" status
+          addMessage(messageData, true, clientId, 'sending');
+          pendingMessages.set(clientId, messageData);
+          
+          // Clear input immediately
+          messageInput.value = '';
+          
+          // Send via WebSocket
+          ws.send(JSON.stringify(messageData));
+          
+          console.log('Text message sent via WebSocket');
+        }
+      } catch (error) {
+        console.error('Send error:', error);
+        showStatus('Send failed: ' + error.message, 'error');
+        
+        // Mark message as error
+        const msgElement = document.querySelector(`[data-client-id="${clientId}"]`);
+        if (msgElement) {
+          msgElement.classList.remove('message-sending');
+          msgElement.classList.add('message-error');
+          const statusSpan = msgElement.querySelector('.message-status');
+          if (statusSpan) {
+            statusSpan.textContent = 'Failed to send';
+          }
+        }
+        
+        pendingMessages.delete(clientId);
+      } finally {
+        sendBtn.disabled = false;
+      }
     }
 
     function handleMuted(data) {
@@ -704,7 +982,7 @@
       document.getElementById('fileBtn').disabled = disabled;
     }
 
-    async function handleFileUpload() {
+    function handleFileSelect() {
       const fileInput = document.getElementById('fileInput');
       const file = fileInput.files[0];
       
@@ -716,59 +994,52 @@
         return;
       }
 
-      const formData = new FormData();
-      formData.append('file', file);
-
-      try {
-        console.log('Uploading file to:', API_BASE + '/upload');
-        showStatus('Uploading...', 'muted');
-        
-        const response = await fetch(API_BASE + '/upload', {
-          method: 'POST',
-          body: formData
-        });
-
-        console.log('Upload response status:', response.status);
-        console.log('Upload response content-type:', response.headers.get('content-type'));
-
-        // Check if response is JSON before parsing
-        const contentType = response.headers.get('content-type');
-        if (!contentType || !contentType.includes('application/json')) {
-          const text = await response.text();
-          console.error('Upload error - expected JSON but got:', text.substring(0, 200));
-          throw new Error('Server returned non-JSON response. Check that the upload endpoint is accessible.');
-        }
-
-        const result = await response.json();
-        console.log('Upload result:', result);
-
-        if (result.success) {
-          const nickname = document.getElementById('nickname').value.trim() || 'Anonymous';
-          
-          const messageType = result.isImage ? 'image' : 'file';
-          
-          // Ensure URL is absolute for cross-origin display
-          const absoluteUrl = result.url.startsWith('http') ? result.url : API_BASE + result.url;
-          
-          ws.send(JSON.stringify({
-            type: messageType,
-            nickname: nickname.substring(0, 100),
-            url: absoluteUrl,
-            filename: result.filename,
-            mime: result.mime,
-            size: result.size
-          }));
-          
-          showStatus('Upload successful', 'success');
-        } else {
-          showStatus('Upload failed: ' + result.error, 'error');
-        }
-      } catch (error) {
-        console.error('Upload error:', error);
-        showStatus('Upload error: ' + error.message, 'error');
+      // Store the file and show preview
+      selectedFile = file;
+      
+      // Revoke previous preview URL if exists
+      if (previewURL) {
+        URL.revokeObjectURL(previewURL);
       }
+      
+      // Create preview URL
+      previewURL = URL.createObjectURL(file);
+      
+      // Update composer UI
+      const composer = document.getElementById('photoComposer');
+      const previewImg = document.getElementById('previewImage');
+      const previewFilename = document.getElementById('previewFilename');
+      const previewSize = document.getElementById('previewSize');
+      
+      previewImg.src = previewURL;
+      previewFilename.textContent = file.name;
+      previewSize.textContent = formatFileSize(file.size);
+      
+      composer.classList.add('active');
+      
+      // Focus on message input for caption
+      document.getElementById('messageInput').focus();
+      
+      console.log('Photo selected:', file.name, formatFileSize(file.size));
+    }
 
-      fileInput.value = '';
+    function removePhotoAttachment() {
+      // Clean up
+      if (previewURL) {
+        URL.revokeObjectURL(previewURL);
+        previewURL = null;
+      }
+      
+      selectedFile = null;
+      
+      // Clear file input
+      document.getElementById('fileInput').value = '';
+      
+      // Hide composer
+      const composer = document.getElementById('photoComposer');
+      composer.classList.remove('active');
+      
+      console.log('Photo attachment removed');
     }
 
     async function openCamera() {
@@ -801,7 +1072,7 @@
       modal.classList.remove('active');
     }
 
-    async function capturePhoto() {
+    function capturePhoto() {
       const video = document.getElementById('cameraPreview');
       const canvas = document.getElementById('cameraCanvas');
       const context = canvas.getContext('2d');
@@ -810,56 +1081,40 @@
       canvas.height = video.videoHeight;
       context.drawImage(video, 0, 0);
 
-      canvas.toBlob(async (blob) => {
-        const formData = new FormData();
-        formData.append('file', blob, `camera-${Date.now()}.jpg`);
-
-        try {
-          console.log('Uploading photo to:', API_BASE + '/upload');
-          showStatus('Uploading photo...', 'muted');
-          
-          const response = await fetch(API_BASE + '/upload', {
-            method: 'POST',
-            body: formData
-          });
-
-          console.log('Photo upload response status:', response.status);
-
-          // Check if response is JSON before parsing
-          const contentType = response.headers.get('content-type');
-          if (!contentType || !contentType.includes('application/json')) {
-            const text = await response.text();
-            console.error('Photo upload error - expected JSON but got:', text.substring(0, 200));
-            throw new Error('Server returned non-JSON response. Check that the upload endpoint is accessible.');
-          }
-
-          const result = await response.json();
-          console.log('Photo upload result:', result);
-
-          if (result.success) {
-            const nickname = document.getElementById('nickname').value.trim() || 'Anonymous';
-            
-            // Ensure URL is absolute for cross-origin display
-            const absoluteUrl = result.url.startsWith('http') ? result.url : API_BASE + result.url;
-            
-            ws.send(JSON.stringify({
-              type: 'image',
-              nickname: nickname.substring(0, 100),
-              url: absoluteUrl,
-              filename: result.filename,
-              mime: result.mime,
-              size: result.size
-            }));
-
-            closeCamera();
-            showStatus('Photo uploaded', 'success');
-          } else {
-            showStatus('Photo upload failed: ' + result.error, 'error');
-          }
-        } catch (error) {
-          console.error('Photo upload error:', error);
-          showStatus('Photo upload error: ' + error.message, 'error');
+      canvas.toBlob((blob) => {
+        // Create a File object from the blob
+        const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        
+        // Store the file and show preview (same as file selection)
+        selectedFile = file;
+        
+        // Revoke previous preview URL if exists
+        if (previewURL) {
+          URL.revokeObjectURL(previewURL);
         }
+        
+        // Create preview URL
+        previewURL = URL.createObjectURL(file);
+        
+        // Update composer UI
+        const composer = document.getElementById('photoComposer');
+        const previewImg = document.getElementById('previewImage');
+        const previewFilename = document.getElementById('previewFilename');
+        const previewSize = document.getElementById('previewSize');
+        
+        previewImg.src = previewURL;
+        previewFilename.textContent = file.name;
+        previewSize.textContent = formatFileSize(file.size);
+        
+        composer.classList.add('active');
+        
+        // Close camera modal
+        closeCamera();
+        
+        // Focus on message input for caption
+        document.getElementById('messageInput').focus();
+        
+        console.log('Photo captured:', file.name, formatFileSize(file.size));
       }, 'image/jpeg', 0.8);
     }
 
