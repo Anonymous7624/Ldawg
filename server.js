@@ -58,7 +58,7 @@ const upload = multer({
 });
 
 // Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 
 // Health check endpoint
 app.get('/healthz', (req, res) => {
