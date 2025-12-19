@@ -21,11 +21,34 @@ const UPLOAD_CLEANUP_AGE = 60 * 60 * 1000; // 1 hour
 
 // CORS middleware - allows GitHub Pages to access this API
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  const allowedOrigins = [
+    'https://ldawg7624.com',
+    'https://www.ldawg7624.com',
+    'http://localhost:8080', // For local testing
+    'http://127.0.0.1:8080'
+  ];
+  
+  const origin = req.headers.origin;
+  
+  // Log all requests to /upload for debugging
+  if (req.path === '/upload' || req.path.startsWith('/uploads/')) {
+    console.log(`[CORS] ${req.method} ${req.path} - Origin: ${origin || 'none'}`);
+  }
+  
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+  } else if (!origin) {
+    // No origin header (direct access) - allow it
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type');
+  }
+  
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+    console.log(`[CORS] OPTIONS preflight - Origin: ${origin || 'none'} - Status: 204`);
+    return res.status(204).end();
   }
   next();
 });
@@ -79,10 +102,12 @@ app.get('/healthz', (req, res) => {
 // Upload endpoint
 app.post('/upload', upload.single('file'), (req, res) => {
   try {
-    console.log('[UPLOAD] Received upload request');
+    const origin = req.headers.origin || 'direct';
+    console.log(`[UPLOAD] Received upload request from origin: ${origin}`);
     
     if (!req.file) {
       console.log('[UPLOAD] Error: No file in request');
+      res.setHeader('Content-Type', 'application/json');
       return res.status(400).json({ success: false, error: 'No file uploaded' });
     }
 
@@ -102,10 +127,15 @@ app.post('/upload', upload.single('file'), (req, res) => {
     });
 
     console.log(`[UPLOAD] Success: ${req.file.originalname} (${req.file.size} bytes, ${mime})`);
+    console.log(`[UPLOAD] Returning URL: ${uploadUrl}`);
 
-    res.json({
+    // Explicitly set JSON content type
+    res.setHeader('Content-Type', 'application/json');
+    res.status(200).json({
       success: true,
+      ok: true, // Add ok field for compatibility
       url: uploadUrl,
+      name: req.file.originalname,
       filename: req.file.originalname,
       mime: req.file.mimetype,
       size: req.file.size,
@@ -113,7 +143,9 @@ app.post('/upload', upload.single('file'), (req, res) => {
     });
   } catch (error) {
     console.error('[UPLOAD] Error:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    console.error('[UPLOAD] Stack:', error.stack);
+    res.setHeader('Content-Type', 'application/json');
+    res.status(500).json({ success: false, ok: false, error: error.message });
   }
 });
 
@@ -121,8 +153,12 @@ app.post('/upload', upload.single('file'), (req, res) => {
 app.get('/uploads/:filename', (req, res) => {
   const filename = req.params.filename;
   const filePath = path.join(UPLOADS_DIR, filename);
+  const origin = req.headers.origin || 'direct';
+
+  console.log(`[UPLOADS] GET request for ${filename} from origin: ${origin}`);
 
   if (!fs.existsSync(filePath)) {
+    console.log(`[UPLOADS] File not found: ${filename}`);
     return res.status(404).send('File not found');
   }
 
@@ -137,6 +173,7 @@ app.get('/uploads/:filename', (req, res) => {
     res.setHeader('Content-Disposition', 'attachment');
   }
 
+  console.log(`[UPLOADS] Serving file: ${filename} (${isImage ? 'image' : 'file'})`);
   res.sendFile(filePath);
 });
 
