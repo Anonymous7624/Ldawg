@@ -692,10 +692,11 @@
         const pingMessage = {
           type: 'ping',
           id: pingId,
+          messageId: pingId,
           timestamp: Date.now()
         };
         
-        console.log('[SELF-TEST] Sending ping with messageId=' + pingId);
+        console.log('[SELF-TEST] Sending ping with id=' + pingId + ' messageId=' + pingId);
         pendingMessages.set(pingId, { type: 'ping', testPing: true });
         
         // Set timeout for ping response
@@ -714,7 +715,9 @@
       };
 
       ws.onmessage = (event) => {
+        console.log('[WS] RX RAW:', event.data);
         const data = JSON.parse(event.data);
+        console.log('[WS] RX JSON:', data);
         console.log('[WS] ========================================');
         console.log('[WS] Received message type:', data.type);
         console.log('[WS] Message ID:', data.id || 'none');
@@ -725,14 +728,22 @@
           console.log('[WS] History received with', data.items.length, 'items');
           displayHistory(data.items);
         } else if (data.type === 'ack') {
-          // Handle ACK from server - mark message as sent
+          // Handle ACK from server - backward compatible with both messageId and id
+          const ackId = data.messageId || data.id;
           console.log('[WS] ✓✓✓ ACK RECEIVED ✓✓✓');
+          console.log('[WS] ACK:', ackId);
           console.log('[WS] ACK messageId=' + data.messageId);
+          console.log('[WS] ACK id=' + data.id);
           console.log('[WS] ACK serverTime=' + data.serverTime);
           console.log('[WS] ACK instanceId=' + data.instanceId);
           
+          if (!ackId) {
+            console.error('[WS] ACK received but has no messageId or id field!');
+            return;
+          }
+          
           // Check if this is a ping ACK (self-test)
-          const pendingMsg = pendingMessages.get(data.messageId);
+          const pendingMsg = pendingMessages.get(ackId);
           if (pendingMsg && pendingMsg.testPing) {
             console.log('[SELF-TEST] ✓ Ping ACK received - connection verified!');
             console.log('[SELF-TEST] Server instance:', data.instanceId);
@@ -740,14 +751,14 @@
             if (pendingMsg.timeout) {
               clearTimeout(pendingMsg.timeout);
             }
-            pendingMessages.delete(data.messageId);
+            pendingMessages.delete(ackId);
             showStatus('Connected ✓', 'success');
             return;
           }
           
-          console.log('[WS] Looking for element with data-msg-id=' + data.messageId);
+          console.log('[WS] Looking for element with data-msg-id=' + ackId);
           
-          const msgElement = document.querySelector(`[data-msg-id="${data.messageId}"]`);
+          const msgElement = document.querySelector(`[data-msg-id="${ackId}"]`);
           console.log('[WS] Found element:', msgElement ? 'YES' : 'NO');
           
           if (msgElement) {
@@ -765,11 +776,11 @@
           
           // Remove from pending
           console.log('[WS] Pending messages before removal:', Array.from(pendingMessages.keys()));
-          if (pendingMessages.has(data.messageId)) {
-            pendingMessages.delete(data.messageId);
-            console.log('[WS] ✓ Removed from pending:', data.messageId);
+          if (pendingMessages.has(ackId)) {
+            pendingMessages.delete(ackId);
+            console.log('[WS] ✓ Removed from pending:', ackId);
           } else {
-            console.warn('[WS] Message not in pending map:', data.messageId);
+            console.warn('[WS] Message not in pending map:', ackId);
           }
           console.log('[WS] Pending messages after removal:', Array.from(pendingMessages.keys()));
         } else if (data.type === 'text' || data.type === 'image' || data.type === 'file') {
@@ -1017,6 +1028,7 @@
             const wsMessage = {
               type: 'image',
               id: messageId,
+              messageId: messageId,
               nickname,
               timestamp,
               url: result.url,
@@ -1057,6 +1069,7 @@
           const messageData = {
             type: 'text',
             id: messageId,
+            messageId: messageId,
             nickname,
             timestamp,
             text: text.substring(0, 1000)
