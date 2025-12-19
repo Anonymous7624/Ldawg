@@ -5,6 +5,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const url = require('url');
 
 const app = express();
 const server = http.createServer(app);
@@ -20,6 +21,11 @@ const UPLOAD_CLEANUP_AGE = 60 * 60 * 1000; // 1 hour
 // Helper to generate client IDs
 function makeId() { 
   return crypto.randomBytes(4).toString('hex'); 
+}
+
+// Helper to generate UUIDs for tokens
+function makeUUID() {
+  return crypto.randomBytes(16).toString('hex');
 }
 
 // Log all HTTP requests
@@ -65,7 +71,8 @@ app.use((req, res, next) => {
 // In-memory state
 const chatHistory = [];
 const uploadFiles = new Map(); // Map of upload ID to {filename, timestamp, path}
-const clients = new Map(); // ws -> { clientId, presenceOnline, strikes, stage, bannedUntil, msgTimes }
+const clients = new Map(); // ws -> { clientId, token, presenceOnline }
+const clientState = new Map(); // token -> { strikes, stage, bannedUntil, msgTimes }
 
 // Ensure uploads directory exists
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
@@ -314,15 +321,15 @@ function registerViolation(info) {
   }
 }
 
-function checkRateLimit(info) {
-  if (!info) return { allowed: false };
+function checkRateLimit(state) {
+  if (!state) return { allowed: false };
 
-  if (isBanned(info)) {
+  if (isBanned(state)) {
     return {
       allowed: false,
       muted: true,
-      seconds: Math.ceil((info.bannedUntil - now()) / 1000),
-      strikes: info.strikes
+      seconds: Math.ceil((state.bannedUntil - now()) / 1000),
+      strikes: state.strikes
     };
   }
 
@@ -330,20 +337,33 @@ function checkRateLimit(info) {
   const limit = RATE_LIMIT_MESSAGES;
 
   // Keep timestamps inside last window
-  info.msgTimes = info.msgTimes.filter(ts => now() - ts < windowMs);
-  info.msgTimes.push(now());
+  state.msgTimes = state.msgTimes.filter(ts => now() - ts < windowMs);
+  state.msgTimes.push(now());
 
-  if (info.msgTimes.length > limit) {
-    registerViolation(info);
+  if (state.msgTimes.length > limit) {
+    registerViolation(state);
     return {
       allowed: false,
       muted: true,
-      seconds: Math.ceil((info.bannedUntil - now()) / 1000),
-      strikes: info.strikes
+      seconds: Math.ceil((state.bannedUntil - now()) / 1000),
+      strikes: state.strikes
     };
   }
 
   return { allowed: true };
+}
+
+// Get or create client state by token
+function getClientState(token) {
+  if (!clientState.has(token)) {
+    clientState.set(token, {
+      strikes: 0,
+      stage: 0,
+      bannedUntil: 0,
+      msgTimes: []
+    });
+  }
+  return clientState.get(token);
 }
 
 // Generate unique server instance ID
@@ -354,22 +374,38 @@ wss.on('connection', (ws, req) => {
   const clientId = makeId();
   const connectionId = clientId;
   
+  // Parse token from query string
+  const queryParams = url.parse(req.url, true).query;
+  let token = queryParams.token;
+  
+  // If no token provided, generate one
+  if (!token) {
+    token = makeUUID();
+    console.log(`[CONNECT] No token provided, generated: ${token}`);
+  } else {
+    console.log(`[CONNECT] Client provided token: ${token}`);
+  }
+  
   console.log(`[CONNECT] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
-  console.log(`[CONNECT] Client connected: ${clientId}`);
+  console.log(`[CONNECT] Client connected: ${clientId} (token: ${token.substring(0, 8)}...)`);
   console.log(`[CONNECT] Total clients: ${wss.clients.size}`);
 
-  // Initialize client info
+  // Initialize client info (connection-specific)
   clients.set(ws, {
     clientId,
-    presenceOnline: true,   // default true until told otherwise
-    strikes: 0,
-    stage: 0,
-    bannedUntil: 0,
-    msgTimes: [],
+    token,
+    presenceOnline: true   // default true until told otherwise
   });
 
-  // Send welcome with clientId
-  ws.send(JSON.stringify({ type: 'welcome', clientId }));
+  // Get or create client state (persistent by token)
+  const state = getClientState(token);
+
+  // Send welcome with clientId and token
+  ws.send(JSON.stringify({ 
+    type: 'welcome', 
+    clientId,
+    token // Send token back so client can store it if needed
+  }));
 
   // Send chat history
   ws.send(JSON.stringify({
@@ -388,11 +424,14 @@ wss.on('connection', (ws, req) => {
       const info = clients.get(ws);
       if (!info) return;
 
+      // Get persistent state by token
+      const state = getClientState(info.token);
+
       // Backward compatible: accept both messageId and id
       const msgId = message.messageId || message.id || crypto.randomBytes(8).toString('hex');
       console.log(`[MESSAGE] ========================================`);
       console.log(`[MESSAGE] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
-      console.log(`[MESSAGE] Received from ${connectionId}`);
+      console.log(`[MESSAGE] Received from ${connectionId} (token: ${info.token.substring(0, 8)}...)`);
       console.log(`[MESSAGE] Type: ${message.type}`);
       console.log(`[MESSAGE] ID: ${msgId}`);
       console.log(`[MESSAGE] message.messageId: ${message.messageId}`);
@@ -405,6 +444,27 @@ wss.on('connection', (ws, req) => {
       if (message.type === "presence") {
         info.presenceOnline = !!message.online;
         broadcastOnlineCount();
+        return;
+      }
+
+      // Handle typing indicator (don't rate limit)
+      if (message.type === "typing") {
+        // Broadcast to all other clients with senderId
+        const typingMsg = {
+          type: 'typing',
+          senderId: info.clientId,
+          nickname: message.nickname || 'Anonymous',
+          isTyping: !!message.isTyping,
+          ts: message.ts || Date.now()
+        };
+        
+        // Send to all clients except sender
+        wss.clients.forEach(client => {
+          if (client !== ws && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify(typingMsg));
+          }
+        });
+        
         return;
       }
 
@@ -444,25 +504,25 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      // Rate limit check for user messages (text, image, audio)
+      // Rate limit check for user messages (text, image, audio) - USE STATE BY TOKEN
       const sendTypes = new Set(["text", "image", "audio", "file"]);
       if (sendTypes.has(message.type)) {
-        if (isBanned(info)) {
+        if (isBanned(state)) {
           ws.send(JSON.stringify({ 
             type: 'banned', 
-            until: info.bannedUntil,
-            seconds: Math.ceil((info.bannedUntil - now()) / 1000),
+            until: state.bannedUntil,
+            seconds: Math.ceil((state.bannedUntil - now()) / 1000),
             reason: 'rate'
           }));
           return;
         }
 
-        const rateLimitResult = checkRateLimit(info);
+        const rateLimitResult = checkRateLimit(state);
         if (!rateLimitResult.allowed) {
-          console.log(`[RATE-LIMIT] Client ${connectionId} banned for ${rateLimitResult.seconds}s (strikes: ${rateLimitResult.strikes})`);
+          console.log(`[RATE-LIMIT] Client ${connectionId} (token ${info.token.substring(0, 8)}...) banned for ${rateLimitResult.seconds}s (strikes: ${rateLimitResult.strikes})`);
           ws.send(JSON.stringify({
             type: 'banned',
-            until: info.bannedUntil,
+            until: state.bannedUntil,
             seconds: rateLimitResult.seconds,
             strikes: rateLimitResult.strikes,
             reason: 'rate'
@@ -475,6 +535,7 @@ wss.on('connection', (ws, req) => {
         // Validate input
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
         const text = (message.text || '').substring(0, 1000);
+        const html = (message.html || '').substring(0, 5000); // Allow HTML but limit size
 
         if (!text.trim()) {
           console.log(`[MESSAGE] Ignored empty text from ${connectionId}`);
@@ -487,7 +548,8 @@ wss.on('connection', (ws, req) => {
           senderId: info.clientId,
           nickname,
           timestamp: message.timestamp || Date.now(),
-          text
+          text,
+          html: html || undefined // Include HTML if present
         };
 
         // Send ACK to sender immediately

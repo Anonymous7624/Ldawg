@@ -407,6 +407,147 @@
       margin-bottom: 10px;
     }
 
+    /* Rich text toolbar */
+    .text-toolbar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.03);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      flex-wrap: wrap;
+    }
+
+    body.dark-mode .text-toolbar {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .toolbar-btn {
+      padding: 6px 12px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    body.dark-mode .toolbar-btn {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.3);
+      color: white;
+    }
+
+    .toolbar-btn:hover {
+      background: rgba(0, 102, 204, 0.2);
+      border-color: #0066cc;
+    }
+
+    .toolbar-btn.active {
+      background: #0066cc;
+      color: white;
+      border-color: #0066cc;
+    }
+
+    .toolbar-select {
+      padding: 6px 10px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      background: rgba(255, 255, 255, 0.8);
+      border-radius: 5px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    body.dark-mode .toolbar-select {
+      background: rgba(255, 255, 255, 0.15);
+      border-color: rgba(255, 255, 255, 0.3);
+      color: white;
+    }
+
+    .emoji-picker-container {
+      position: relative;
+      display: inline-block;
+    }
+
+    .emoji-panel {
+      display: none;
+      position: absolute;
+      bottom: 100%;
+      left: 0;
+      background: white;
+      border: 2px solid rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      padding: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+      max-width: 320px;
+      max-height: 200px;
+      overflow-y: auto;
+      z-index: 100;
+      margin-bottom: 8px;
+    }
+
+    body.dark-mode .emoji-panel {
+      background: #003366;
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .emoji-panel.active {
+      display: block;
+    }
+
+    .emoji-panel span {
+      font-size: 24px;
+      cursor: pointer;
+      display: inline-block;
+      padding: 5px;
+      transition: transform 0.2s;
+    }
+
+    .emoji-panel span:hover {
+      transform: scale(1.3);
+    }
+
+    #composer {
+      flex: 1;
+      padding: 12px;
+      border: 2px solid rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.8);
+      font-size: 14px;
+      font-family: inherit;
+      min-height: 60px;
+      max-height: 150px;
+      overflow-y: auto;
+      transition: all 0.3s ease;
+    }
+
+    body.dark-mode #composer {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+
+    #composer:focus {
+      outline: none;
+      border-color: #0066cc;
+    }
+
+    body.dark-mode #composer:focus {
+      border-color: #66b3ff;
+    }
+
+    #composer:empty:before {
+      content: attr(data-placeholder);
+      color: rgba(0, 0, 0, 0.4);
+      pointer-events: none;
+    }
+
+    body.dark-mode #composer:empty:before {
+      color: rgba(255, 255, 255, 0.4);
+    }
+
     .input-row {
       display: flex;
       gap: 10px;
@@ -618,6 +759,25 @@
       display: none;
     }
 
+    /* Typing indicators */
+    .typing-indicators {
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      font-size: 13px;
+      font-style: italic;
+      opacity: 0.7;
+      min-height: 24px;
+    }
+
+    .typing-indicator {
+      animation: fadeIn 0.3s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 0.7; }
+    }
+
     @media (max-width: 768px) {
       .container {
         flex-direction: column;
@@ -652,6 +812,9 @@
 
       <div class="chat-container">
         <div class="messages" id="messages"></div>
+
+        <!-- Typing indicators -->
+        <div class="typing-indicators" id="typingIndicators"></div>
 
         <div id="statusMessage" class="hidden"></div>
         
@@ -700,12 +863,69 @@
             </div>
           </div>
 
+          <!-- Rich Text Toolbar -->
+          <div class="text-toolbar">
+            <button class="toolbar-btn" onclick="formatText('bold')" title="Bold">B</button>
+            <button class="toolbar-btn" onclick="formatText('italic')" title="Italic">I</button>
+            <button class="toolbar-btn" onclick="formatText('underline')" title="Underline">U</button>
+            <select class="toolbar-select" onchange="setFont(this.value)">
+              <option value="">Font</option>
+              <option value="Arial">Arial</option>
+              <option value="Georgia">Georgia</option>
+              <option value="Times New Roman">Times</option>
+              <option value="Courier New">Courier</option>
+            </select>
+            <select class="toolbar-select" onchange="setFontSize(this.value)">
+              <option value="">Size</option>
+              <option value="12px">12</option>
+              <option value="14px">14</option>
+              <option value="16px">16</option>
+              <option value="18px">18</option>
+              <option value="22px">22</option>
+            </select>
+            <div class="emoji-picker-container">
+              <button class="toolbar-btn" onclick="toggleEmojiPicker()" title="Emoji">😊</button>
+              <div class="emoji-panel" id="emojiPanel">
+                <span onclick="insertEmoji('😀')">😀</span>
+                <span onclick="insertEmoji('😁')">😁</span>
+                <span onclick="insertEmoji('😂')">😂</span>
+                <span onclick="insertEmoji('🤣')">🤣</span>
+                <span onclick="insertEmoji('😊')">😊</span>
+                <span onclick="insertEmoji('😇')">😇</span>
+                <span onclick="insertEmoji('🙂')">🙂</span>
+                <span onclick="insertEmoji('😉')">😉</span>
+                <span onclick="insertEmoji('😍')">😍</span>
+                <span onclick="insertEmoji('🥰')">🥰</span>
+                <span onclick="insertEmoji('😘')">😘</span>
+                <span onclick="insertEmoji('😋')">😋</span>
+                <span onclick="insertEmoji('😎')">😎</span>
+                <span onclick="insertEmoji('🤔')">🤔</span>
+                <span onclick="insertEmoji('😴')">😴</span>
+                <span onclick="insertEmoji('😢')">😢</span>
+                <span onclick="insertEmoji('😭')">😭</span>
+                <span onclick="insertEmoji('😡')">😡</span>
+                <span onclick="insertEmoji('🤯')">🤯</span>
+                <span onclick="insertEmoji('😱')">😱</span>
+                <span onclick="insertEmoji('👍')">👍</span>
+                <span onclick="insertEmoji('👎')">👎</span>
+                <span onclick="insertEmoji('👏')">👏</span>
+                <span onclick="insertEmoji('🙏')">🙏</span>
+                <span onclick="insertEmoji('💪')">💪</span>
+                <span onclick="insertEmoji('❤️')">❤️</span>
+                <span onclick="insertEmoji('💔')">💔</span>
+                <span onclick="insertEmoji('🔥')">🔥</span>
+                <span onclick="insertEmoji('⭐')">⭐</span>
+                <span onclick="insertEmoji('🎉')">🎉</span>
+              </div>
+            </div>
+          </div>
+
           <div class="input-row">
-            <textarea 
-              id="messageInput" 
-              placeholder="Type your message or caption (max 1000 chars)" 
-              maxlength="1000"
-            ></textarea>
+            <div 
+              id="composer" 
+              contenteditable="true" 
+              data-placeholder="Type your message (max 1000 chars)"
+            ></div>
           </div>
           <div class="message-controls">
             <button class="btn-icon" onclick="openCamera()" title="Take Photo" id="cameraBtn">
@@ -734,9 +954,11 @@
       <div class="sidebar-content">
         <ul style="list-style: disc; padding-left: 20px; line-height: 2;">
           <li>No moderators or login needed</li>
+          <li>Rich text formatting + emojis</li>
           <li>Photo and GIF uploads</li>
           <li>Voice messages (up to 30s)</li>
           <li>Delete your own messages</li>
+          <li>Typing indicators</li>
           <li>Online users count</li>
           <li>Dark Mode</li>
         </ul>
@@ -775,6 +997,7 @@
 
     // Client state
     let myClientId = null;
+    let clientToken = null; // Persistent token for ban tracking
     let isVisible = !document.hidden;
 
     // Photo composer state
@@ -791,14 +1014,51 @@
     let audioDraftBlob = null;
     let audioDraftURL = null;
 
+    // Typing indicator state
+    let typingUsers = new Map(); // senderId -> { nickname, lastTs }
+    let typingTimeout = null;
+    let lastTypingSent = 0;
+    const TYPING_THROTTLE = 800; // ms
+    const TYPING_EXPIRE = 12000; // 12 seconds
+
     // Apply saved theme
     if (isDarkMode) {
       document.body.className = 'dark-mode';
       document.querySelector('.dark-mode-toggle').textContent = 'Light Mode';
     }
 
+    // ========================================
+    // TOKEN MANAGEMENT (Feature 2)
+    // ========================================
+    
+    function getOrCreateToken() {
+      // Try cookie first
+      let token = getCookie('chat_token');
+      
+      // Fall back to localStorage
+      if (!token) {
+        token = localStorage.getItem('chat_token');
+      }
+      
+      // Generate new token if none exists
+      if (!token) {
+        token = generateUUID();
+        console.log('[TOKEN] Generated new token:', token);
+      }
+      
+      // Store in both places
+      setCookie('chat_token', token, 31536000); // 1 year
+      localStorage.setItem('chat_token', token);
+      
+      return token;
+    }
+
+    // Initialize token on page load
+    clientToken = getOrCreateToken();
+    console.log('[TOKEN] Using client token:', clientToken);
+
     // WebSocket configuration
-    const WS_URL = 'wss://ws.ldawg7624.com';
+    const WS_URL = `wss://ws.ldawg7624.com?token=${encodeURIComponent(clientToken)}`;
     
     // Upload configuration
     const UPLOAD_URL = 'https://upload.ldawg7624.com/upload';
@@ -812,7 +1072,7 @@
     }
 
     function setCookie(name, value, maxAgeSeconds) {
-      document.cookie = `${name}=${value}; path=/; max-age=${maxAgeSeconds}; SameSite=Strict`;
+      document.cookie = `${name}=${value}; path=/; max-age=${maxAgeSeconds}; SameSite=Lax; Secure`;
     }
 
     function getBanState() {
@@ -898,7 +1158,242 @@
       });
     }
 
-    // Presence tracking
+    // ========================================
+    // HTML SANITIZATION (Feature 1)
+    // ========================================
+    
+    function sanitizeHTML(html) {
+      const div = document.createElement('div');
+      div.innerHTML = html;
+      
+      // Allowed tags and attributes
+      const allowedTags = ['B', 'STRONG', 'I', 'EM', 'U', 'BR', 'SPAN'];
+      const allowedStyles = ['font-family', 'font-size'];
+      const allowedFonts = ['Arial', 'Georgia', 'Times New Roman', 'Courier New'];
+      
+      function sanitizeNode(node) {
+        // Text nodes are OK
+        if (node.nodeType === 3) return true;
+        
+        // Element nodes must be in allowed list
+        if (node.nodeType === 1) {
+          if (!allowedTags.includes(node.tagName)) {
+            return false;
+          }
+          
+          // For SPAN, check style attribute
+          if (node.tagName === 'SPAN') {
+            const style = node.getAttribute('style');
+            if (style) {
+              // Parse and validate style
+              const newStyle = [];
+              const parts = style.split(';');
+              for (const part of parts) {
+                const [prop, value] = part.split(':').map(s => s.trim());
+                if (allowedStyles.includes(prop)) {
+                  if (prop === 'font-family') {
+                    // Validate font
+                    const font = value.replace(/['"]/g, '').trim();
+                    if (allowedFonts.includes(font)) {
+                      newStyle.push(`${prop}: ${value}`);
+                    }
+                  } else if (prop === 'font-size') {
+                    // Validate size (must be in px and between 12-22)
+                    const match = value.match(/^(\d+)px$/);
+                    if (match) {
+                      const size = parseInt(match[1], 10);
+                      if (size >= 12 && size <= 22) {
+                        newStyle.push(`${prop}: ${value}`);
+                      }
+                    }
+                  }
+                }
+              }
+              node.setAttribute('style', newStyle.join('; '));
+            }
+            
+            // Remove all other attributes
+            const attrs = Array.from(node.attributes);
+            for (const attr of attrs) {
+              if (attr.name !== 'style') {
+                node.removeAttribute(attr.name);
+              }
+            }
+          } else {
+            // Remove all attributes from other tags
+            const attrs = Array.from(node.attributes);
+            for (const attr of attrs) {
+              node.removeAttribute(attr.name);
+            }
+          }
+          
+          return true;
+        }
+        
+        return false;
+      }
+      
+      function walk(node) {
+        const children = Array.from(node.childNodes);
+        for (const child of children) {
+          if (!sanitizeNode(child)) {
+            // Replace disallowed node with its text content
+            const text = document.createTextNode(child.textContent);
+            node.replaceChild(text, child);
+          } else if (child.nodeType === 1) {
+            walk(child);
+          }
+        }
+      }
+      
+      walk(div);
+      return div.innerHTML;
+    }
+
+    // ========================================
+    // RICH TEXT EDITOR (Feature 1)
+    // ========================================
+    
+    function formatText(command) {
+      document.execCommand(command, false, null);
+      document.getElementById('composer').focus();
+    }
+
+    function setFont(font) {
+      if (font) {
+        document.execCommand('fontName', false, font);
+        document.getElementById('composer').focus();
+      }
+    }
+
+    function setFontSize(size) {
+      if (size) {
+        // Use CSS to set font size on selected text
+        const selection = window.getSelection();
+        if (!selection.rangeCount) return;
+        
+        const range = selection.getRangeAt(0);
+        const span = document.createElement('span');
+        span.style.fontSize = size;
+        
+        try {
+          range.surroundContents(span);
+        } catch (e) {
+          // If surroundContents fails, insert at cursor
+          span.appendChild(range.extractContents());
+          range.insertNode(span);
+        }
+        
+        document.getElementById('composer').focus();
+      }
+    }
+
+    function toggleEmojiPicker() {
+      const panel = document.getElementById('emojiPanel');
+      panel.classList.toggle('active');
+    }
+
+    function insertEmoji(emoji) {
+      const composer = document.getElementById('composer');
+      composer.focus();
+      document.execCommand('insertText', false, emoji);
+      toggleEmojiPicker();
+    }
+
+    // Close emoji picker when clicking outside
+    document.addEventListener('click', (e) => {
+      const emojiContainer = document.querySelector('.emoji-picker-container');
+      if (emojiContainer && !emojiContainer.contains(e.target)) {
+        document.getElementById('emojiPanel').classList.remove('active');
+      }
+    });
+
+    function getComposerHTML() {
+      const composer = document.getElementById('composer');
+      return sanitizeHTML(composer.innerHTML);
+    }
+
+    function getComposerText() {
+      const composer = document.getElementById('composer');
+      return composer.textContent || composer.innerText || '';
+    }
+
+    function clearComposer() {
+      const composer = document.getElementById('composer');
+      composer.innerHTML = '';
+    }
+
+    // ========================================
+    // TYPING INDICATOR (Feature 3)
+    // ========================================
+    
+    function sendTypingStatus(isTyping) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      
+      const nickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
+      
+      ws.send(JSON.stringify({
+        type: 'typing',
+        nickname,
+        isTyping: !!isTyping,
+        ts: Date.now()
+      }));
+    }
+
+    function handleComposerInput() {
+      const text = getComposerText().trim();
+      const now = Date.now();
+      
+      if (text.length > 0) {
+        // Throttle typing events
+        if (now - lastTypingSent >= TYPING_THROTTLE) {
+          sendTypingStatus(true);
+          lastTypingSent = now;
+        }
+      } else {
+        // Empty composer, send stop typing
+        sendTypingStatus(false);
+        lastTypingSent = 0;
+      }
+    }
+
+    function updateTypingIndicators() {
+      const now = Date.now();
+      const container = document.getElementById('typingIndicators');
+      
+      // Remove expired entries
+      for (const [senderId, info] of typingUsers) {
+        if (now - info.lastTs > TYPING_EXPIRE) {
+          typingUsers.delete(senderId);
+        }
+      }
+      
+      // Render
+      const count = typingUsers.size;
+      
+      if (count === 0) {
+        container.textContent = '';
+      } else if (count <= 3) {
+        const names = Array.from(typingUsers.values()).map(u => u.nickname);
+        container.textContent = names.map(n => `${n} is typing...`).join(' • ');
+      } else {
+        container.textContent = 'Several people are typing...';
+      }
+    }
+
+    // Set up typing detection
+    document.getElementById('composer').addEventListener('input', handleComposerInput);
+    document.getElementById('composer').addEventListener('blur', () => {
+      sendTypingStatus(false);
+    });
+
+    // Auto-clean typing indicators every 1s
+    setInterval(updateTypingIndicators, 1000);
+
+    // ========================================
+    // PRESENCE & ONLINE COUNT
+    // ========================================
+    
     function sendPresence(online) {
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "presence", online: !!online, ts: Date.now() }));
@@ -919,20 +1414,21 @@
       document.getElementById("onlineCount").textContent = `Online: ${n}`;
     }
 
-    // Connect to WebSocket
+    // ========================================
+    // WEBSOCKET CONNECTION
+    // ========================================
+    
     function connect() {
       console.log('========================================');
       console.log('[CONNECT] Attempting WebSocket connection');
       console.log('[CONNECT] URL:', WS_URL);
-      console.log('[CONNECT] Protocol:', WS_URL.startsWith('wss://') ? 'Secure WebSocket (WSS)' : 'WebSocket (WS)');
+      console.log('[CONNECT] Token:', clientToken);
       console.log('========================================');
       ws = new WebSocket(WS_URL);
 
       ws.onopen = () => {
         console.log('========================================');
         console.log('[CONNECT] ✓ WebSocket connection OPEN');
-        console.log('[CONNECT] URL:', WS_URL);
-        console.log('[CONNECT] Running connection self-test...');
         console.log('========================================');
         clearTimeout(reconnectTimeout);
         
@@ -948,10 +1444,9 @@
           timestamp: Date.now()
         };
         
-        console.log('[SELF-TEST] Sending ping with id=' + pingId + ' messageId=' + pingId);
+        console.log('[SELF-TEST] Sending ping with id=' + pingId);
         pendingMessages.set(pingId, { type: 'ping', testPing: true });
         
-        // Set timeout for ping response
         const pingTimeout = setTimeout(() => {
           if (pendingMessages.has(pingId)) {
             console.error('[SELF-TEST] ❌ FAILED - No ACK received for ping');
@@ -960,27 +1455,26 @@
           }
         }, 3000);
         
-        // Store timeout so we can clear it when ACK arrives
         pendingMessages.get(pingId).timeout = pingTimeout;
-        
         ws.send(JSON.stringify(pingMessage));
       };
 
       ws.onmessage = (event) => {
-        console.log('[WS] RX RAW:', event.data);
+        console.log('[WS] RX:', event.data);
         const data = JSON.parse(event.data);
-        console.log('[WS] RX JSON:', data);
-        console.log('[WS] ========================================');
-        console.log('[WS] Received message type:', data.type);
-        console.log('[WS] Message ID:', data.id || 'none');
-        console.log('[WS] Full payload:', JSON.stringify(data, null, 2));
-        console.log('[WS] ========================================');
         
         if (data.type === 'welcome') {
           myClientId = data.clientId;
           console.log('[WELCOME] myClientId=', myClientId);
           
-          // CRITICAL: Refresh delete buttons for history messages that arrived before welcome
+          // If server sent us a token, store it
+          if (data.token && data.token !== clientToken) {
+            clientToken = data.token;
+            setCookie('chat_token', clientToken, 31536000);
+            localStorage.setItem('chat_token', clientToken);
+            console.log('[TOKEN] Received token from server:', clientToken);
+          }
+          
           refreshDeleteButtons();
         } else if (data.type === 'online') {
           setOnlineCount(data.count);
@@ -989,40 +1483,35 @@
           displayHistory(data.items);
         } else if (data.type === 'delete') {
           removeMessageFromUI(data.id);
-        } else if (data.type === 'ack') {
-          // Handle ACK from server - backward compatible with both messageId and id
-          const ackId = data.messageId || data.id;
-          console.log('[WS] ✓✓✓ ACK RECEIVED ✓✓✓');
-          console.log('[WS] ACK:', ackId);
-          console.log('[WS] ACK messageId=' + data.messageId);
-          console.log('[WS] ACK id=' + data.id);
-          console.log('[WS] ACK serverTime=' + data.serverTime);
-          console.log('[WS] ACK instanceId=' + data.instanceId);
-          
-          if (!ackId) {
-            console.error('[WS] ACK received but has no messageId or id field!');
-            return;
+        } else if (data.type === 'typing') {
+          // Update typing indicator
+          if (data.senderId !== myClientId) {
+            if (data.isTyping) {
+              typingUsers.set(data.senderId, {
+                nickname: data.nickname,
+                lastTs: data.ts || Date.now()
+              });
+            } else {
+              typingUsers.delete(data.senderId);
+            }
+            updateTypingIndicators();
           }
+        } else if (data.type === 'ack') {
+          const ackId = data.messageId || data.id;
+          console.log('[WS] ✓ ACK RECEIVED for id=' + ackId);
           
-          // Check if this is a ping ACK (self-test)
+          if (!ackId) return;
+          
           const pendingMsg = pendingMessages.get(ackId);
           if (pendingMsg && pendingMsg.testPing) {
-            console.log('[SELF-TEST] ✓ Ping ACK received - connection verified!');
-            console.log('[SELF-TEST] Server instance:', data.instanceId);
-            console.log('[SELF-TEST] Server time:', data.serverTime);
-            if (pendingMsg.timeout) {
-              clearTimeout(pendingMsg.timeout);
-            }
+            console.log('[SELF-TEST] ✓ Ping ACK received');
+            if (pendingMsg.timeout) clearTimeout(pendingMsg.timeout);
             pendingMessages.delete(ackId);
             showStatus('Connected ✓', 'success');
             return;
           }
           
-          console.log('[WS] Looking for element with data-msg-id=' + ackId);
-          
           const msgElement = document.querySelector(`[data-msg-id="${ackId}"]`);
-          console.log('[WS] Found element:', msgElement ? 'YES' : 'NO');
-          
           if (msgElement) {
             msgElement.classList.remove('message-sending');
             msgElement.classList.add('message-sent');
@@ -1031,19 +1520,10 @@
               statusSpan.textContent = 'Sent ✓';
               setTimeout(() => statusSpan.remove(), 2000);
             }
-            console.log('[WS] Message marked as SENT in UI');
-          } else {
-            console.warn('[WS] Could not find message element in DOM');
           }
-          
-          // DON'T remove from pending yet - wait for broadcast to confirm
-          // This prevents duplicate messages when broadcast arrives after ACK
-          console.log('[WS] ACK received, keeping in pendingMessages until broadcast arrives');
         } else if (data.type === 'text' || data.type === 'image' || data.type === 'audio' || data.type === 'file') {
-          // Check if this is our own message (already displayed optimistically)
           if (pendingMessages.has(data.id)) {
-            console.log('[WS] Received broadcast of our own message id=' + data.id + ', already displayed');
-            // Update the element with server data (especially URL for images)
+            console.log('[WS] Received broadcast of our own message id=' + data.id);
             const msgElement = document.querySelector(`[data-msg-id="${data.id}"]`);
             if (msgElement && data.type === 'image') {
               const img = msgElement.querySelector('.message-image');
@@ -1052,18 +1532,14 @@
                 img.onclick = () => openImagePreview(data.url);
               }
             }
-            // NOW remove from pending - this prevents duplicates
             pendingMessages.delete(data.id);
-            console.log('[WS] Removed from pending after broadcast confirmation');
           } else {
-            // Message from another client
             console.log('[WS] New message from another client');
             addMessage(data);
           }
         } else if (data.type === 'banned') {
           handleBanned(data);
         } else if (data.type === 'muted') {
-          // Backward compatibility - treat as banned
           handleBanned({
             type: 'banned',
             until: data.until || (Date.now() + data.seconds * 1000),
@@ -1074,22 +1550,13 @@
       };
 
       ws.onclose = (event) => {
-        console.log('========================================');
         console.log('[CLOSE] WebSocket connection closed');
-        console.log('[CLOSE] Code:', event.code);
-        console.log('[CLOSE] Reason:', event.reason || 'none');
-        console.log('[CLOSE] Was clean:', event.wasClean);
-        console.log('========================================');
         showStatus('Disconnected. Reconnecting...', 'error');
         reconnectTimeout = setTimeout(connect, 3000);
       };
 
       ws.onerror = (error) => {
-        console.error('========================================');
-        console.error('[ERROR] WebSocket error occurred');
-        console.error('[ERROR] URL was:', WS_URL);
-        console.error('[ERROR] Error object:', error);
-        console.error('========================================');
+        console.error('[ERROR] WebSocket error:', error);
         showStatus('Connection error', 'error');
       };
     }
@@ -1131,10 +1598,13 @@
 
     connect();
 
+    // ========================================
+    // MESSAGE DISPLAY
+    // ========================================
+    
     function displayHistory(items) {
       const messagesDiv = document.getElementById('messages');
       messagesDiv.innerHTML = '';
-      // Limit to last 100 messages for display
       const displayItems = items.slice(-100);
       displayItems.forEach(item => addMessage(item, false));
       scrollToBottom();
@@ -1151,27 +1621,24 @@
         messageDiv.classList.add('message-error');
       }
       
-      // Store message ID for ACK matching and deletion
       if (messageId || data.id) {
         messageDiv.setAttribute('data-msg-id', messageId || data.id);
       }
       
-      // Store senderId as data attribute for refreshDeleteButtons()
       if (data.senderId) {
         messageDiv.setAttribute('data-sender-id', data.senderId);
       }
 
       const timestamp = new Date(data.timestamp).toLocaleString();
-      
-      // Check if this is our own message (can delete)
       const canDelete = data.senderId && myClientId && data.senderId === myClientId;
       
-      // Log ONE TIME when rendering (as requested)
       console.log('[RENDER] msg.id', data.id, 'senderId', data.senderId, 'myClientId', myClientId, 'canDelete', canDelete);
       
       let content = '';
       if (data.type === 'text') {
-        content = `<div class="message-content">${escapeHtml(data.text)}</div>`;
+        // Prefer HTML if present, else text
+        const displayContent = data.html ? sanitizeHTML(data.html) : escapeHtml(data.text);
+        content = `<div class="message-content">${displayContent}</div>`;
       } else if (data.type === 'image') {
         const caption = data.caption ? `<div class="message-content">${escapeHtml(data.caption)}</div>` : '';
         const imgId = 'img-' + (messageId || data.id || Math.random().toString(36).substr(2, 9));
@@ -1221,7 +1688,6 @@
 
       messagesDiv.appendChild(messageDiv);
       
-      // Add click handler for images
       if (data.type === 'image') {
         const imgId = 'img-' + (messageId || data.id || Math.random().toString(36).substr(2, 9));
         const imgElement = document.getElementById(imgId);
@@ -1254,7 +1720,6 @@
       }
     }
 
-    // Refresh delete buttons after myClientId is set
     function refreshDeleteButtons() {
       if (!myClientId) return;
       
@@ -1265,19 +1730,10 @@
       
       allMessages.forEach(msgElement => {
         const msgId = msgElement.getAttribute('data-msg-id');
-        
-        // Find corresponding message data in history or pendingMessages
-        // We need to check if this message has senderId that matches myClientId
-        // The safest approach is to parse the data from the DOM or re-check history
-        
-        // For now, check if there's already a delete button
         const existingDeleteBtn = msgElement.querySelector('.deleteBtn');
-        
-        // We need the senderId - let's store it as a data attribute when rendering
         const senderId = msgElement.getAttribute('data-sender-id');
         
         if (senderId && senderId === myClientId && !existingDeleteBtn) {
-          // This is our message but button is missing - add it
           const canDelete = !msgElement.classList.contains('message-sending') && 
                            !msgElement.classList.contains('message-error');
           
@@ -1288,7 +1744,6 @@
             deleteBtn.onclick = () => deleteMessage(msgId);
             msgElement.appendChild(deleteBtn);
             refreshCount++;
-            console.log('[REFRESH] Added delete button to message:', msgId);
           }
         }
       });
@@ -1296,12 +1751,15 @@
       console.log('[REFRESH] Added delete buttons to', refreshCount, 'messages');
     }
 
+    // ========================================
+    // SEND MESSAGE (Updated for Feature 1)
+    // ========================================
+    
     async function sendMessage() {
       const nicknameInput = document.getElementById('nickname');
-      const messageInput = document.getElementById('messageInput');
-      const text = messageInput.value.trim();
+      const html = getComposerHTML();
+      const text = getComposerText().trim();
 
-      // Check if we have a photo attachment or text
       if (!text && !selectedFile) {
         return;
       }
@@ -1311,7 +1769,6 @@
         return;
       }
 
-      // Check if banned
       const banUntil = getBanState();
       if (banUntil && banUntil > Date.now()) {
         showStatus('You are temporarily blocked from sending messages', 'error');
@@ -1322,35 +1779,34 @@
       const messageId = generateUUID();
       const timestamp = Date.now();
 
-      // Disable send button during operation
       const sendBtn = document.getElementById('sendBtn');
       sendBtn.disabled = true;
 
+      // Stop typing indicator
+      sendTypingStatus(false);
+
       try {
         if (selectedFile) {
-          // Photo upload flow
+          // Photo upload flow (unchanged)
           console.log('[SEND] Uploading photo with caption:', text.substring(0, 50));
           
-          // Show optimistic message
           const optimisticData = {
             type: 'image',
             id: messageId,
             nickname,
             timestamp,
-            url: previewURL, // Show preview while uploading
+            url: previewURL,
             filename: selectedFile.name,
             caption: text || '',
             size: selectedFile.size,
-            senderId: myClientId // CRITICAL: include senderId for optimistic render
+            senderId: myClientId
           };
           
           const msgElement = addMessage(optimisticData, true, messageId, 'sending');
           pendingMessages.set(messageId, optimisticData);
           
-          // Set timeout for ACK
           const ackTimeout = setTimeout(() => {
             if (pendingMessages.has(messageId)) {
-              console.log('[SEND] ACK timeout for message:', messageId);
               const elem = document.querySelector(`[data-msg-id="${messageId}"]`);
               if (elem) {
                 elem.classList.remove('message-sending');
@@ -1364,45 +1820,32 @@
             }
           }, 5000);
           
-          // Clear input and composer immediately
-          messageInput.value = '';
+          clearComposer();
           
-          // Store the file reference before removing composer
           const fileToUpload = selectedFile;
-          
-          // Upload the file
           const formData = new FormData();
           formData.append('file', fileToUpload);
-          
-          console.log('[UPLOAD] Uploading to:', UPLOAD_URL);
-          console.log('[UPLOAD] File:', fileToUpload.name, 'Size:', fileToUpload.size);
           
           const response = await fetch(UPLOAD_URL, {
             method: 'POST',
             body: formData
           });
-
-          console.log('[UPLOAD] Response status:', response.status, response.statusText);
-          console.log('[UPLOAD] Response headers ACAO:', response.headers.get('access-control-allow-origin'));
           
           if (!response.ok) {
             clearTimeout(ackTimeout);
-            throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
+            throw new Error(`Upload failed: ${response.status}`);
           }
 
-          // Check if response is JSON
           const contentType = response.headers.get('content-type');
           if (!contentType || !contentType.includes('application/json')) {
             const text = await response.text();
             console.error('[UPLOAD] Error - expected JSON but got:', text.substring(0, 200));
-            throw new Error('Server returned non-JSON response. Upload endpoint may not be accessible.');
+            throw new Error('Server returned non-JSON response');
           }
 
           const result = await response.json();
-          console.log('[UPLOAD] Result:', result);
 
           if (result.success || result.ok) {
-            // Upload successful - send via WebSocket
             const wsMessage = {
               type: 'image',
               id: messageId,
@@ -1417,12 +1860,9 @@
             };
             
             ws.send(JSON.stringify(wsMessage));
-            console.log('[SEND] Photo message sent via WebSocket, id=' + messageId);
             
-            // Clean up the preview
             removePhotoAttachment();
             
-            // Update the optimistic message to show the real URL
             if (msgElement) {
               const img = msgElement.querySelector('.message-image');
               if (img) {
@@ -1435,14 +1875,8 @@
             throw new Error(result.error || 'Upload failed');
           }
         } else {
-          // Text-only message with local echo
-          console.log('[SEND] ========================================');
-          console.log('[SEND] Preparing to send text message');
-          console.log('[SEND] Message ID:', messageId);
-          console.log('[SEND] Nickname:', nickname);
-          console.log('[SEND] Text:', text.substring(0, 50));
-          console.log('[SEND] WebSocket state:', ws.readyState === WebSocket.OPEN ? 'OPEN' : 'NOT OPEN');
-          console.log('[SEND] ========================================');
+          // Text message with rich formatting
+          console.log('[SEND] Sending text message with formatting');
           
           const messageData = {
             type: 'text',
@@ -1450,60 +1884,38 @@
             messageId: messageId,
             nickname,
             timestamp,
+            html: html,
             text: text.substring(0, 1000),
-            senderId: myClientId // CRITICAL: include senderId for optimistic render
+            senderId: myClientId
           };
           
-          // Add to UI immediately with "sending" status
-          console.log('[SEND] Adding message to UI with "sending" status');
           addMessage(messageData, true, messageId, 'sending');
-          
-          console.log('[SEND] Adding to pending messages map');
           pendingMessages.set(messageId, messageData);
-          console.log('[SEND] Pending messages now:', Array.from(pendingMessages.keys()));
           
-          // Set timeout for ACK
-          console.log('[SEND] Setting 5-second ACK timeout');
           setTimeout(() => {
             if (pendingMessages.has(messageId)) {
-              console.error('[SEND] ❌❌❌ ACK TIMEOUT ❌❌❌');
-              console.error('[SEND] No ACK received for message:', messageId);
-              console.error('[SEND] This means either:');
-              console.error('[SEND]   1. Server did not receive the message');
-              console.error('[SEND]   2. Server did not send ACK');
-              console.error('[SEND]   3. ACK was sent but not received by client');
-              console.error('[SEND]   4. Connected to wrong server instance');
-              
+              console.error('[SEND] ACK timeout for message:', messageId);
               const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
               if (msgElement) {
                 msgElement.classList.remove('message-sending');
                 msgElement.classList.add('message-error');
                 const statusSpan = msgElement.querySelector('.message-status');
                 if (statusSpan) {
-                  statusSpan.textContent = 'Failed to send (no ACK received)';
+                  statusSpan.textContent = 'Failed to send (timeout)';
                 }
               }
               pendingMessages.delete(messageId);
-            } else {
-              console.log('[SEND] ✓ ACK was received within timeout');
             }
           }, 5000);
           
-          // Clear input immediately
-          messageInput.value = '';
-          
-          // Send via WebSocket
-          console.log('[SEND] Sending message via WebSocket...');
-          console.log('[SEND] Payload:', JSON.stringify(messageData, null, 2));
+          clearComposer();
           ws.send(JSON.stringify(messageData));
-          console.log('[SEND] ✓ Message sent via WebSocket, id=' + messageId);
-          console.log('[SEND] Waiting for ACK...');
+          console.log('[SEND] Message sent, id=' + messageId);
         }
       } catch (error) {
         console.error('[SEND] Error:', error);
         showStatus('Send failed: ' + error.message, 'error');
         
-        // Mark message as error
         const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
         if (msgElement) {
           msgElement.classList.remove('message-sending');
@@ -1522,16 +1934,18 @@
 
     function disableInputs(disabled) {
       document.getElementById('sendBtn').disabled = disabled;
-      document.getElementById('messageInput').disabled = disabled;
+      document.getElementById('composer').contentEditable = !disabled;
       document.getElementById('cameraBtn').disabled = disabled;
       document.getElementById('fileBtn').disabled = disabled;
       document.getElementById('audioBtn').disabled = disabled;
     }
 
-    // Audio recording functions
+    // ========================================
+    // AUDIO RECORDING (unchanged)
+    // ========================================
+    
     async function startAudioRecording() {
       try {
-        // Check microphone permission first
         let permissionGranted = false;
         
         if (navigator.permissions && navigator.permissions.query) {
@@ -1546,15 +1960,13 @@
             
             permissionGranted = permissionStatus.state === 'granted';
           } catch (permErr) {
-            console.log('[MIC] Permission query not supported:', permErr.message);
-            // Fall through to getUserMedia
+            console.log('[MIC] Permission query not supported');
           }
         }
         
-        // Request microphone access
         try {
           audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          console.log('[MIC] Access granted, stream obtained');
+          console.log('[MIC] Access granted');
         } catch (error) {
           console.error('[MIC] getUserMedia error:', error);
           
@@ -1572,14 +1984,13 @@
         
         audioChunks = [];
         
-        // Try webm first, fall back to other formats
         let mimeType = 'audio/webm';
         if (!MediaRecorder.isTypeSupported(mimeType)) {
           mimeType = 'audio/webm;codecs=opus';
           if (!MediaRecorder.isTypeSupported(mimeType)) {
             mimeType = 'audio/ogg;codecs=opus';
             if (!MediaRecorder.isTypeSupported(mimeType)) {
-              mimeType = ''; // Let browser choose
+              mimeType = '';
             }
           }
         }
@@ -1591,7 +2002,6 @@
         };
 
         recorder.onstop = () => {
-          // Stop all tracks
           if (audioStream) {
             audioStream.getTracks().forEach(t => t.stop());
             audioStream = null;
@@ -1604,20 +2014,15 @@
             return;
           }
 
-          console.log('[AUDIO] Recorded blob size:', blob.size, 'type:', blob.type);
-
-          // Create draft instead of auto-sending
           createAudioDraft(blob);
         };
 
         recorder.start();
         recordingStartTime = Date.now();
 
-        // Show recording indicator
         const indicator = document.getElementById('recordingIndicator');
         indicator.classList.add('active');
 
-        // Update timer
         const timerInterval = setInterval(() => {
           if (!recorder || recorder.state === 'inactive') {
             clearInterval(timerInterval);
@@ -1627,7 +2032,6 @@
           document.getElementById('recordingTimer').textContent = elapsed + 's / 30s';
         }, 100);
 
-        // Hard stop at 30s
         recordTimer = setTimeout(() => {
           stopAudioRecording();
           clearInterval(timerInterval);
@@ -1637,7 +2041,6 @@
         showStatus('Microphone access error: ' + error.message, 'error');
         console.error('[AUDIO] Error:', error);
         
-        // Clean up any tracks
         if (audioStream) {
           audioStream.getTracks().forEach(t => t.stop());
           audioStream = null;
@@ -1653,11 +2056,8 @@
         recorder.stop();
       }
 
-      // Hide indicator
       const indicator = document.getElementById('recordingIndicator');
       indicator.classList.remove('active');
-
-      // Reset button is handled by createAudioDraft or error paths
     }
 
     function resetAudioButton() {
@@ -1666,18 +2066,14 @@
     }
 
     function createAudioDraft(blob) {
-      // Store the blob
       audioDraftBlob = blob;
       
-      // Revoke previous URL if exists
       if (audioDraftURL) {
         URL.revokeObjectURL(audioDraftURL);
       }
       
-      // Create URL for playback
       audioDraftURL = URL.createObjectURL(blob);
       
-      // Update draft UI
       const draftDiv = document.getElementById('audioDraft');
       const player = document.getElementById('audioDraftPlayer');
       const captionInput = document.getElementById('audioCaptionInput');
@@ -1686,15 +2082,12 @@
       captionInput.value = '';
       
       draftDiv.classList.add('active');
-      
-      // Reset audio button
       resetAudioButton();
       
       console.log('[AUDIO] Draft created, size:', blob.size);
     }
 
     function discardAudioDraft() {
-      // Clean up
       if (audioDraftURL) {
         URL.revokeObjectURL(audioDraftURL);
         audioDraftURL = null;
@@ -1702,14 +2095,10 @@
       
       audioDraftBlob = null;
       
-      // Hide draft UI
       const draftDiv = document.getElementById('audioDraft');
       draftDiv.classList.remove('active');
       
-      // Clear caption
       document.getElementById('audioCaptionInput').value = '';
-      
-      console.log('[AUDIO] Draft discarded');
     }
 
     async function sendAudioDraft() {
@@ -1718,7 +2107,6 @@
         return;
       }
 
-      // Check if banned
       const banUntil = getBanState();
       if (banUntil && banUntil > Date.now()) {
         showStatus('You are temporarily blocked from sending messages', 'error');
@@ -1734,12 +2122,10 @@
       const nickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
       const messageId = generateUUID();
 
-      // Disable send button
       const sendBtn = document.getElementById('sendBtn');
       sendBtn.disabled = true;
 
       try {
-        // Create optimistic message
         const optimisticData = {
           type: 'audio',
           id: messageId,
@@ -1747,18 +2133,16 @@
           timestamp: Date.now(),
           url: audioDraftURL,
           caption: caption || '',
-          senderId: myClientId // CRITICAL: include senderId for optimistic render
+          senderId: myClientId
         };
         
         addMessage(optimisticData, true, messageId, 'sending');
         pendingMessages.set(messageId, optimisticData);
 
-        // Upload audio
         const fd = new FormData();
         const ext = audioDraftBlob.type.includes('ogg') ? 'ogg' : 'webm';
         fd.append('file', audioDraftBlob, `audio-${Date.now()}.${ext}`);
 
-        console.log('[AUDIO] Uploading to:', UPLOAD_URL);
         const res = await fetch(UPLOAD_URL, { method: 'POST', body: fd });
         const json = await res.json();
 
@@ -1768,7 +2152,6 @@
 
         const audioUrl = json.url;
 
-        // Send audio message over WS
         const messageData = {
           type: 'audio',
           id: messageId,
@@ -1780,9 +2163,7 @@
         };
 
         ws.send(JSON.stringify(messageData));
-        console.log('[AUDIO] Sent audio message, id=' + messageId);
 
-        // Update the optimistic message with the real URL
         const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
         if (msgElement) {
           const audio = msgElement.querySelector('audio');
@@ -1791,14 +2172,12 @@
           }
         }
 
-        // Clean up draft
         discardAudioDraft();
 
       } catch (error) {
         console.error('[AUDIO] Upload error:', error);
         showStatus('Audio upload failed: ' + error.message, 'error');
         
-        // Mark message as error
         const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
         if (msgElement) {
           msgElement.classList.remove('message-sending');
@@ -1810,8 +2189,6 @@
         }
         
         pendingMessages.delete(messageId);
-        
-        // Keep draft so user can retry
       } finally {
         sendBtn.disabled = false;
       }
@@ -1825,6 +2202,10 @@
       }
     }
 
+    // ========================================
+    // FILE/PHOTO HANDLING (unchanged)
+    // ========================================
+    
     function handleFileSelect() {
       const fileInput = document.getElementById('fileInput');
       const file = fileInput.files[0];
@@ -1837,18 +2218,14 @@
         return;
       }
 
-      // Store the file and show preview
       selectedFile = file;
       
-      // Revoke previous preview URL if exists
       if (previewURL) {
         URL.revokeObjectURL(previewURL);
       }
       
-      // Create preview URL
       previewURL = URL.createObjectURL(file);
       
-      // Update composer UI
       const composer = document.getElementById('photoComposer');
       const previewImg = document.getElementById('previewImage');
       const previewFilename = document.getElementById('previewFilename');
@@ -1859,30 +2236,20 @@
       previewSize.textContent = formatFileSize(file.size);
       
       composer.classList.add('active');
-      
-      // Focus on message input for caption
-      document.getElementById('messageInput').focus();
-      
-      console.log('Photo selected:', file.name, formatFileSize(file.size));
+      document.getElementById('composer').focus();
     }
 
     function removePhotoAttachment() {
-      // Clean up
       if (previewURL) {
         URL.revokeObjectURL(previewURL);
         previewURL = null;
       }
       
       selectedFile = null;
-      
-      // Clear file input
       document.getElementById('fileInput').value = '';
       
-      // Hide composer
       const composer = document.getElementById('photoComposer');
       composer.classList.remove('active');
-      
-      console.log('Photo attachment removed');
     }
 
     async function openCamera() {
@@ -1925,21 +2292,16 @@
       context.drawImage(video, 0, 0);
 
       canvas.toBlob((blob) => {
-        // Create a File object from the blob
         const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
         
-        // Store the file and show preview (same as file selection)
         selectedFile = file;
         
-        // Revoke previous preview URL if exists
         if (previewURL) {
           URL.revokeObjectURL(previewURL);
         }
         
-        // Create preview URL
         previewURL = URL.createObjectURL(file);
         
-        // Update composer UI
         const composer = document.getElementById('photoComposer');
         const previewImg = document.getElementById('previewImage');
         const previewFilename = document.getElementById('previewFilename');
@@ -1950,14 +2312,8 @@
         previewSize.textContent = formatFileSize(file.size);
         
         composer.classList.add('active');
-        
-        // Close camera modal
         closeCamera();
-        
-        // Focus on message input for caption
-        document.getElementById('messageInput').focus();
-        
-        console.log('Photo captured:', file.name, formatFileSize(file.size));
+        document.getElementById('composer').focus();
       }, 'image/jpeg', 0.8);
     }
 
@@ -2005,8 +2361,8 @@
       return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
     }
 
-    // Send message on Enter key
-    document.getElementById('messageInput').addEventListener('keydown', (e) => {
+    // Send message on Enter key (Shift+Enter for new line in contenteditable)
+    document.getElementById('composer').addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
