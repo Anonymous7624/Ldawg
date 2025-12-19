@@ -978,7 +978,10 @@
         
         if (data.type === 'welcome') {
           myClientId = data.clientId;
-          console.log('[WS] Received welcome, myClientId:', myClientId);
+          console.log('[WELCOME] myClientId=', myClientId);
+          
+          // CRITICAL: Refresh delete buttons for history messages that arrived before welcome
+          refreshDeleteButtons();
         } else if (data.type === 'online') {
           setOnlineCount(data.count);
         } else if (data.type === 'history') {
@@ -1152,11 +1155,19 @@
       if (messageId || data.id) {
         messageDiv.setAttribute('data-msg-id', messageId || data.id);
       }
+      
+      // Store senderId as data attribute for refreshDeleteButtons()
+      if (data.senderId) {
+        messageDiv.setAttribute('data-sender-id', data.senderId);
+      }
 
       const timestamp = new Date(data.timestamp).toLocaleString();
       
       // Check if this is our own message (can delete)
       const canDelete = data.senderId && myClientId && data.senderId === myClientId;
+      
+      // Log ONE TIME when rendering (as requested)
+      console.log('[RENDER] msg.id', data.id, 'senderId', data.senderId, 'myClientId', myClientId, 'canDelete', canDelete);
       
       let content = '';
       if (data.type === 'text') {
@@ -1243,6 +1254,48 @@
       }
     }
 
+    // Refresh delete buttons after myClientId is set
+    function refreshDeleteButtons() {
+      if (!myClientId) return;
+      
+      console.log('[REFRESH] Refreshing delete buttons with myClientId:', myClientId);
+      
+      const allMessages = document.querySelectorAll('[data-msg-id]');
+      let refreshCount = 0;
+      
+      allMessages.forEach(msgElement => {
+        const msgId = msgElement.getAttribute('data-msg-id');
+        
+        // Find corresponding message data in history or pendingMessages
+        // We need to check if this message has senderId that matches myClientId
+        // The safest approach is to parse the data from the DOM or re-check history
+        
+        // For now, check if there's already a delete button
+        const existingDeleteBtn = msgElement.querySelector('.deleteBtn');
+        
+        // We need the senderId - let's store it as a data attribute when rendering
+        const senderId = msgElement.getAttribute('data-sender-id');
+        
+        if (senderId && senderId === myClientId && !existingDeleteBtn) {
+          // This is our message but button is missing - add it
+          const canDelete = !msgElement.classList.contains('message-sending') && 
+                           !msgElement.classList.contains('message-error');
+          
+          if (canDelete) {
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'deleteBtn';
+            deleteBtn.textContent = 'Delete';
+            deleteBtn.onclick = () => deleteMessage(msgId);
+            msgElement.appendChild(deleteBtn);
+            refreshCount++;
+            console.log('[REFRESH] Added delete button to message:', msgId);
+          }
+        }
+      });
+      
+      console.log('[REFRESH] Added delete buttons to', refreshCount, 'messages');
+    }
+
     async function sendMessage() {
       const nicknameInput = document.getElementById('nickname');
       const messageInput = document.getElementById('messageInput');
@@ -1287,7 +1340,8 @@
             url: previewURL, // Show preview while uploading
             filename: selectedFile.name,
             caption: text || '',
-            size: selectedFile.size
+            size: selectedFile.size,
+            senderId: myClientId // CRITICAL: include senderId for optimistic render
           };
           
           const msgElement = addMessage(optimisticData, true, messageId, 'sending');
@@ -1396,7 +1450,8 @@
             messageId: messageId,
             nickname,
             timestamp,
-            text: text.substring(0, 1000)
+            text: text.substring(0, 1000),
+            senderId: myClientId // CRITICAL: include senderId for optimistic render
           };
           
           // Add to UI immediately with "sending" status
@@ -1691,7 +1746,8 @@
           nickname,
           timestamp: Date.now(),
           url: audioDraftURL,
-          caption: caption || ''
+          caption: caption || '',
+          senderId: myClientId // CRITICAL: include senderId for optimistic render
         };
         
         addMessage(optimisticData, true, messageId, 'sending');
