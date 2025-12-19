@@ -19,6 +19,12 @@ const MUTE_DURATION_FIRST = 15000; // 15 seconds
 const MUTE_DURATION_STRIKES = 120000; // 120 seconds
 const UPLOAD_CLEANUP_AGE = 60 * 60 * 1000; // 1 hour
 
+// Log all HTTP requests
+app.use((req, res, next) => {
+  console.log(`[HTTP] ${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'} - User-Agent: ${req.headers['user-agent']?.substring(0, 50) || 'none'}`);
+  next();
+});
+
 // CORS middleware - allows GitHub Pages to access this API
 app.use((req, res, next) => {
   const allowedOrigins = [
@@ -102,7 +108,9 @@ app.get('/healthz', (req, res) => {
 // Upload endpoint with comprehensive error handling
 app.post('/upload', (req, res) => {
   const origin = req.headers.origin || 'direct';
+  console.log(`[UPLOAD] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
   console.log(`[UPLOAD] ${req.method} ${req.path} - Origin: ${origin} - Status: starting`);
+  console.log(`[UPLOAD] Headers:`, JSON.stringify(req.headers, null, 2));
   
   // Use multer as middleware but handle its errors
   upload.single('file')(req, res, (err) => {
@@ -302,11 +310,15 @@ function checkRateLimit(clientId) {
   return { allowed: true };
 }
 
+// Generate unique server instance ID
+const SERVER_INSTANCE_ID = crypto.randomBytes(6).toString('hex');
+
 // WebSocket connection handler
 wss.on('connection', (ws, req) => {
   const clientId = req.socket.remoteAddress + ':' + req.socket.remotePort;
   const connectionId = crypto.randomBytes(4).toString('hex');
   
+  console.log(`[CONNECT] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
   console.log(`[CONNECT] Client connected: ${clientId} (id: ${connectionId})`);
   console.log(`[CONNECT] Total clients: ${wss.clients.size}`);
 
@@ -322,6 +334,7 @@ wss.on('connection', (ws, req) => {
     try {
       const message = JSON.parse(data);
       const msgId = message.id || crypto.randomBytes(8).toString('hex');
+      console.log(`[MESSAGE] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
       console.log(`[MESSAGE] Received from ${connectionId}: type=${message.type}, id=${msgId}, size=${data.length} bytes`);
 
       // Rate limit check
@@ -355,12 +368,13 @@ wss.on('connection', (ws, req) => {
         };
 
         // Send ACK to sender immediately
-        ws.send(JSON.stringify({
+        const ackPayload = {
           type: 'ack',
           id: msgId,
           timestamp: chatMessage.timestamp
-        }));
-        console.log(`[ACK] Sent ack for message id=${msgId}`);
+        };
+        ws.send(JSON.stringify(ackPayload));
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for message id=${msgId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -381,12 +395,13 @@ wss.on('connection', (ws, req) => {
         };
 
         // Send ACK to sender immediately
-        ws.send(JSON.stringify({
+        const ackPayload = {
           type: 'ack',
           id: msgId,
           timestamp: chatMessage.timestamp
-        }));
-        console.log(`[ACK] Sent ack for image id=${msgId}`);
+        };
+        ws.send(JSON.stringify(ackPayload));
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for image id=${msgId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -406,12 +421,13 @@ wss.on('connection', (ws, req) => {
         };
 
         // Send ACK to sender immediately
-        ws.send(JSON.stringify({
+        const ackPayload = {
           type: 'ack',
           id: msgId,
           timestamp: chatMessage.timestamp
-        }));
-        console.log(`[ACK] Sent ack for file id=${msgId}`);
+        };
+        ws.send(JSON.stringify(ackPayload));
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for file id=${msgId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -448,10 +464,13 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 // Start server
+const SERVER_START_TIME = new Date().toISOString();
 server.listen(PORT, () => {
   console.log(`========================================`);
   console.log(`Kennedy Chat Server`);
   console.log(`========================================`);
+  console.log(`Server Instance ID: ${SERVER_INSTANCE_ID}`);
+  console.log(`Started: ${SERVER_START_TIME}`);
   console.log(`Port: ${PORT}`);
   console.log(`WebSocket: ws://localhost:${PORT}`);
   console.log(`HTTP API: http://localhost:${PORT}`);
