@@ -181,9 +181,11 @@
 
     .message-image {
       margin-top: 10px;
-      max-width: 300px;
+      max-width: 240px;
+      max-height: 320px;
       cursor: pointer;
       border-radius: 8px;
+      object-fit: cover;
       transition: transform 0.2s ease;
     }
 
@@ -669,39 +671,45 @@
 
       ws.onmessage = (event) => {
         const data = JSON.parse(event.data);
+        console.log('[WS] Received message:', data.type, data.id ? `id=${data.id}` : '');
         
         if (data.type === 'history') {
           displayHistory(data.items);
-        } else if (data.type === 'text' || data.type === 'image' || data.type === 'file') {
-          // Check if this is a confirmation of a pending message
-          const myNickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
-          let isPending = false;
-          
-          // Try to match with pending messages by nickname, type, and content
-          for (const [clientId, pendingMsg] of pendingMessages.entries()) {
-            if (pendingMsg.nickname === data.nickname && 
-                pendingMsg.type === data.type &&
-                Math.abs(pendingMsg.timestamp - data.timestamp) < 2000) { // Within 2 seconds
-              
-              // Update the pending message element to confirmed
-              const msgElement = document.querySelector(`[data-client-id="${clientId}"]`);
-              if (msgElement) {
-                msgElement.removeAttribute('data-client-id');
-                msgElement.classList.remove('message-sending');
-                const statusSpan = msgElement.querySelector('.message-status');
-                if (statusSpan) {
-                  statusSpan.remove();
-                }
-              }
-              
-              pendingMessages.delete(clientId);
-              isPending = true;
-              break;
+        } else if (data.type === 'ack') {
+          // Handle ACK from server - mark message as sent
+          console.log('[WS] ACK received for message id=' + data.id);
+          const msgElement = document.querySelector(`[data-msg-id="${data.id}"]`);
+          if (msgElement) {
+            msgElement.classList.remove('message-sending');
+            msgElement.classList.add('message-sent');
+            const statusSpan = msgElement.querySelector('.message-status');
+            if (statusSpan) {
+              statusSpan.textContent = 'Sent';
+              setTimeout(() => statusSpan.remove(), 1000);
             }
           }
           
-          // If not a pending message echo, add it as new
-          if (!isPending) {
+          // Remove from pending
+          if (pendingMessages.has(data.id)) {
+            pendingMessages.delete(data.id);
+            console.log('[WS] Removed from pending:', data.id);
+          }
+        } else if (data.type === 'text' || data.type === 'image' || data.type === 'file') {
+          // Check if this is our own message (already displayed optimistically)
+          if (pendingMessages.has(data.id)) {
+            console.log('[WS] Received broadcast of our own message id=' + data.id + ', already displayed');
+            // Update the element with server data (especially URL for images)
+            const msgElement = document.querySelector(`[data-msg-id="${data.id}"]`);
+            if (msgElement && data.type === 'image') {
+              const img = msgElement.querySelector('.message-image');
+              if (img && data.url) {
+                img.src = data.url;
+                img.onclick = () => openImagePreview(data.url);
+              }
+            }
+          } else {
+            // Message from another client
+            console.log('[WS] New message from another client');
             addMessage(data);
           }
         } else if (data.type === 'muted') {
@@ -743,7 +751,7 @@
       scrollToBottom();
     }
 
-    function addMessage(data, scroll = true, clientId = null, status = 'sent') {
+    function addMessage(data, scroll = true, messageId = null, status = 'sent') {
       const messagesDiv = document.getElementById('messages');
       const messageDiv = document.createElement('div');
       messageDiv.className = 'message';
@@ -754,8 +762,9 @@
         messageDiv.classList.add('message-error');
       }
       
-      if (clientId) {
-        messageDiv.setAttribute('data-client-id', clientId);
+      // Store message ID for ACK matching
+      if (messageId || data.id) {
+        messageDiv.setAttribute('data-msg-id', messageId || data.id);
       }
 
       const timestamp = new Date(data.timestamp).toLocaleString();
@@ -765,9 +774,11 @@
         content = `<div class="message-content">${escapeHtml(data.text)}</div>`;
       } else if (data.type === 'image') {
         const caption = data.caption ? `<div class="message-content">${escapeHtml(data.caption)}</div>` : '';
+        // Use data-url attribute to store the actual URL, handle click in JS to avoid blob URL issues
+        const imgId = 'img-' + (messageId || data.id || Math.random().toString(36).substr(2, 9));
         content = `
           ${caption}
-          <img src="${data.url}" class="message-image" onclick="openImagePreview('${data.url}')" alt="${escapeHtml(data.filename || 'Image')}">
+          <img id="${imgId}" src="${data.url}" class="message-image" data-url="${data.url}" alt="${escapeHtml(data.filename || 'Image')}">
         `;
       } else if (data.type === 'file') {
         const sizeStr = formatFileSize(data.size);
@@ -797,6 +808,19 @@
       `;
 
       messagesDiv.appendChild(messageDiv);
+      
+      // Add click handler for images using the current src (not the original data.url)
+      if (data.type === 'image') {
+        const imgId = 'img-' + (messageId || data.id || Math.random().toString(36).substr(2, 9));
+        const imgElement = document.getElementById(imgId);
+        if (imgElement) {
+          imgElement.addEventListener('click', function() {
+            // Use the current src, which will be updated to server URL after upload
+            openImagePreview(this.src);
+          });
+        }
+      }
+      
       if (scroll) {
         scrollToBottom();
       }
@@ -820,7 +844,7 @@
       }
 
       const nickname = (nicknameInput.value.trim() || 'Anonymous').substring(0, 100);
-      const clientId = generateUUID();
+      const messageId = generateUUID();
       const timestamp = Date.now();
 
       // Disable send button during operation
@@ -830,11 +854,12 @@
       try {
         if (selectedFile) {
           // Photo upload flow
-          console.log('Uploading photo with caption:', text.substring(0, 50));
+          console.log('[SEND] Uploading photo with caption:', text.substring(0, 50));
           
           // Show optimistic message
           const optimisticData = {
             type: 'image',
+            id: messageId,
             nickname,
             timestamp,
             url: previewURL, // Show preview while uploading
@@ -843,50 +868,74 @@
             size: selectedFile.size
           };
           
-          const msgElement = addMessage(optimisticData, true, clientId, 'sending');
-          pendingMessages.set(clientId, { ...optimisticData, type: 'image' });
+          const msgElement = addMessage(optimisticData, true, messageId, 'sending');
+          pendingMessages.set(messageId, optimisticData);
+          
+          // Set timeout for ACK
+          const ackTimeout = setTimeout(() => {
+            if (pendingMessages.has(messageId)) {
+              console.log('[SEND] ACK timeout for message:', messageId);
+              const elem = document.querySelector(`[data-msg-id="${messageId}"]`);
+              if (elem) {
+                elem.classList.remove('message-sending');
+                elem.classList.add('message-error');
+                const statusSpan = elem.querySelector('.message-status');
+                if (statusSpan) {
+                  statusSpan.textContent = 'Failed to send (timeout)';
+                }
+              }
+              pendingMessages.delete(messageId);
+            }
+          }, 5000);
           
           // Clear input and composer immediately
           messageInput.value = '';
           
+          // Store the file reference before removing composer
+          const fileToUpload = selectedFile;
+          
           // Upload the file
           const formData = new FormData();
-          formData.append('file', selectedFile);
+          formData.append('file', fileToUpload);
           
           const response = await fetch(API_BASE + '/upload', {
             method: 'POST',
             body: formData
           });
 
-          console.log('Upload response status:', response.status);
-          console.log('Upload response content-type:', response.headers.get('content-type'));
+          console.log('[UPLOAD] Response status:', response.status);
+          console.log('[UPLOAD] Response headers ACAO:', response.headers.get('access-control-allow-origin'));
+          console.log('[UPLOAD] Response content-type:', response.headers.get('content-type'));
 
           // Check if response is JSON
           const contentType = response.headers.get('content-type');
           if (!contentType || !contentType.includes('application/json')) {
             const text = await response.text();
-            console.error('Upload error - expected JSON but got:', text.substring(0, 200));
+            console.error('[UPLOAD] Error - expected JSON but got:', text.substring(0, 200));
             throw new Error('Server returned non-JSON response. Upload endpoint may not be accessible.');
           }
 
           const result = await response.json();
-          console.log('Upload result:', result);
+          console.log('[UPLOAD] Result:', result);
 
           if (result.success || result.ok) {
             // Upload successful - send via WebSocket
             const absoluteUrl = result.url.startsWith('http') ? result.url : API_BASE + result.url;
             
-            ws.send(JSON.stringify({
+            const wsMessage = {
               type: 'image',
+              id: messageId,
               nickname,
+              timestamp,
               url: absoluteUrl,
               filename: result.filename || result.name,
               mime: result.mime,
               size: result.size,
               caption: text || ''
-            }));
+            };
             
-            console.log('Photo message sent via WebSocket');
+            ws.send(JSON.stringify(wsMessage));
+            console.log('[SEND] Photo message sent via WebSocket, id=' + messageId);
             
             // Clean up the preview
             removePhotoAttachment();
@@ -896,40 +945,59 @@
               const img = msgElement.querySelector('.message-image');
               if (img) {
                 img.src = absoluteUrl;
+                img.setAttribute('data-url', absoluteUrl);
               }
             }
           } else {
+            clearTimeout(ackTimeout);
             throw new Error(result.error || 'Upload failed');
           }
         } else {
           // Text-only message with local echo
-          console.log('Sending text message:', text.substring(0, 50));
+          console.log('[SEND] Sending text message:', text.substring(0, 50));
           
           const messageData = {
             type: 'text',
+            id: messageId,
             nickname,
             timestamp,
             text: text.substring(0, 1000)
           };
           
           // Add to UI immediately with "sending" status
-          addMessage(messageData, true, clientId, 'sending');
-          pendingMessages.set(clientId, messageData);
+          addMessage(messageData, true, messageId, 'sending');
+          pendingMessages.set(messageId, messageData);
+          
+          // Set timeout for ACK
+          setTimeout(() => {
+            if (pendingMessages.has(messageId)) {
+              console.log('[SEND] ACK timeout for message:', messageId);
+              const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
+              if (msgElement) {
+                msgElement.classList.remove('message-sending');
+                msgElement.classList.add('message-error');
+                const statusSpan = msgElement.querySelector('.message-status');
+                if (statusSpan) {
+                  statusSpan.textContent = 'Failed to send (timeout)';
+                }
+              }
+              pendingMessages.delete(messageId);
+            }
+          }, 5000);
           
           // Clear input immediately
           messageInput.value = '';
           
           // Send via WebSocket
           ws.send(JSON.stringify(messageData));
-          
-          console.log('Text message sent via WebSocket');
+          console.log('[SEND] Text message sent via WebSocket, id=' + messageId);
         }
       } catch (error) {
-        console.error('Send error:', error);
+        console.error('[SEND] Error:', error);
         showStatus('Send failed: ' + error.message, 'error');
         
         // Mark message as error
-        const msgElement = document.querySelector(`[data-client-id="${clientId}"]`);
+        const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
         if (msgElement) {
           msgElement.classList.remove('message-sending');
           msgElement.classList.add('message-error');
@@ -939,7 +1007,7 @@
           }
         }
         
-        pendingMessages.delete(clientId);
+        pendingMessages.delete(messageId);
       } finally {
         sendBtn.disabled = false;
       }

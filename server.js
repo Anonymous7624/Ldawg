@@ -99,54 +99,89 @@ app.get('/healthz', (req, res) => {
   res.json({ ok: true });
 });
 
-// Upload endpoint
-app.post('/upload', upload.single('file'), (req, res) => {
-  try {
-    const origin = req.headers.origin || 'direct';
-    console.log(`[UPLOAD] Received upload request from origin: ${origin}`);
+// Upload endpoint with comprehensive error handling
+app.post('/upload', (req, res) => {
+  const origin = req.headers.origin || 'direct';
+  console.log(`[UPLOAD] ${req.method} ${req.path} - Origin: ${origin} - Status: starting`);
+  
+  // Use multer as middleware but handle its errors
+  upload.single('file')(req, res, (err) => {
+    // Ensure CORS headers are set even on error
+    const allowedOrigins = [
+      'https://ldawg7624.com',
+      'https://www.ldawg7624.com',
+      'http://localhost:8080',
+      'http://127.0.0.1:8080'
+    ];
     
-    if (!req.file) {
-      console.log('[UPLOAD] Error: No file in request');
-      res.setHeader('Content-Type', 'application/json');
-      return res.status(400).json({ success: false, error: 'No file uploaded' });
+    if (origin && allowedOrigins.includes(origin)) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type');
     }
-
-    const ext = path.extname(req.file.originalname).toLowerCase();
-    const mime = req.file.mimetype.toLowerCase();
-    const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
-    const isImage = imageExts.includes(ext) && mime.startsWith('image/');
-
-    const uploadId = path.basename(req.file.filename, path.extname(req.file.filename));
-    const uploadUrl = `/uploads/${req.file.filename}`;
-
-    // Store upload metadata
-    uploadFiles.set(uploadId, {
-      filename: req.file.filename,
-      timestamp: Date.now(),
-      path: req.file.path
-    });
-
-    console.log(`[UPLOAD] Success: ${req.file.originalname} (${req.file.size} bytes, ${mime})`);
-    console.log(`[UPLOAD] Returning URL: ${uploadUrl}`);
-
-    // Explicitly set JSON content type
+    
     res.setHeader('Content-Type', 'application/json');
-    res.status(200).json({
-      success: true,
-      ok: true, // Add ok field for compatibility
-      url: uploadUrl,
-      name: req.file.originalname,
-      filename: req.file.originalname,
-      mime: req.file.mimetype,
-      size: req.file.size,
-      isImage
-    });
-  } catch (error) {
-    console.error('[UPLOAD] Error:', error.message);
-    console.error('[UPLOAD] Stack:', error.stack);
-    res.setHeader('Content-Type', 'application/json');
-    res.status(500).json({ success: false, ok: false, error: error.message });
-  }
+    
+    if (err) {
+      console.error('[UPLOAD] Multer error:', err.message);
+      console.log(`[UPLOAD] ${req.method} ${req.path} - Status: 400 (error)`);
+      return res.status(400).json({ 
+        success: false, 
+        ok: false, 
+        error: err.message || 'Upload failed' 
+      });
+    }
+    
+    try {
+      if (!req.file) {
+        console.log('[UPLOAD] Error: No file in request');
+        console.log(`[UPLOAD] ${req.method} ${req.path} - Status: 400 (no file)`);
+        return res.status(400).json({ 
+          success: false, 
+          ok: false, 
+          error: 'No file uploaded' 
+        });
+      }
+
+      const ext = path.extname(req.file.originalname).toLowerCase();
+      const mime = req.file.mimetype.toLowerCase();
+      const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+      const isImage = imageExts.includes(ext) && mime.startsWith('image/');
+
+      const uploadId = path.basename(req.file.filename, path.extname(req.file.filename));
+      const uploadUrl = `/uploads/${req.file.filename}`;
+
+      // Store upload metadata
+      uploadFiles.set(uploadId, {
+        filename: req.file.filename,
+        timestamp: Date.now(),
+        path: req.file.path
+      });
+
+      console.log(`[UPLOAD] Success: ${req.file.originalname} (${req.file.size} bytes, ${mime})`);
+      console.log(`[UPLOAD] ${req.method} ${req.path} - Status: 200 (success)`);
+
+      res.status(200).json({
+        success: true,
+        ok: true,
+        url: uploadUrl,
+        name: req.file.originalname,
+        filename: req.file.originalname,
+        mime: req.file.mimetype,
+        size: req.file.size,
+        isImage
+      });
+    } catch (error) {
+      console.error('[UPLOAD] Handler error:', error.message);
+      console.error('[UPLOAD] Stack:', error.stack);
+      console.log(`[UPLOAD] ${req.method} ${req.path} - Status: 500 (exception)`);
+      res.status(500).json({ 
+        success: false, 
+        ok: false, 
+        error: error.message 
+      });
+    }
+  });
 });
 
 // Serve uploads with security headers
@@ -286,7 +321,8 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data);
-      console.log(`[MESSAGE] Received from ${connectionId}: type=${message.type}, length=${data.length} bytes`);
+      const msgId = message.id || crypto.randomBytes(8).toString('hex');
+      console.log(`[MESSAGE] Received from ${connectionId}: type=${message.type}, id=${msgId}, size=${data.length} bytes`);
 
       // Rate limit check
       const rateLimitResult = checkRateLimit(clientId);
@@ -312,11 +348,19 @@ wss.on('connection', (ws, req) => {
 
         const chatMessage = {
           type: 'text',
-          id: crypto.randomBytes(8).toString('hex'),
+          id: msgId, // Use client-provided ID or generated one
           nickname,
-          timestamp: Date.now(),
+          timestamp: message.timestamp || Date.now(),
           text
         };
+
+        // Send ACK to sender immediately
+        ws.send(JSON.stringify({
+          type: 'ack',
+          id: msgId,
+          timestamp: chatMessage.timestamp
+        }));
+        console.log(`[ACK] Sent ack for message id=${msgId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -326,14 +370,23 @@ wss.on('connection', (ws, req) => {
 
         const chatMessage = {
           type: 'image',
-          id: crypto.randomBytes(8).toString('hex'),
+          id: msgId,
           nickname,
-          timestamp: Date.now(),
+          timestamp: message.timestamp || Date.now(),
           url: message.url,
           filename: message.filename,
           mime: message.mime,
-          size: message.size
+          size: message.size,
+          caption: message.caption || ''
         };
+
+        // Send ACK to sender immediately
+        ws.send(JSON.stringify({
+          type: 'ack',
+          id: msgId,
+          timestamp: chatMessage.timestamp
+        }));
+        console.log(`[ACK] Sent ack for image id=${msgId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -343,14 +396,22 @@ wss.on('connection', (ws, req) => {
 
         const chatMessage = {
           type: 'file',
-          id: crypto.randomBytes(8).toString('hex'),
+          id: msgId,
           nickname,
-          timestamp: Date.now(),
+          timestamp: message.timestamp || Date.now(),
           url: message.url,
           filename: message.filename,
           mime: message.mime,
           size: message.size
         };
+
+        // Send ACK to sender immediately
+        ws.send(JSON.stringify({
+          type: 'ack',
+          id: msgId,
+          timestamp: chatMessage.timestamp
+        }));
+        console.log(`[ACK] Sent ack for file id=${msgId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
