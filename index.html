@@ -774,15 +774,9 @@
             console.warn('[WS] Could not find message element in DOM');
           }
           
-          // Remove from pending
-          console.log('[WS] Pending messages before removal:', Array.from(pendingMessages.keys()));
-          if (pendingMessages.has(ackId)) {
-            pendingMessages.delete(ackId);
-            console.log('[WS] ✓ Removed from pending:', ackId);
-          } else {
-            console.warn('[WS] Message not in pending map:', ackId);
-          }
-          console.log('[WS] Pending messages after removal:', Array.from(pendingMessages.keys()));
+          // DON'T remove from pending yet - wait for broadcast to confirm
+          // This prevents duplicate messages when broadcast arrives after ACK
+          console.log('[WS] ACK received, keeping in pendingMessages until broadcast arrives');
         } else if (data.type === 'text' || data.type === 'image' || data.type === 'file') {
           // Check if this is our own message (already displayed optimistically)
           if (pendingMessages.has(data.id)) {
@@ -796,6 +790,9 @@
                 img.onclick = () => openImagePreview(data.url);
               }
             }
+            // NOW remove from pending - this prevents duplicates
+            pendingMessages.delete(data.id);
+            console.log('[WS] Removed from pending after broadcast confirmation');
           } else {
             // Message from another client
             console.log('[WS] New message from another client');
