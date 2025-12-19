@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Global Chat Room</title>
+  <title>Kennedy Chat</title>
   <style>
     * {
       margin: 0;
@@ -294,11 +294,12 @@
 
     .btn-icon {
       background: rgba(0, 0, 0, 0.1);
-      padding: 12px;
-      width: 48px;
+      padding: 12px 16px;
       display: flex;
       align-items: center;
       justify-content: center;
+      font-size: 12px;
+      font-weight: 600;
     }
 
     body.dark-mode .btn-icon {
@@ -457,8 +458,8 @@
   <div class="container">
     <div class="main-content">
       <div class="header">
-        <h1>🌍 Global Chat Room</h1>
-        <button class="dark-mode-toggle" onclick="toggleDarkMode()">🌙 Dark Mode</button>
+        <h1>Kennedy Chat</h1>
+        <button class="dark-mode-toggle" onclick="toggleDarkMode()">Dark Mode</button>
       </div>
 
       <div class="chat-container">
@@ -483,12 +484,12 @@
           </div>
           <div class="message-controls">
             <button class="btn-icon" onclick="openCamera()" title="Take Photo" id="cameraBtn">
-              📷
+              Camera
             </button>
             <button class="btn-icon" onclick="document.getElementById('fileInput').click()" title="Upload File" id="fileBtn">
-              📎
+              File
             </button>
-            <button class="btn-primary" onclick="sendMessage()" id="sendBtn">Send Message</button>
+            <button class="btn-primary" onclick="sendMessage()" id="sendBtn">Send</button>
           </div>
           <input type="file" id="fileInput" onchange="handleFileUpload()" accept="*/*">
         </div>
@@ -496,9 +497,9 @@
     </div>
 
     <div class="sidebar">
-      <h2>Why This Chat Stands Out</h2>
+      <h2>About</h2>
       <div class="sidebar-content">
-        <p>Real-time global communication with no barriers.</p>
+        <p>Real-time communication with no barriers.</p>
       </div>
     </div>
   </div>
@@ -511,7 +512,7 @@
       <video id="cameraPreview" class="camera-preview" autoplay playsinline></video>
       <canvas id="cameraCanvas" style="display: none;"></canvas>
       <div class="camera-controls">
-        <button class="btn-primary" onclick="capturePhoto()">📸 Capture</button>
+        <button class="btn-primary" onclick="capturePhoto()">Capture</button>
         <button onclick="closeCamera()" style="background: #6c757d; color: white;">Cancel</button>
       </div>
     </div>
@@ -535,17 +536,22 @@
     // Apply saved theme
     if (isDarkMode) {
       document.body.className = 'dark-mode';
-      document.querySelector('.dark-mode-toggle').textContent = '☀️ Light Mode';
+      document.querySelector('.dark-mode-toggle').textContent = 'Light Mode';
     }
+
+    // WebSocket configuration
+    const WS_URL = 'wss://ws.ldawg7624.com';
+    const API_BASE = 'https://ws.ldawg7624.com';
 
     // Connect to WebSocket
     function connect() {
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(`${protocol}//${window.location.host}`);
+      console.log('Connecting to WebSocket:', WS_URL);
+      ws = new WebSocket(WS_URL);
 
       ws.onopen = () => {
-        console.log('Connected to chat server');
+        console.log('Connected to Kennedy Chat server');
         clearTimeout(reconnectTimeout);
+        showStatus('Connected', 'success');
       };
 
       ws.onmessage = (event) => {
@@ -562,12 +568,27 @@
 
       ws.onclose = () => {
         console.log('Disconnected from chat server');
+        showStatus('Disconnected. Reconnecting...', 'error');
         reconnectTimeout = setTimeout(connect, 3000);
       };
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
+        showStatus('Connection error', 'error');
       };
+    }
+
+    function showStatus(message, type) {
+      const statusDiv = document.getElementById('statusMessage');
+      statusDiv.className = `status-message ${type === 'error' ? 'status-error' : 'status-muted'}`;
+      statusDiv.textContent = message;
+      statusDiv.classList.remove('hidden');
+      
+      if (type === 'success') {
+        setTimeout(() => {
+          statusDiv.classList.add('hidden');
+        }, 2000);
+      }
     }
 
     connect();
@@ -599,7 +620,7 @@
         content = `
           <div class="message-content">Shared a file</div>
           <div class="message-file">
-            <a href="${data.url}" download="${escapeHtml(data.filename)}">📄 ${escapeHtml(data.filename)}</a>
+            <a href="${data.url}" download="${escapeHtml(data.filename)}">${escapeHtml(data.filename)}</a>
             <div class="file-info">${sizeStr} · ${data.mime}</div>
           </div>
         `;
@@ -624,11 +645,18 @@
       const messageInput = document.getElementById('messageInput');
       const text = messageInput.value.trim();
 
-      if (!text || ws.readyState !== WebSocket.OPEN) {
+      if (!text) {
+        return;
+      }
+
+      if (ws.readyState !== WebSocket.OPEN) {
+        showStatus('Not connected. Please wait...', 'error');
         return;
       }
 
       const nickname = nicknameInput.value.trim() || 'Anonymous';
+
+      console.log('Sending message:', { type: 'text', nickname, text: text.substring(0, 50) + '...' });
 
       ws.send(JSON.stringify({
         type: 'text',
@@ -642,7 +670,7 @@
     function handleMuted(data) {
       const statusDiv = document.getElementById('statusMessage');
       statusDiv.className = 'status-message status-muted';
-      statusDiv.textContent = `⏸️ Rate limit exceeded! Muted for ${data.seconds} seconds. Strikes: ${data.strikes}`;
+      statusDiv.textContent = `Rate limit exceeded! Muted for ${data.seconds} seconds. Strikes: ${data.strikes}`;
       statusDiv.classList.remove('hidden');
 
       // Disable inputs
@@ -656,7 +684,7 @@
       const countdownInterval = setInterval(() => {
         remaining--;
         if (remaining > 0) {
-          statusDiv.textContent = `⏸️ Rate limit exceeded! Muted for ${remaining} seconds. Strikes: ${data.strikes}`;
+          statusDiv.textContent = `Rate limit exceeded! Muted for ${remaining} seconds. Strikes: ${data.strikes}`;
         } else {
           clearInterval(countdownInterval);
         }
@@ -683,7 +711,7 @@
       if (!file) return;
 
       if (file.size > 10 * 1024 * 1024) {
-        alert('File size must be less than 10MB');
+        showStatus('File size must be less than 10MB', 'error');
         fileInput.value = '';
         return;
       }
@@ -692,31 +720,52 @@
       formData.append('file', file);
 
       try {
-        const response = await fetch('/upload', {
+        console.log('Uploading file to:', API_BASE + '/upload');
+        showStatus('Uploading...', 'muted');
+        
+        const response = await fetch(API_BASE + '/upload', {
           method: 'POST',
           body: formData
         });
 
+        console.log('Upload response status:', response.status);
+        console.log('Upload response content-type:', response.headers.get('content-type'));
+
+        // Check if response is JSON before parsing
+        const contentType = response.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+          const text = await response.text();
+          console.error('Upload error - expected JSON but got:', text.substring(0, 200));
+          throw new Error('Server returned non-JSON response. Check that the upload endpoint is accessible.');
+        }
+
         const result = await response.json();
+        console.log('Upload result:', result);
 
         if (result.success) {
           const nickname = document.getElementById('nickname').value.trim() || 'Anonymous';
           
           const messageType = result.isImage ? 'image' : 'file';
           
+          // Ensure URL is absolute for cross-origin display
+          const absoluteUrl = result.url.startsWith('http') ? result.url : API_BASE + result.url;
+          
           ws.send(JSON.stringify({
             type: messageType,
             nickname: nickname.substring(0, 100),
-            url: result.url,
+            url: absoluteUrl,
             filename: result.filename,
             mime: result.mime,
             size: result.size
           }));
+          
+          showStatus('Upload successful', 'success');
         } else {
-          alert('Upload failed: ' + result.error);
+          showStatus('Upload failed: ' + result.error, 'error');
         }
       } catch (error) {
-        alert('Upload error: ' + error.message);
+        console.error('Upload error:', error);
+        showStatus('Upload error: ' + error.message, 'error');
       }
 
       fileInput.value = '';
@@ -766,31 +815,50 @@
         formData.append('file', blob, `camera-${Date.now()}.jpg`);
 
         try {
-          const response = await fetch('/upload', {
+          console.log('Uploading photo to:', API_BASE + '/upload');
+          showStatus('Uploading photo...', 'muted');
+          
+          const response = await fetch(API_BASE + '/upload', {
             method: 'POST',
             body: formData
           });
 
+          console.log('Photo upload response status:', response.status);
+
+          // Check if response is JSON before parsing
+          const contentType = response.headers.get('content-type');
+          if (!contentType || !contentType.includes('application/json')) {
+            const text = await response.text();
+            console.error('Photo upload error - expected JSON but got:', text.substring(0, 200));
+            throw new Error('Server returned non-JSON response. Check that the upload endpoint is accessible.');
+          }
+
           const result = await response.json();
+          console.log('Photo upload result:', result);
 
           if (result.success) {
             const nickname = document.getElementById('nickname').value.trim() || 'Anonymous';
             
+            // Ensure URL is absolute for cross-origin display
+            const absoluteUrl = result.url.startsWith('http') ? result.url : API_BASE + result.url;
+            
             ws.send(JSON.stringify({
               type: 'image',
               nickname: nickname.substring(0, 100),
-              url: result.url,
+              url: absoluteUrl,
               filename: result.filename,
               mime: result.mime,
               size: result.size
             }));
 
             closeCamera();
+            showStatus('Photo uploaded', 'success');
           } else {
-            alert('Upload failed: ' + result.error);
+            showStatus('Photo upload failed: ' + result.error, 'error');
           }
         } catch (error) {
-          alert('Upload error: ' + error.message);
+          console.error('Photo upload error:', error);
+          showStatus('Photo upload error: ' + error.message, 'error');
         }
       }, 'image/jpeg', 0.8);
     }
@@ -813,11 +881,11 @@
       
       if (body.classList.contains('light-mode')) {
         body.className = 'dark-mode';
-        button.textContent = '☀️ Light Mode';
+        button.textContent = 'Light Mode';
         localStorage.setItem('darkMode', 'true');
       } else {
         body.className = 'light-mode';
-        button.textContent = '🌙 Dark Mode';
+        button.textContent = 'Dark Mode';
         localStorage.setItem('darkMode', 'false');
       }
     }
