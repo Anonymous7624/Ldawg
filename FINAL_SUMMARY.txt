@@ -1,0 +1,114 @@
+===============================================================================
+CRITICAL FIX COMPLETE - Kennedy Chat Upload & ACK
+===============================================================================
+
+WHAT CHANGED (10 bullets)
+--------------------------
+1. Created upload-server.js - Separate HTTP server on port 8082
+2. Removed multi-endpoint fallback - Single upload.ldawg7624.com endpoint
+3. Fixed CORS - Proper preflight and Access-Control-Allow-Origin headers
+4. Images 20% smaller - 192px max-width (was 240px)
+5. UI updated - Rules/Benefits headings bigger (22px), cleaner text
+6. No em dashes - Simple punctuation throughout
+7. Simplified upload - Removed 426 error handling, direct to upload subdomain
+8. ACK already working - Server sends ACK, frontend handles (no changes needed)
+9. Optimistic UI - Messages show immediately, update on ACK receipt
+10. Startup script - START_SERVICES.sh to launch upload server
+
+HOW TO RUN (3 commands on Pi)
+------------------------------
+1. Update cloudflared config (~/.cloudflared/config.yml):
+
+   ingress:
+     - hostname: ws.ldawg7624.com
+       service: http://localhost:8080
+     - hostname: upload.ldawg7624.com
+       service: http://localhost:8082
+     - service: http_status:404
+
+2. Restart cloudflared:
+   sudo systemctl restart cloudflared
+
+3. Start upload server:
+   node /home/ldawg7624/tank-server/upload-server.js > upload.log 2>&1 &
+
+PROOF (Local tests passed)
+---------------------------
+1. OPTIONS preflight:
+   curl -i -X OPTIONS http://localhost:8082/upload \
+     -H "Origin: https://ldawg7624.com" \
+     -H "Access-Control-Request-Method: POST"
+   
+   Result: HTTP/1.1 204 No Content
+           Access-Control-Allow-Origin: https://ldawg7624.com
+           Access-Control-Allow-Methods: GET, POST, OPTIONS
+   ✓ CORS headers present
+   ✓ Not 426 error
+
+2. File upload:
+   curl -i -X POST http://localhost:8082/upload \
+     -F "file=@test.png" \
+     -H "Origin: https://ldawg7624.com"
+   
+   Result: HTTP/1.1 200 OK
+           Access-Control-Allow-Origin: https://ldawg7624.com
+           {"success":true,"ok":true,"url":"https://upload.ldawg7624.com/uploads/..."}
+   ✓ Returns 200 JSON
+   ✓ URL points to upload subdomain
+   ✓ File saved and served
+
+3. Health check:
+   curl http://localhost:8082/
+   
+   Result: {"service":"Kennedy Chat Upload Service","status":"ok","port":8082}
+   ✓ Service running
+
+AFTER CLOUDFLARE CONFIG (verify on Pi)
+---------------------------------------
+curl -i -X OPTIONS https://upload.ldawg7624.com/upload \
+  -H "Origin: https://ldawg7624.com" \
+  -H "Access-Control-Request-Method: POST"
+
+Expected: HTTP 204 with Access-Control-Allow-Origin header (not 426)
+
+BROWSER TESTS (after deployment)
+---------------------------------
+1. No CORS errors - Check console, should be clean
+2. Photo upload works - Select photo, type caption, send
+3. Text messages not stuck - "Sent ✓" appears within 1 second
+4. Multi-tab works - Open 2 tabs, message appears in both
+5. ACK timeouts gone - No "Failed to send (timeout)" errors
+
+FILES CHANGED
+-------------
+- upload-server.js (NEW) - Dedicated upload HTTP service
+- index.html - Updated upload endpoint, smaller images, UI text
+- START_SERVICES.sh (NEW) - Launch script
+- CLOUDFLARE_TUNNEL_CONFIG.txt (NEW) - Tunnel setup instructions
+
+TEXT MESSAGE ACK
+----------------
+Already implemented in server.js:
+- Line 370-377: Send ACK for text messages
+- Line 398-404: Send ACK for image messages
+- Line 423-430: Send ACK for file messages
+
+Frontend handles ACK at line 699-729, removes "sending" status.
+No changes needed - ACK system fully functional.
+
+UI UPDATES CONFIRMED
+--------------------
+Sidebar Rules/Benefits:
+✓ Rules heading 22px bold
+✓ "No spamming. Violators will be muted for 60 seconds."
+✓ Benefits heading 22px bold
+✓ "No moderators" (was "No moderators or censorship")
+✓ "No login needed" (was "No login or registration needed")
+✓ "Photo and GIF uploads" (was "Photo and GIF uploads supported")
+✓ "Cleaner UI and Dark Mode" (was "Clean UI with Dark Mode")
+✓ No em dashes anywhere
+
+Images in chat:
+✓ 192px max-width (20% smaller than 240px)
+
+===============================================================================
