@@ -13,11 +13,14 @@ const wss = new WebSocket.Server({ server });
 const PORT = 8080;
 const MAX_MESSAGES = 50;
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
-const RATE_LIMIT_MESSAGES = 7;
+const RATE_LIMIT_MESSAGES = 3; // 3 messages per window
 const RATE_LIMIT_WINDOW = 10000; // 10 seconds
-const MUTE_DURATION_FIRST = 15000; // 15 seconds
-const MUTE_DURATION_STRIKES = 120000; // 120 seconds
 const UPLOAD_CLEANUP_AGE = 60 * 60 * 1000; // 1 hour
+
+// Helper to generate client IDs
+function makeId() { 
+  return crypto.randomBytes(4).toString('hex'); 
+}
 
 // Log all HTTP requests
 app.use((req, res, next) => {
@@ -62,7 +65,7 @@ app.use((req, res, next) => {
 // In-memory state
 const chatHistory = [];
 const uploadFiles = new Map(); // Map of upload ID to {filename, timestamp, path}
-const clientRateLimits = new Map(); // Map of client IP to rate limit state
+const clients = new Map(); // ws -> { clientId, presenceOnline, strikes, stage, bannedUntil, msgTimes }
 
 // Ensure uploads directory exists
 const UPLOADS_DIR = path.join(__dirname, 'uploads');
@@ -255,58 +258,91 @@ function broadcast(message) {
   return recipientCount;
 }
 
-// Rate limiting
-function checkRateLimit(clientId) {
-  const now = Date.now();
-  
-  if (!clientRateLimits.has(clientId)) {
-    clientRateLimits.set(clientId, {
-      messages: [],
-      strikes: 0,
-      mutedUntil: 0
-    });
+// Broadcast online count
+function broadcastOnlineCount() {
+  let count = 0;
+  for (const [, info] of clients) {
+    if (info.presenceOnline) count++;
+  }
+  const payload = JSON.stringify({ type: 'online', count });
+  for (const [ws] of clients) {
+    if (ws.readyState === ws.OPEN) ws.send(payload);
+  }
+  console.log(`[ONLINE] Broadcasting count: ${count}`);
+}
+
+// Rate limiting with escalating bans
+function now() { return Date.now(); }
+
+function isBanned(info) {
+  return now() < info.bannedUntil;
+}
+
+function banFor(info, ms) {
+  info.bannedUntil = now() + ms;
+}
+
+function violationBanMs(info) {
+  // stage meanings:
+  // stage 0: pre-escalation (15s bans, strikes accumulate)
+  // stage 1: did the 1-minute ban already
+  // stage >=2: 5m, 10m, 15m, ... (increasing by 5m each violation)
+  if (info.stage >= 2) {
+    const minutes = 5 * (info.stage - 1); // stage2=5m, stage3=10m...
+    return minutes * 60 * 1000;
+  }
+  if (info.stage === 1) return 5 * 60 * 1000; // next after 1-min is 5m
+  return 15 * 1000;
+}
+
+function registerViolation(info) {
+  // if we already hit stage>=1, escalate stage each violation
+  if (info.stage >= 1) {
+    info.stage += 1; // stage1->2 gives 5m, then grows
+    banFor(info, violationBanMs(info));
+    return;
   }
 
-  const limitState = clientRateLimits.get(clientId);
+  // stage 0: strikes
+  info.strikes += 1;
+  if (info.strikes >= 3) {
+    info.stage = 1;           // mark that we hit the 1-min level
+    info.strikes = 0;         // reset strikes after escalation
+    banFor(info, 60 * 1000);  // 1 minute
+  } else {
+    banFor(info, 15 * 1000);
+  }
+}
 
-  // Check if currently muted
-  if (limitState.mutedUntil > now) {
+function checkRateLimit(info) {
+  if (!info) return { allowed: false };
+
+  if (isBanned(info)) {
     return {
       allowed: false,
       muted: true,
-      seconds: Math.ceil((limitState.mutedUntil - now) / 1000),
-      strikes: limitState.strikes
+      seconds: Math.ceil((info.bannedUntil - now()) / 1000),
+      strikes: info.strikes
     };
   }
 
-  // Clean old messages outside the window
-  limitState.messages = limitState.messages.filter(t => now - t < RATE_LIMIT_WINDOW);
+  const windowMs = RATE_LIMIT_WINDOW;
+  const limit = RATE_LIMIT_MESSAGES;
 
-  // Check if over limit
-  if (limitState.messages.length >= RATE_LIMIT_MESSAGES) {
-    limitState.strikes++;
-    
-    if (limitState.strikes >= 3) {
-      limitState.mutedUntil = now + MUTE_DURATION_STRIKES;
-      return {
-        allowed: false,
-        muted: true,
-        seconds: Math.ceil(MUTE_DURATION_STRIKES / 1000),
-        strikes: limitState.strikes
-      };
-    } else {
-      limitState.mutedUntil = now + MUTE_DURATION_FIRST;
-      return {
-        allowed: false,
-        muted: true,
-        seconds: Math.ceil(MUTE_DURATION_FIRST / 1000),
-        strikes: limitState.strikes
-      };
-    }
+  // Keep timestamps inside last window
+  info.msgTimes = info.msgTimes.filter(ts => now() - ts < windowMs);
+  info.msgTimes.push(now());
+
+  if (info.msgTimes.length > limit) {
+    registerViolation(info);
+    return {
+      allowed: false,
+      muted: true,
+      seconds: Math.ceil((info.bannedUntil - now()) / 1000),
+      strikes: info.strikes
+    };
   }
 
-  // Add current message timestamp
-  limitState.messages.push(now);
   return { allowed: true };
 }
 
@@ -315,12 +351,25 @@ const SERVER_INSTANCE_ID = crypto.randomBytes(6).toString('hex');
 
 // WebSocket connection handler
 wss.on('connection', (ws, req) => {
-  const clientId = req.socket.remoteAddress + ':' + req.socket.remotePort;
-  const connectionId = crypto.randomBytes(4).toString('hex');
+  const clientId = makeId();
+  const connectionId = clientId;
   
   console.log(`[CONNECT] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
-  console.log(`[CONNECT] Client connected: ${clientId} (id: ${connectionId})`);
+  console.log(`[CONNECT] Client connected: ${clientId}`);
   console.log(`[CONNECT] Total clients: ${wss.clients.size}`);
+
+  // Initialize client info
+  clients.set(ws, {
+    clientId,
+    presenceOnline: true,   // default true until told otherwise
+    strikes: 0,
+    stage: 0,
+    bannedUntil: 0,
+    msgTimes: [],
+  });
+
+  // Send welcome with clientId
+  ws.send(JSON.stringify({ type: 'welcome', clientId }));
 
   // Send chat history
   ws.send(JSON.stringify({
@@ -330,14 +379,20 @@ wss.on('connection', (ws, req) => {
   
   console.log(`[HISTORY] Sent ${chatHistory.length} messages to ${connectionId}`);
 
+  // Broadcast updated online count
+  broadcastOnlineCount();
+
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data);
+      const info = clients.get(ws);
+      if (!info) return;
+
       // Backward compatible: accept both messageId and id
       const msgId = message.messageId || message.id || crypto.randomBytes(8).toString('hex');
       console.log(`[MESSAGE] ========================================`);
       console.log(`[MESSAGE] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
-      console.log(`[MESSAGE] Received from ${connectionId} (${clientId})`);
+      console.log(`[MESSAGE] Received from ${connectionId}`);
       console.log(`[MESSAGE] Type: ${message.type}`);
       console.log(`[MESSAGE] ID: ${msgId}`);
       console.log(`[MESSAGE] message.messageId: ${message.messageId}`);
@@ -346,21 +401,15 @@ wss.on('connection', (ws, req) => {
       console.log(`[MESSAGE] Timestamp: ${new Date().toISOString()}`);
       console.log(`[MESSAGE] ========================================`);
 
-      // Rate limit check
-      const rateLimitResult = checkRateLimit(clientId);
-      if (!rateLimitResult.allowed) {
-        console.log(`[RATE-LIMIT] Client ${connectionId} muted for ${rateLimitResult.seconds}s (strikes: ${rateLimitResult.strikes})`);
-        ws.send(JSON.stringify({
-          type: 'muted',
-          seconds: rateLimitResult.seconds,
-          strikes: rateLimitResult.strikes
-        }));
+      // Handle presence messages (don't rate limit these)
+      if (message.type === "presence") {
+        info.presenceOnline = !!message.online;
+        broadcastOnlineCount();
         return;
       }
 
-      // Ping -> ACK (so browser self-test passes)
+      // Ping -> ACK (so browser self-test passes, don't rate limit)
       if (message.type === "ping") {
-        const msgId = message.messageId || message.id || crypto.randomBytes(8).toString("hex");
         ws.send(JSON.stringify({
           type: "ack",
           id: msgId,
@@ -369,6 +418,55 @@ wss.on('connection', (ws, req) => {
           instanceId: SERVER_INSTANCE_ID
         }));
         return;
+      }
+
+      // Handle delete messages (don't rate limit)
+      if (message.type === "delete") {
+        const deleteId = typeof message.id === "string" ? message.id : null;
+        if (!deleteId) return;
+
+        // Find message in history
+        const idx = chatHistory.findIndex(m => m.id === deleteId);
+        if (idx === -1) return;
+
+        // Only allow if sender matches
+        if (chatHistory[idx].senderId !== info.clientId) {
+          console.log(`[DELETE] Denied: ${info.clientId} tried to delete message from ${chatHistory[idx].senderId}`);
+          return;
+        }
+
+        // Remove from history
+        chatHistory.splice(idx, 1);
+
+        // Tell everyone to remove it
+        broadcast({ type: "delete", id: deleteId });
+        console.log(`[DELETE] Message ${deleteId} deleted by ${info.clientId}`);
+        return;
+      }
+
+      // Rate limit check for user messages (text, image, audio)
+      const sendTypes = new Set(["text", "image", "audio", "file"]);
+      if (sendTypes.has(message.type)) {
+        if (isBanned(info)) {
+          ws.send(JSON.stringify({ 
+            type: 'banned', 
+            until: info.bannedUntil,
+            seconds: Math.ceil((info.bannedUntil - now()) / 1000)
+          }));
+          return;
+        }
+
+        const rateLimitResult = checkRateLimit(info);
+        if (!rateLimitResult.allowed) {
+          console.log(`[RATE-LIMIT] Client ${connectionId} banned for ${rateLimitResult.seconds}s (strikes: ${rateLimitResult.strikes})`);
+          ws.send(JSON.stringify({
+            type: 'banned',
+            until: info.bannedUntil,
+            seconds: rateLimitResult.seconds,
+            strikes: rateLimitResult.strikes
+          }));
+          return;
+        }
       }
       
       if (message.type === 'text') {
@@ -383,7 +481,8 @@ wss.on('connection', (ws, req) => {
 
         const chatMessage = {
           type: 'text',
-          id: msgId, // Use client-provided ID or generated one
+          id: msgId,
+          senderId: info.clientId,
           nickname,
           timestamp: message.timestamp || Date.now(),
           text
@@ -398,7 +497,7 @@ wss.on('connection', (ws, req) => {
           instanceId: SERVER_INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for id=${msgId} messageId=${msgId} to ${clientId}`);
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for id=${msgId} messageId=${msgId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -409,6 +508,7 @@ wss.on('connection', (ws, req) => {
         const chatMessage = {
           type: 'image',
           id: msgId,
+          senderId: info.clientId,
           nickname,
           timestamp: message.timestamp || Date.now(),
           url: message.url,
@@ -427,17 +527,44 @@ wss.on('connection', (ws, req) => {
           instanceId: SERVER_INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for image id=${msgId} messageId=${msgId} to ${clientId}`);
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for image id=${msgId} messageId=${msgId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
         console.log(`[MESSAGE] Image from ${nickname}: ${message.filename} (${message.size} bytes)`);
+      } else if (message.type === 'audio') {
+        const nickname = (message.nickname || 'Anonymous').substring(0, 100);
+
+        const chatMessage = {
+          type: 'audio',
+          id: msgId,
+          senderId: info.clientId,
+          nickname,
+          timestamp: message.timestamp || Date.now(),
+          url: message.url
+        };
+
+        // Send ACK to sender immediately
+        const ackPayload = {
+          type: 'ack',
+          id: msgId,
+          messageId: msgId,
+          serverTime: new Date().toISOString(),
+          instanceId: SERVER_INSTANCE_ID
+        };
+        ws.send(JSON.stringify(ackPayload));
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for audio id=${msgId} messageId=${msgId}`);
+
+        addToHistory(chatMessage);
+        broadcast(chatMessage);
+        console.log(`[MESSAGE] Audio from ${nickname}: ${message.url}`);
       } else if (message.type === 'file') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
 
         const chatMessage = {
           type: 'file',
           id: msgId,
+          senderId: info.clientId,
           nickname,
           timestamp: message.timestamp || Date.now(),
           url: message.url,
@@ -455,7 +582,7 @@ wss.on('connection', (ws, req) => {
           instanceId: SERVER_INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for file id=${msgId} messageId=${msgId} to ${clientId}`);
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for file id=${msgId} messageId=${msgId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -469,6 +596,8 @@ wss.on('connection', (ws, req) => {
   ws.on('close', (code, reason) => {
     console.log(`[DISCONNECT] Client ${connectionId} disconnected: code=${code}, reason=${reason || 'none'}`);
     console.log(`[DISCONNECT] Remaining clients: ${wss.clients.size}`);
+    clients.delete(ws);
+    broadcastOnlineCount();
   });
   
   ws.on('error', (error) => {

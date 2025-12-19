@@ -153,6 +153,17 @@
       }
     }
 
+    @keyframes slideOut {
+      from {
+        opacity: 1;
+        transform: translateX(0);
+      }
+      to {
+        opacity: 0;
+        transform: translateX(-20px);
+      }
+    }
+
     .message-header {
       display: flex;
       justify-content: space-between;
@@ -308,6 +319,56 @@
       opacity: 0.6;
       margin-top: 5px;
       font-style: italic;
+    }
+
+    .deleteBtn {
+      font-size: 11px;
+      padding: 4px 8px;
+      background: rgba(220, 53, 69, 0.2);
+      color: #dc3545;
+      border: 1px solid #dc3545;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-top: 8px;
+      display: inline-block;
+    }
+
+    body.dark-mode .deleteBtn {
+      background: rgba(220, 53, 69, 0.3);
+      color: #ff6b6b;
+      border-color: #ff6b6b;
+    }
+
+    .deleteBtn:hover {
+      background: #dc3545;
+      color: white;
+    }
+
+    body.dark-mode .deleteBtn:hover {
+      background: #ff6b6b;
+      color: white;
+    }
+
+    .recording-indicator {
+      background: rgba(220, 53, 69, 0.2);
+      color: #dc3545;
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 500;
+      display: none;
+    }
+
+    .recording-indicator.active {
+      display: block;
+      animation: pulse 1s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
     }
 
     .input-row {
@@ -543,7 +604,13 @@
   <div class="container">
     <div class="main-content">
       <div class="header">
-        <h1>Kennedy Chat</h1>
+        <div style="display: flex; align-items: center; gap: 15px;">
+          <h1>Kennedy Chat</h1>
+          <div id="onlineBadge" style="display:flex;align-items:center;gap:8px;">
+            <span id="onlineDot" style="width:10px;height:10px;border-radius:50%;background:#22c55e;display:inline-block;"></span>
+            <span id="onlineCount">Online: 0</span>
+          </div>
+        </div>
         <button class="dark-mode-toggle" onclick="toggleDarkMode()">Dark Mode</button>
       </div>
 
@@ -551,6 +618,10 @@
         <div class="messages" id="messages"></div>
 
         <div id="statusMessage" class="hidden"></div>
+        
+        <div id="recordingIndicator" class="recording-indicator">
+          🎤 Recording... <span id="recordingTimer">0s</span>
+        </div>
 
         <div class="input-section">
           <input 
@@ -590,6 +661,9 @@
             <button class="btn-icon" onclick="document.getElementById('fileInput').click()" title="Upload File" id="fileBtn">
               File
             </button>
+            <button class="btn-icon" onclick="toggleAudioRecording()" title="Record Audio" id="audioBtn">
+              🎤
+            </button>
             <button class="btn-primary" onclick="sendMessage()" id="sendBtn">Send</button>
           </div>
           <input type="file" id="fileInput" onchange="handleFileSelect()" accept="image/*">
@@ -600,16 +674,18 @@
     <div class="sidebar">
       <h2 style="font-size: 22px; font-weight: 700;">Rules</h2>
       <div class="sidebar-content" style="margin-bottom: 25px;">
-        <p>No spamming. Violators will be muted for 60 seconds.</p>
+        <p>No spamming (max 3 messages per 10s). Violators face escalating bans: 15s → 1m → 5m → +5m each time.</p>
       </div>
       
-      <h2 style="font-size: 22px; font-weight: 700;">Benefits</h2>
+      <h2 style="font-size: 22px; font-weight: 700;">Features</h2>
       <div class="sidebar-content">
         <ul style="list-style: disc; padding-left: 20px; line-height: 2;">
-          <li>No moderators</li>
-          <li>No login needed</li>
+          <li>No moderators or login needed</li>
           <li>Photo and GIF uploads</li>
-          <li>Cleaner UI and Dark Mode</li>
+          <li>Voice messages (up to 30s)</li>
+          <li>Delete your own messages</li>
+          <li>Online users count</li>
+          <li>Dark Mode</li>
         </ul>
       </div>
     </div>
@@ -644,10 +720,20 @@
     let cameraStream;
     const isDarkMode = localStorage.getItem('darkMode') === 'true';
 
+    // Client state
+    let myClientId = null;
+    let isVisible = !document.hidden;
+
     // Photo composer state
     let selectedFile = null;
     let previewURL = null;
     let pendingMessages = new Map(); // Map of client message ID to message data
+
+    // Audio recording state
+    let recorder = null;
+    let audioChunks = [];
+    let recordTimer = null;
+    let recordingStartTime = 0;
 
     // Apply saved theme
     if (isDarkMode) {
@@ -670,6 +756,27 @@
       });
     }
 
+    // Presence tracking
+    function sendPresence(online) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "presence", online: !!online, ts: Date.now() }));
+      }
+    }
+
+    // Set up visibility tracking
+    document.addEventListener("visibilitychange", () => {
+      isVisible = !document.hidden;
+      sendPresence(isVisible);
+    });
+
+    window.addEventListener("focus", () => sendPresence(true));
+    window.addEventListener("blur", () => sendPresence(false));
+
+    // Online count display
+    function setOnlineCount(n) {
+      document.getElementById("onlineCount").textContent = `Online: ${n}`;
+    }
+
     // Connect to WebSocket
     function connect() {
       console.log('========================================');
@@ -686,6 +793,9 @@
         console.log('[CONNECT] Running connection self-test...');
         console.log('========================================');
         clearTimeout(reconnectTimeout);
+        
+        // Send initial presence
+        sendPresence(isVisible);
         
         // Send a ping to verify ACK path works
         const pingId = generateUUID();
@@ -724,9 +834,16 @@
         console.log('[WS] Full payload:', JSON.stringify(data, null, 2));
         console.log('[WS] ========================================');
         
-        if (data.type === 'history') {
+        if (data.type === 'welcome') {
+          myClientId = data.clientId;
+          console.log('[WS] Received welcome, myClientId:', myClientId);
+        } else if (data.type === 'online') {
+          setOnlineCount(data.count);
+        } else if (data.type === 'history') {
           console.log('[WS] History received with', data.items.length, 'items');
           displayHistory(data.items);
+        } else if (data.type === 'delete') {
+          removeMessageFromUI(data.id);
         } else if (data.type === 'ack') {
           // Handle ACK from server - backward compatible with both messageId and id
           const ackId = data.messageId || data.id;
@@ -777,7 +894,7 @@
           // DON'T remove from pending yet - wait for broadcast to confirm
           // This prevents duplicate messages when broadcast arrives after ACK
           console.log('[WS] ACK received, keeping in pendingMessages until broadcast arrives');
-        } else if (data.type === 'text' || data.type === 'image' || data.type === 'file') {
+        } else if (data.type === 'text' || data.type === 'image' || data.type === 'audio' || data.type === 'file') {
           // Check if this is our own message (already displayed optimistically)
           if (pendingMessages.has(data.id)) {
             console.log('[WS] Received broadcast of our own message id=' + data.id + ', already displayed');
@@ -798,7 +915,7 @@
             console.log('[WS] New message from another client');
             addMessage(data);
           }
-        } else if (data.type === 'muted') {
+        } else if (data.type === 'muted' || data.type === 'banned') {
           handleMuted(data);
         }
       };
@@ -857,23 +974,30 @@
         messageDiv.classList.add('message-error');
       }
       
-      // Store message ID for ACK matching
+      // Store message ID for ACK matching and deletion
       if (messageId || data.id) {
         messageDiv.setAttribute('data-msg-id', messageId || data.id);
       }
 
       const timestamp = new Date(data.timestamp).toLocaleString();
       
+      // Check if this is our own message (can delete)
+      const canDelete = data.senderId && myClientId && data.senderId === myClientId;
+      
       let content = '';
       if (data.type === 'text') {
         content = `<div class="message-content">${escapeHtml(data.text)}</div>`;
       } else if (data.type === 'image') {
         const caption = data.caption ? `<div class="message-content">${escapeHtml(data.caption)}</div>` : '';
-        // Use data-url attribute to store the actual URL, handle click in JS to avoid blob URL issues
         const imgId = 'img-' + (messageId || data.id || Math.random().toString(36).substr(2, 9));
         content = `
           ${caption}
           <img id="${imgId}" src="${data.url}" class="message-image" data-url="${data.url}" alt="${escapeHtml(data.filename || 'Image')}">
+        `;
+      } else if (data.type === 'audio') {
+        content = `
+          <div class="message-content">🎤 Voice message</div>
+          <audio controls src="${data.url}" style="max-width: 100%; margin-top: 8px;"></audio>
         `;
       } else if (data.type === 'file') {
         const sizeStr = formatFileSize(data.size);
@@ -893,6 +1017,11 @@
         statusHTML = '<div class="message-status">Failed to send</div>';
       }
 
+      let deleteButtonHTML = '';
+      if (canDelete && status === 'sent') {
+        deleteButtonHTML = `<button class="deleteBtn" onclick="deleteMessage('${data.id}')">Delete</button>`;
+      }
+
       messageDiv.innerHTML = `
         <div class="message-header">
           <span class="nickname">${escapeHtml(data.nickname)}</span>
@@ -900,17 +1029,17 @@
         </div>
         ${content}
         ${statusHTML}
+        ${deleteButtonHTML}
       `;
 
       messagesDiv.appendChild(messageDiv);
       
-      // Add click handler for images using the current src (not the original data.url)
+      // Add click handler for images
       if (data.type === 'image') {
         const imgId = 'img-' + (messageId || data.id || Math.random().toString(36).substr(2, 9));
         const imgElement = document.getElementById(imgId);
         if (imgElement) {
           imgElement.addEventListener('click', function() {
-            // Use the current src, which will be updated to server URL after upload
             openImagePreview(this.src);
           });
         }
@@ -921,6 +1050,21 @@
       }
       
       return messageDiv;
+    }
+
+    function deleteMessage(msgId) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: "delete", id: msgId }));
+      console.log('[DELETE] Requested deletion of message:', msgId);
+    }
+
+    function removeMessageFromUI(msgId) {
+      const msgElement = document.querySelector(`[data-msg-id="${msgId}"]`);
+      if (msgElement) {
+        msgElement.style.animation = 'slideOut 0.3s ease';
+        setTimeout(() => msgElement.remove(), 300);
+        console.log('[DELETE] Removed message from UI:', msgId);
+      }
     }
 
     async function sendMessage() {
@@ -1173,6 +1317,141 @@
       document.getElementById('messageInput').disabled = disabled;
       document.getElementById('cameraBtn').disabled = disabled;
       document.getElementById('fileBtn').disabled = disabled;
+      document.getElementById('audioBtn').disabled = disabled;
+    }
+
+    // Audio recording functions
+    async function startAudioRecording() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioChunks = [];
+        
+        // Try webm first, fall back to other formats
+        let mimeType = 'audio/webm';
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = 'audio/webm;codecs=opus';
+          if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/ogg;codecs=opus';
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+              mimeType = ''; // Let browser choose
+            }
+          }
+        }
+
+        recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+
+        recorder.ondataavailable = (e) => {
+          if (e.data && e.data.size > 0) audioChunks.push(e.data);
+        };
+
+        recorder.onstop = async () => {
+          stream.getTracks().forEach(t => t.stop());
+
+          const blob = new Blob(audioChunks, { type: recorder.mimeType || 'audio/webm' });
+          if (blob.size === 0) {
+            showStatus('Recording failed (empty audio)', 'error');
+            return;
+          }
+
+          console.log('[AUDIO] Recorded blob size:', blob.size, 'type:', blob.type);
+
+          // Upload audio
+          try {
+            const fd = new FormData();
+            const ext = blob.type.includes('ogg') ? 'ogg' : 'webm';
+            fd.append('file', blob, `audio-${Date.now()}.${ext}`);
+
+            const res = await fetch(UPLOAD_URL, { method: 'POST', body: fd });
+            const json = await res.json();
+
+            if (!json.success && !json.ok) {
+              throw new Error(json.error || 'Upload failed');
+            }
+
+            const audioUrl = json.url;
+
+            // Send audio message over WS
+            const id = generateUUID();
+            const nickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
+            
+            const messageData = {
+              type: 'audio',
+              id,
+              messageId: id,
+              nickname,
+              timestamp: Date.now(),
+              url: audioUrl
+            };
+
+            // Add optimistically
+            addMessage(messageData, true, id, 'sending');
+            pendingMessages.set(id, messageData);
+
+            ws.send(JSON.stringify(messageData));
+            console.log('[AUDIO] Sent audio message, id=' + id);
+
+          } catch (error) {
+            console.error('[AUDIO] Upload error:', error);
+            showStatus('Audio upload failed: ' + error.message, 'error');
+          }
+        };
+
+        recorder.start();
+        recordingStartTime = Date.now();
+
+        // Show recording indicator
+        const indicator = document.getElementById('recordingIndicator');
+        indicator.classList.add('active');
+
+        // Update timer
+        const timerInterval = setInterval(() => {
+          if (!recorder || recorder.state === 'inactive') {
+            clearInterval(timerInterval);
+            return;
+          }
+          const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+          document.getElementById('recordingTimer').textContent = elapsed + 's / 30s';
+        }, 100);
+
+        // Hard stop at 30s
+        recordTimer = setTimeout(() => {
+          stopAudioRecording();
+          clearInterval(timerInterval);
+        }, 30000);
+
+        // Change button text
+        document.getElementById('audioBtn').textContent = '⏹️ Stop';
+        document.getElementById('audioBtn').style.background = 'rgba(220, 53, 69, 0.3)';
+
+      } catch (error) {
+        showStatus('Microphone access denied: ' + error.message, 'error');
+        console.error('[AUDIO] Error:', error);
+      }
+    }
+
+    function stopAudioRecording() {
+      if (recordTimer) clearTimeout(recordTimer);
+      recordTimer = null;
+      
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.stop();
+      }
+
+      // Hide indicator
+      const indicator = document.getElementById('recordingIndicator');
+      indicator.classList.remove('active');
+
+      // Reset button
+      document.getElementById('audioBtn').textContent = '🎤';
+      document.getElementById('audioBtn').style.background = '';
+    }
+
+    function toggleAudioRecording() {
+      if (recorder && recorder.state === 'recording') {
+        stopAudioRecording();
+      } else {
+        startAudioRecording();
+      }
     }
 
     function handleFileSelect() {
