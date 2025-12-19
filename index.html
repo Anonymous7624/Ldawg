@@ -672,13 +672,45 @@
 
     // Connect to WebSocket
     function connect() {
-      console.log('Connecting to WebSocket:', WS_URL);
+      console.log('========================================');
+      console.log('[CONNECT] Attempting WebSocket connection');
+      console.log('[CONNECT] URL:', WS_URL);
+      console.log('[CONNECT] Protocol:', WS_URL.startsWith('wss://') ? 'Secure WebSocket (WSS)' : 'WebSocket (WS)');
+      console.log('========================================');
       ws = new WebSocket(WS_URL);
 
       ws.onopen = () => {
-        console.log('Connected to Kennedy Chat server');
+        console.log('========================================');
+        console.log('[CONNECT] ✓ WebSocket connection OPEN');
+        console.log('[CONNECT] URL:', WS_URL);
+        console.log('[CONNECT] Running connection self-test...');
+        console.log('========================================');
         clearTimeout(reconnectTimeout);
-        showStatus('Connected', 'success');
+        
+        // Send a ping to verify ACK path works
+        const pingId = generateUUID();
+        const pingMessage = {
+          type: 'ping',
+          id: pingId,
+          timestamp: Date.now()
+        };
+        
+        console.log('[SELF-TEST] Sending ping with messageId=' + pingId);
+        pendingMessages.set(pingId, { type: 'ping', testPing: true });
+        
+        // Set timeout for ping response
+        const pingTimeout = setTimeout(() => {
+          if (pendingMessages.has(pingId)) {
+            console.error('[SELF-TEST] ❌ FAILED - No ACK received for ping');
+            showStatus('Connected but ACK path not working', 'error');
+            pendingMessages.delete(pingId);
+          }
+        }, 3000);
+        
+        // Store timeout so we can clear it when ACK arrives
+        pendingMessages.get(pingId).timeout = pingTimeout;
+        
+        ws.send(JSON.stringify(pingMessage));
       };
 
       ws.onmessage = (event) => {
@@ -695,10 +727,27 @@
         } else if (data.type === 'ack') {
           // Handle ACK from server - mark message as sent
           console.log('[WS] ✓✓✓ ACK RECEIVED ✓✓✓');
-          console.log('[WS] ACK for message id=' + data.id);
-          console.log('[WS] Looking for element with data-msg-id=' + data.id);
+          console.log('[WS] ACK messageId=' + data.messageId);
+          console.log('[WS] ACK serverTime=' + data.serverTime);
+          console.log('[WS] ACK instanceId=' + data.instanceId);
           
-          const msgElement = document.querySelector(`[data-msg-id="${data.id}"]`);
+          // Check if this is a ping ACK (self-test)
+          const pendingMsg = pendingMessages.get(data.messageId);
+          if (pendingMsg && pendingMsg.testPing) {
+            console.log('[SELF-TEST] ✓ Ping ACK received - connection verified!');
+            console.log('[SELF-TEST] Server instance:', data.instanceId);
+            console.log('[SELF-TEST] Server time:', data.serverTime);
+            if (pendingMsg.timeout) {
+              clearTimeout(pendingMsg.timeout);
+            }
+            pendingMessages.delete(data.messageId);
+            showStatus('Connected ✓', 'success');
+            return;
+          }
+          
+          console.log('[WS] Looking for element with data-msg-id=' + data.messageId);
+          
+          const msgElement = document.querySelector(`[data-msg-id="${data.messageId}"]`);
           console.log('[WS] Found element:', msgElement ? 'YES' : 'NO');
           
           if (msgElement) {
@@ -716,11 +765,11 @@
           
           // Remove from pending
           console.log('[WS] Pending messages before removal:', Array.from(pendingMessages.keys()));
-          if (pendingMessages.has(data.id)) {
-            pendingMessages.delete(data.id);
-            console.log('[WS] ✓ Removed from pending:', data.id);
+          if (pendingMessages.has(data.messageId)) {
+            pendingMessages.delete(data.messageId);
+            console.log('[WS] ✓ Removed from pending:', data.messageId);
           } else {
-            console.warn('[WS] Message not in pending map:', data.id);
+            console.warn('[WS] Message not in pending map:', data.messageId);
           }
           console.log('[WS] Pending messages after removal:', Array.from(pendingMessages.keys()));
         } else if (data.type === 'text' || data.type === 'image' || data.type === 'file') {
@@ -746,14 +795,23 @@
         }
       };
 
-      ws.onclose = () => {
-        console.log('Disconnected from chat server');
+      ws.onclose = (event) => {
+        console.log('========================================');
+        console.log('[CLOSE] WebSocket connection closed');
+        console.log('[CLOSE] Code:', event.code);
+        console.log('[CLOSE] Reason:', event.reason || 'none');
+        console.log('[CLOSE] Was clean:', event.wasClean);
+        console.log('========================================');
         showStatus('Disconnected. Reconnecting...', 'error');
         reconnectTimeout = setTimeout(connect, 3000);
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+        console.error('========================================');
+        console.error('[ERROR] WebSocket error occurred');
+        console.error('[ERROR] URL was:', WS_URL);
+        console.error('[ERROR] Error object:', error);
+        console.error('========================================');
         showStatus('Connection error', 'error');
       };
     }

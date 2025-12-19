@@ -251,7 +251,7 @@ function broadcast(message) {
     }
   });
   
-  console.log(`[BROADCAST] Sent message type=${message.type} to ${recipientCount} clients`);
+  console.log(`[BROADCAST] Sent message type=${message.type}, id=${message.id} to ${recipientCount} clients`);
   return recipientCount;
 }
 
@@ -334,8 +334,14 @@ wss.on('connection', (ws, req) => {
     try {
       const message = JSON.parse(data);
       const msgId = message.id || crypto.randomBytes(8).toString('hex');
+      console.log(`[MESSAGE] ========================================`);
       console.log(`[MESSAGE] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
-      console.log(`[MESSAGE] Received from ${connectionId}: type=${message.type}, id=${msgId}, size=${data.length} bytes`);
+      console.log(`[MESSAGE] Received from ${connectionId} (${clientId})`);
+      console.log(`[MESSAGE] Type: ${message.type}`);
+      console.log(`[MESSAGE] ID: ${msgId}`);
+      console.log(`[MESSAGE] Size: ${data.length} bytes`);
+      console.log(`[MESSAGE] Timestamp: ${new Date().toISOString()}`);
+      console.log(`[MESSAGE] ========================================`);
 
       // Rate limit check
       const rateLimitResult = checkRateLimit(clientId);
@@ -349,7 +355,18 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      if (message.type === 'text') {
+      if (message.type === 'ping') {
+        // Handle ping - send ACK immediately for connection test
+        console.log(`[PING] Received ping from ${connectionId}, messageId=${msgId}`);
+        const ackPayload = {
+          type: 'ack',
+          messageId: msgId,
+          serverTime: new Date().toISOString(),
+          instanceId: SERVER_INSTANCE_ID
+        };
+        ws.send(JSON.stringify(ackPayload));
+        console.log(`[PING] Sent ACK for ping messageId=${msgId} to ${clientId}`);
+      } else if (message.type === 'text') {
         // Validate input
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
         const text = (message.text || '').substring(0, 1000);
@@ -370,11 +387,12 @@ wss.on('connection', (ws, req) => {
         // Send ACK to sender immediately
         const ackPayload = {
           type: 'ack',
-          id: msgId,
-          timestamp: chatMessage.timestamp
+          messageId: msgId,
+          serverTime: new Date().toISOString(),
+          instanceId: SERVER_INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for message id=${msgId}`);
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for messageId=${msgId} to ${clientId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -397,11 +415,12 @@ wss.on('connection', (ws, req) => {
         // Send ACK to sender immediately
         const ackPayload = {
           type: 'ack',
-          id: msgId,
-          timestamp: chatMessage.timestamp
+          messageId: msgId,
+          serverTime: new Date().toISOString(),
+          instanceId: SERVER_INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for image id=${msgId}`);
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for image messageId=${msgId} to ${clientId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -423,11 +442,12 @@ wss.on('connection', (ws, req) => {
         // Send ACK to sender immediately
         const ackPayload = {
           type: 'ack',
-          id: msgId,
-          timestamp: chatMessage.timestamp
+          messageId: msgId,
+          serverTime: new Date().toISOString(),
+          instanceId: SERVER_INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for file id=${msgId}`);
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for file messageId=${msgId} to ${clientId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
