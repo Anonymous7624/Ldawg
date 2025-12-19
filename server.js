@@ -19,6 +19,9 @@ const MUTE_DURATION_FIRST = 15000; // 15 seconds
 const MUTE_DURATION_STRIKES = 120000; // 120 seconds
 const UPLOAD_CLEANUP_AGE = 60 * 60 * 1000; // 1 hour
 
+// Generate unique server instance ID
+const INSTANCE_ID = crypto.randomBytes(6).toString('hex');
+
 // Log all HTTP requests
 app.use((req, res, next) => {
   console.log(`[HTTP] ${req.method} ${req.url} - Origin: ${req.headers.origin || 'none'} - User-Agent: ${req.headers['user-agent']?.substring(0, 50) || 'none'}`);
@@ -108,7 +111,7 @@ app.get('/healthz', (req, res) => {
 // Upload endpoint with comprehensive error handling
 app.post('/upload', (req, res) => {
   const origin = req.headers.origin || 'direct';
-  console.log(`[UPLOAD] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
+  console.log(`[UPLOAD] *** SERVER INSTANCE: ${INSTANCE_ID} ***`);
   console.log(`[UPLOAD] ${req.method} ${req.path} - Origin: ${origin} - Status: starting`);
   console.log(`[UPLOAD] Headers:`, JSON.stringify(req.headers, null, 2));
   
@@ -251,7 +254,7 @@ function broadcast(message) {
     }
   });
   
-  console.log(`[BROADCAST] Sent message type=${message.type}, id=${message.id} to ${recipientCount} clients`);
+  console.log(`[BROADCAST] Sent to ${recipientCount} clients`);
   return recipientCount;
 }
 
@@ -310,15 +313,12 @@ function checkRateLimit(clientId) {
   return { allowed: true };
 }
 
-// Generate unique server instance ID
-const SERVER_INSTANCE_ID = crypto.randomBytes(6).toString('hex');
-
 // WebSocket connection handler
 wss.on('connection', (ws, req) => {
   const clientId = req.socket.remoteAddress + ':' + req.socket.remotePort;
   const connectionId = crypto.randomBytes(4).toString('hex');
   
-  console.log(`[CONNECT] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
+  console.log(`[CONNECT] *** SERVER INSTANCE: ${INSTANCE_ID} ***`);
   console.log(`[CONNECT] Client connected: ${clientId} (id: ${connectionId})`);
   console.log(`[CONNECT] Total clients: ${wss.clients.size}`);
 
@@ -333,43 +333,48 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data);
+      
       // Backward compatible: accept both messageId and id
-      const msgId = message.messageId || message.id || crypto.randomBytes(8).toString('hex');
+      const msgId = message.messageId || message.id || crypto.randomUUID();
+      
       console.log(`[MESSAGE] ========================================`);
-      console.log(`[MESSAGE] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
-      console.log(`[MESSAGE] Received from ${connectionId} (${clientId})`);
-      console.log(`[MESSAGE] Type: ${message.type}`);
-      console.log(`[MESSAGE] ID: ${msgId}`);
-      console.log(`[MESSAGE] message.messageId: ${message.messageId}`);
-      console.log(`[MESSAGE] message.id: ${message.id}`);
-      console.log(`[MESSAGE] Size: ${data.length} bytes`);
-      console.log(`[MESSAGE] Timestamp: ${new Date().toISOString()}`);
+      console.log(`[MESSAGE] Received type=${message.type} msgId=${msgId}`);
       console.log(`[MESSAGE] ========================================`);
 
-      // Rate limit check
-      const rateLimitResult = checkRateLimit(clientId);
-      if (!rateLimitResult.allowed) {
-        console.log(`[RATE-LIMIT] Client ${connectionId} muted for ${rateLimitResult.seconds}s (strikes: ${rateLimitResult.strikes})`);
-        ws.send(JSON.stringify({
-          type: 'muted',
-          seconds: rateLimitResult.seconds,
-          strikes: rateLimitResult.strikes
-        }));
-        return;
+      // Rate limit check (skip for ping)
+      if (message.type !== 'ping') {
+        const rateLimitResult = checkRateLimit(clientId);
+        if (!rateLimitResult.allowed) {
+          console.log(`[RATE-LIMIT] Client ${connectionId} muted for ${rateLimitResult.seconds}s (strikes: ${rateLimitResult.strikes})`);
+          ws.send(JSON.stringify({
+            type: 'muted',
+            seconds: rateLimitResult.seconds,
+            strikes: rateLimitResult.strikes
+          }));
+          return;
+        }
       }
 
       if (message.type === 'ping') {
-        // Handle ping - send ACK immediately for connection test
-        console.log(`[PING] Received ping from ${connectionId}, messageId=${msgId}`);
+        // Handle ping - send ACK immediately
         const ackPayload = {
           type: 'ack',
           id: msgId,
           messageId: msgId,
           serverTime: new Date().toISOString(),
-          instanceId: SERVER_INSTANCE_ID
+          instanceId: INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[PING] Sent ACK for ping id=${msgId} messageId=${msgId} to ${clientId}`);
+        console.log(`[ACK] Sent ACK for ping msgId=${msgId}`);
+        
+        // Optionally send pong for legacy clients
+        ws.send(JSON.stringify({
+          type: 'pong',
+          id: msgId,
+          timestamp: Date.now()
+        }));
+        console.log(`[PONG] Sent legacy pong for msgId=${msgId}`);
+        
       } else if (message.type === 'text') {
         // Validate input
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
@@ -380,13 +385,32 @@ wss.on('connection', (ws, req) => {
           return;
         }
 
+        // Send ACK to sender immediately
+        const ackPayload = {
+          type: 'ack',
+          id: msgId,
+          messageId: msgId,
+          serverTime: new Date().toISOString(),
+          instanceId: INSTANCE_ID
+        };
+        ws.send(JSON.stringify(ackPayload));
+        console.log(`[ACK] Sent ACK for text msgId=${msgId}`);
+
+        // Create chat message
         const chatMessage = {
           type: 'text',
-          id: msgId, // Use client-provided ID or generated one
+          id: msgId,
           nickname,
           timestamp: message.timestamp || Date.now(),
           text
         };
+
+        addToHistory(chatMessage);
+        broadcast(chatMessage);
+        console.log(`[MESSAGE] Text from ${nickname}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+        
+      } else if (message.type === 'image') {
+        const nickname = (message.nickname || 'Anonymous').substring(0, 100);
 
         // Send ACK to sender immediately
         const ackPayload = {
@@ -394,17 +418,12 @@ wss.on('connection', (ws, req) => {
           id: msgId,
           messageId: msgId,
           serverTime: new Date().toISOString(),
-          instanceId: SERVER_INSTANCE_ID
+          instanceId: INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for id=${msgId} messageId=${msgId} to ${clientId}`);
+        console.log(`[ACK] Sent ACK for image msgId=${msgId}`);
 
-        addToHistory(chatMessage);
-        broadcast(chatMessage);
-        console.log(`[MESSAGE] Text message from ${nickname}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
-      } else if (message.type === 'image') {
-        const nickname = (message.nickname || 'Anonymous').substring(0, 100);
-
+        // Create chat message
         const chatMessage = {
           type: 'image',
           id: msgId,
@@ -417,23 +436,25 @@ wss.on('connection', (ws, req) => {
           caption: message.caption || ''
         };
 
+        addToHistory(chatMessage);
+        broadcast(chatMessage);
+        console.log(`[MESSAGE] Image from ${nickname}: ${message.filename} (${message.size} bytes)`);
+        
+      } else if (message.type === 'file') {
+        const nickname = (message.nickname || 'Anonymous').substring(0, 100);
+
         // Send ACK to sender immediately
         const ackPayload = {
           type: 'ack',
           id: msgId,
           messageId: msgId,
           serverTime: new Date().toISOString(),
-          instanceId: SERVER_INSTANCE_ID
+          instanceId: INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for image id=${msgId} messageId=${msgId} to ${clientId}`);
+        console.log(`[ACK] Sent ACK for file msgId=${msgId}`);
 
-        addToHistory(chatMessage);
-        broadcast(chatMessage);
-        console.log(`[MESSAGE] Image from ${nickname}: ${message.filename} (${message.size} bytes)`);
-      } else if (message.type === 'file') {
-        const nickname = (message.nickname || 'Anonymous').substring(0, 100);
-
+        // Create chat message
         const chatMessage = {
           type: 'file',
           id: msgId,
@@ -444,17 +465,6 @@ wss.on('connection', (ws, req) => {
           mime: message.mime,
           size: message.size
         };
-
-        // Send ACK to sender immediately
-        const ackPayload = {
-          type: 'ack',
-          id: msgId,
-          messageId: msgId,
-          serverTime: new Date().toISOString(),
-          instanceId: SERVER_INSTANCE_ID
-        };
-        ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for file id=${msgId} messageId=${msgId} to ${clientId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -496,7 +506,7 @@ server.listen(PORT, () => {
   console.log(`========================================`);
   console.log(`Kennedy Chat Server`);
   console.log(`========================================`);
-  console.log(`Server Instance ID: ${SERVER_INSTANCE_ID}`);
+  console.log(`Server Instance ID: ${INSTANCE_ID}`);
   console.log(`Started: ${SERVER_START_TIME}`);
   console.log(`Port: ${PORT}`);
   console.log(`WebSocket: ws://localhost:${PORT}`);
