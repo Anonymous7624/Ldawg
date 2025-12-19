@@ -11,9 +11,9 @@ const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = 8080;
-const MAX_MESSAGES = 50;
+const MAX_MESSAGES = 100;
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
-const RATE_LIMIT_MESSAGES = 3; // 3 messages per window
+const RATE_LIMIT_MESSAGES = 2; // 2 messages per window
 const RATE_LIMIT_WINDOW = 10000; // 10 seconds
 const UPLOAD_CLEANUP_AGE = 60 * 60 * 1000; // 1 hour
 
@@ -451,7 +451,8 @@ wss.on('connection', (ws, req) => {
           ws.send(JSON.stringify({ 
             type: 'banned', 
             until: info.bannedUntil,
-            seconds: Math.ceil((info.bannedUntil - now()) / 1000)
+            seconds: Math.ceil((info.bannedUntil - now()) / 1000),
+            reason: 'rate'
           }));
           return;
         }
@@ -463,7 +464,8 @@ wss.on('connection', (ws, req) => {
             type: 'banned',
             until: info.bannedUntil,
             seconds: rateLimitResult.seconds,
-            strikes: rateLimitResult.strikes
+            strikes: rateLimitResult.strikes,
+            reason: 'rate'
           }));
           return;
         }

@@ -371,6 +371,42 @@
       50% { opacity: 0.6; }
     }
 
+    .audio-draft {
+      display: none;
+      background: rgba(0, 102, 204, 0.1);
+      border: 2px solid rgba(0, 102, 204, 0.3);
+      border-radius: 10px;
+      padding: 15px;
+      margin-bottom: 10px;
+    }
+
+    body.dark-mode .audio-draft {
+      background: rgba(102, 179, 255, 0.15);
+      border-color: rgba(102, 179, 255, 0.3);
+    }
+
+    .audio-draft.active {
+      display: block;
+    }
+
+    .audio-draft-header {
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      opacity: 0.9;
+    }
+
+    .audio-draft-controls {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .audio-draft audio {
+      width: 100%;
+      margin-bottom: 10px;
+    }
+
     .input-row {
       display: flex;
       gap: 10px;
@@ -620,7 +656,24 @@
         <div id="statusMessage" class="hidden"></div>
         
         <div id="recordingIndicator" class="recording-indicator">
-          🎤 Recording... <span id="recordingTimer">0s</span>
+          Recording... <span id="recordingTimer">0s</span>
+          <button class="btn-remove" onclick="stopAudioRecording()" style="margin-left: 10px;">Stop</button>
+        </div>
+
+        <!-- Audio Draft Composer -->
+        <div id="audioDraft" class="audio-draft">
+          <div class="audio-draft-header">Voice Message Draft</div>
+          <audio id="audioDraftPlayer" controls></audio>
+          <textarea 
+            id="audioCaptionInput" 
+            placeholder="Add a caption (optional, max 1000 chars)" 
+            maxlength="1000"
+            style="width: 100%; min-height: 50px; margin-bottom: 10px;"
+          ></textarea>
+          <div class="audio-draft-controls">
+            <button class="btn-primary" onclick="sendAudioDraft()">Send</button>
+            <button class="btn-remove" onclick="discardAudioDraft()">Discard</button>
+          </div>
         </div>
 
         <div class="input-section">
@@ -635,7 +688,7 @@
           <!-- Photo Composer Preview -->
           <div id="photoComposer" class="photo-composer">
             <div class="composer-header">
-              <span>📷 Photo Attached</span>
+              <span>Photo Attached</span>
               <button class="btn-remove" onclick="removePhotoAttachment()">Remove</button>
             </div>
             <div class="composer-preview">
@@ -662,7 +715,7 @@
               File
             </button>
             <button class="btn-icon" onclick="toggleAudioRecording()" title="Record Audio" id="audioBtn">
-              🎤
+              Audio Message
             </button>
             <button class="btn-primary" onclick="sendMessage()" id="sendBtn">Send</button>
           </div>
@@ -674,7 +727,7 @@
     <div class="sidebar">
       <h2 style="font-size: 22px; font-weight: 700;">Rules</h2>
       <div class="sidebar-content" style="margin-bottom: 25px;">
-        <p>No spamming (max 3 messages per 10s). Violators face escalating bans: 15s → 1m → 5m → +5m each time.</p>
+        <p>No spamming (max 2 messages per 10s). Violators face escalating bans: 15s → 1m → 5m → +5m each time.</p>
       </div>
       
       <h2 style="font-size: 22px; font-weight: 700;">Features</h2>
@@ -731,9 +784,12 @@
 
     // Audio recording state
     let recorder = null;
+    let audioStream = null;
     let audioChunks = [];
     let recordTimer = null;
     let recordingStartTime = 0;
+    let audioDraftBlob = null;
+    let audioDraftURL = null;
 
     // Apply saved theme
     if (isDarkMode) {
@@ -746,6 +802,92 @@
     
     // Upload configuration
     const UPLOAD_URL = 'https://upload.ldawg7624.com/upload';
+
+    // Ban state management
+    function getCookie(name) {
+      const value = `; ${document.cookie}`;
+      const parts = value.split(`; ${name}=`);
+      if (parts.length === 2) return parts.pop().split(';').shift();
+      return null;
+    }
+
+    function setCookie(name, value, maxAgeSeconds) {
+      document.cookie = `${name}=${value}; path=/; max-age=${maxAgeSeconds}; SameSite=Strict`;
+    }
+
+    function getBanState() {
+      // Check both localStorage and cookie
+      const lsBanUntil = localStorage.getItem('chatBanUntil');
+      const cookieBanUntil = getCookie('chatBanUntil');
+      
+      const banUntil = Math.max(
+        lsBanUntil ? parseInt(lsBanUntil, 10) : 0,
+        cookieBanUntil ? parseInt(cookieBanUntil, 10) : 0
+      );
+      
+      return banUntil > Date.now() ? banUntil : null;
+    }
+
+    function setBanState(untilEpochMs) {
+      const secondsRemaining = Math.ceil((untilEpochMs - Date.now()) / 1000);
+      localStorage.setItem('chatBanUntil', untilEpochMs.toString());
+      setCookie('chatBanUntil', untilEpochMs.toString(), secondsRemaining + 10);
+    }
+
+    function clearBanState() {
+      localStorage.removeItem('chatBanUntil');
+      setCookie('chatBanUntil', '', -1);
+    }
+
+    function checkAndApplyBanState() {
+      const banUntil = getBanState();
+      if (banUntil) {
+        const secondsRemaining = Math.ceil((banUntil - Date.now()) / 1000);
+        if (secondsRemaining > 0) {
+          showBanMessage(banUntil);
+          disableInputs(true);
+          
+          // Set timer to clear ban when it expires
+          setTimeout(() => {
+            clearBanState();
+            disableInputs(false);
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.classList.add('hidden');
+          }, secondsRemaining * 1000);
+        } else {
+          clearBanState();
+        }
+      }
+    }
+
+    function showBanMessage(untilEpochMs) {
+      const statusDiv = document.getElementById('statusMessage');
+      statusDiv.className = 'status-message status-error';
+      
+      function updateCountdown() {
+        const remaining = Math.ceil((untilEpochMs - Date.now()) / 1000);
+        if (remaining > 0) {
+          const hours = Math.floor(remaining / 3600);
+          const minutes = Math.floor((remaining % 3600) / 60);
+          const seconds = remaining % 60;
+          const timeStr = hours > 0 
+            ? `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+            : `${minutes}:${seconds.toString().padStart(2, '0')}`;
+          statusDiv.textContent = `Temporarily blocked until ${timeStr}`;
+          setTimeout(updateCountdown, 1000);
+        } else {
+          statusDiv.classList.add('hidden');
+          disableInputs(false);
+          clearBanState();
+        }
+      }
+      
+      statusDiv.classList.remove('hidden');
+      updateCountdown();
+    }
+
+    // Check ban state on page load
+    checkAndApplyBanState();
 
     // Generate UUID v4
     function generateUUID() {
@@ -915,8 +1057,16 @@
             console.log('[WS] New message from another client');
             addMessage(data);
           }
-        } else if (data.type === 'muted' || data.type === 'banned') {
-          handleMuted(data);
+        } else if (data.type === 'banned') {
+          handleBanned(data);
+        } else if (data.type === 'muted') {
+          // Backward compatibility - treat as banned
+          handleBanned({
+            type: 'banned',
+            until: data.until || (Date.now() + data.seconds * 1000),
+            seconds: data.seconds,
+            reason: 'rate'
+          });
         }
       };
 
@@ -954,12 +1104,36 @@
       }
     }
 
+    function handleBanned(data) {
+      const untilEpochMs = data.until || (Date.now() + (data.seconds || 0) * 1000);
+      
+      // Persist ban state
+      setBanState(untilEpochMs);
+      
+      // Show ban message
+      showBanMessage(untilEpochMs);
+      
+      // Disable inputs
+      disableInputs(true);
+      
+      // Re-enable after ban period
+      const secondsRemaining = Math.ceil((untilEpochMs - Date.now()) / 1000);
+      setTimeout(() => {
+        clearBanState();
+        disableInputs(false);
+        const statusDiv = document.getElementById('statusMessage');
+        statusDiv.classList.add('hidden');
+      }, secondsRemaining * 1000);
+    }
+
     connect();
 
     function displayHistory(items) {
       const messagesDiv = document.getElementById('messages');
       messagesDiv.innerHTML = '';
-      items.forEach(item => addMessage(item, false));
+      // Limit to last 100 messages for display
+      const displayItems = items.slice(-100);
+      displayItems.forEach(item => addMessage(item, false));
       scrollToBottom();
     }
 
@@ -995,8 +1169,10 @@
           <img id="${imgId}" src="${data.url}" class="message-image" data-url="${data.url}" alt="${escapeHtml(data.filename || 'Image')}">
         `;
       } else if (data.type === 'audio') {
+        const caption = data.caption ? `<div class="message-content">${escapeHtml(data.caption)}</div>` : '';
+        const label = caption ? '' : '<div class="message-content">Voice message</div>';
         content = `
-          <div class="message-content">🎤 Voice message</div>
+          ${caption || label}
           <audio controls src="${data.url}" style="max-width: 100%; margin-top: 8px;"></audio>
         `;
       } else if (data.type === 'file') {
@@ -1079,6 +1255,13 @@
 
       if (ws.readyState !== WebSocket.OPEN) {
         showStatus('Not connected. Please wait...', 'error');
+        return;
+      }
+
+      // Check if banned
+      const banUntil = getBanState();
+      if (banUntil && banUntil > Date.now()) {
+        showStatus('You are temporarily blocked from sending messages', 'error');
         return;
       }
 
@@ -1282,36 +1465,6 @@
       }
     }
 
-    function handleMuted(data) {
-      const statusDiv = document.getElementById('statusMessage');
-      statusDiv.className = 'status-message status-muted';
-      statusDiv.textContent = `Rate limit exceeded! Muted for ${data.seconds} seconds. Strikes: ${data.strikes}`;
-      statusDiv.classList.remove('hidden');
-
-      // Disable inputs
-      disableInputs(true);
-
-      // Clear existing timer
-      clearTimeout(muteTimer);
-
-      // Start countdown
-      let remaining = data.seconds;
-      const countdownInterval = setInterval(() => {
-        remaining--;
-        if (remaining > 0) {
-          statusDiv.textContent = `Rate limit exceeded! Muted for ${remaining} seconds. Strikes: ${data.strikes}`;
-        } else {
-          clearInterval(countdownInterval);
-        }
-      }, 1000);
-
-      // Re-enable after mute period
-      muteTimer = setTimeout(() => {
-        statusDiv.classList.add('hidden');
-        disableInputs(false);
-      }, data.seconds * 1000);
-    }
-
     function disableInputs(disabled) {
       document.getElementById('sendBtn').disabled = disabled;
       document.getElementById('messageInput').disabled = disabled;
@@ -1323,7 +1476,45 @@
     // Audio recording functions
     async function startAudioRecording() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        // Check microphone permission first
+        let permissionGranted = false;
+        
+        if (navigator.permissions && navigator.permissions.query) {
+          try {
+            const permissionStatus = await navigator.permissions.query({ name: 'microphone' });
+            console.log('[MIC] Permission status:', permissionStatus.state);
+            
+            if (permissionStatus.state === 'denied') {
+              showStatus('Mic blocked - please enable in browser settings', 'error');
+              return;
+            }
+            
+            permissionGranted = permissionStatus.state === 'granted';
+          } catch (permErr) {
+            console.log('[MIC] Permission query not supported:', permErr.message);
+            // Fall through to getUserMedia
+          }
+        }
+        
+        // Request microphone access
+        try {
+          audioStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          console.log('[MIC] Access granted, stream obtained');
+        } catch (error) {
+          console.error('[MIC] getUserMedia error:', error);
+          
+          if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
+            showStatus('Mic blocked - please enable in browser settings', 'error');
+          } else if (error.name === 'NotFoundError' || error.name === 'DevicesNotFoundError') {
+            showStatus('Mic error (no device found)', 'error');
+          } else if (error.name === 'NotReadableError' || error.name === 'TrackStartError') {
+            showStatus('Mic error (device busy or OS blocked)', 'error');
+          } else {
+            showStatus(`Mic error (${error.name || 'unknown'})`, 'error');
+          }
+          return;
+        }
+        
         audioChunks = [];
         
         // Try webm first, fall back to other formats
@@ -1338,62 +1529,30 @@
           }
         }
 
-        recorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
+        recorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : {});
 
         recorder.ondataavailable = (e) => {
           if (e.data && e.data.size > 0) audioChunks.push(e.data);
         };
 
-        recorder.onstop = async () => {
-          stream.getTracks().forEach(t => t.stop());
+        recorder.onstop = () => {
+          // Stop all tracks
+          if (audioStream) {
+            audioStream.getTracks().forEach(t => t.stop());
+            audioStream = null;
+          }
 
           const blob = new Blob(audioChunks, { type: recorder.mimeType || 'audio/webm' });
           if (blob.size === 0) {
             showStatus('Recording failed (empty audio)', 'error');
+            resetAudioButton();
             return;
           }
 
           console.log('[AUDIO] Recorded blob size:', blob.size, 'type:', blob.type);
 
-          // Upload audio
-          try {
-            const fd = new FormData();
-            const ext = blob.type.includes('ogg') ? 'ogg' : 'webm';
-            fd.append('file', blob, `audio-${Date.now()}.${ext}`);
-
-            const res = await fetch(UPLOAD_URL, { method: 'POST', body: fd });
-            const json = await res.json();
-
-            if (!json.success && !json.ok) {
-              throw new Error(json.error || 'Upload failed');
-            }
-
-            const audioUrl = json.url;
-
-            // Send audio message over WS
-            const id = generateUUID();
-            const nickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
-            
-            const messageData = {
-              type: 'audio',
-              id,
-              messageId: id,
-              nickname,
-              timestamp: Date.now(),
-              url: audioUrl
-            };
-
-            // Add optimistically
-            addMessage(messageData, true, id, 'sending');
-            pendingMessages.set(id, messageData);
-
-            ws.send(JSON.stringify(messageData));
-            console.log('[AUDIO] Sent audio message, id=' + id);
-
-          } catch (error) {
-            console.error('[AUDIO] Upload error:', error);
-            showStatus('Audio upload failed: ' + error.message, 'error');
-          }
+          // Create draft instead of auto-sending
+          createAudioDraft(blob);
         };
 
         recorder.start();
@@ -1419,13 +1578,15 @@
           clearInterval(timerInterval);
         }, 30000);
 
-        // Change button text
-        document.getElementById('audioBtn').textContent = '⏹️ Stop';
-        document.getElementById('audioBtn').style.background = 'rgba(220, 53, 69, 0.3)';
-
       } catch (error) {
-        showStatus('Microphone access denied: ' + error.message, 'error');
+        showStatus('Microphone access error: ' + error.message, 'error');
         console.error('[AUDIO] Error:', error);
+        
+        // Clean up any tracks
+        if (audioStream) {
+          audioStream.getTracks().forEach(t => t.stop());
+          audioStream = null;
+        }
       }
     }
 
@@ -1441,9 +1602,163 @@
       const indicator = document.getElementById('recordingIndicator');
       indicator.classList.remove('active');
 
-      // Reset button
-      document.getElementById('audioBtn').textContent = '🎤';
+      // Reset button is handled by createAudioDraft or error paths
+    }
+
+    function resetAudioButton() {
+      document.getElementById('audioBtn').textContent = 'Audio Message';
       document.getElementById('audioBtn').style.background = '';
+    }
+
+    function createAudioDraft(blob) {
+      // Store the blob
+      audioDraftBlob = blob;
+      
+      // Revoke previous URL if exists
+      if (audioDraftURL) {
+        URL.revokeObjectURL(audioDraftURL);
+      }
+      
+      // Create URL for playback
+      audioDraftURL = URL.createObjectURL(blob);
+      
+      // Update draft UI
+      const draftDiv = document.getElementById('audioDraft');
+      const player = document.getElementById('audioDraftPlayer');
+      const captionInput = document.getElementById('audioCaptionInput');
+      
+      player.src = audioDraftURL;
+      captionInput.value = '';
+      
+      draftDiv.classList.add('active');
+      
+      // Reset audio button
+      resetAudioButton();
+      
+      console.log('[AUDIO] Draft created, size:', blob.size);
+    }
+
+    function discardAudioDraft() {
+      // Clean up
+      if (audioDraftURL) {
+        URL.revokeObjectURL(audioDraftURL);
+        audioDraftURL = null;
+      }
+      
+      audioDraftBlob = null;
+      
+      // Hide draft UI
+      const draftDiv = document.getElementById('audioDraft');
+      draftDiv.classList.remove('active');
+      
+      // Clear caption
+      document.getElementById('audioCaptionInput').value = '';
+      
+      console.log('[AUDIO] Draft discarded');
+    }
+
+    async function sendAudioDraft() {
+      if (!audioDraftBlob) {
+        showStatus('No audio to send', 'error');
+        return;
+      }
+
+      // Check if banned
+      const banUntil = getBanState();
+      if (banUntil && banUntil > Date.now()) {
+        showStatus('You are temporarily blocked from sending messages', 'error');
+        return;
+      }
+
+      if (ws.readyState !== WebSocket.OPEN) {
+        showStatus('Not connected. Please wait...', 'error');
+        return;
+      }
+
+      const caption = document.getElementById('audioCaptionInput').value.trim();
+      const nickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
+      const messageId = generateUUID();
+
+      // Disable send button
+      const sendBtn = document.getElementById('sendBtn');
+      sendBtn.disabled = true;
+
+      try {
+        // Create optimistic message
+        const optimisticData = {
+          type: 'audio',
+          id: messageId,
+          nickname,
+          timestamp: Date.now(),
+          url: audioDraftURL,
+          caption: caption || ''
+        };
+        
+        addMessage(optimisticData, true, messageId, 'sending');
+        pendingMessages.set(messageId, optimisticData);
+
+        // Upload audio
+        const fd = new FormData();
+        const ext = audioDraftBlob.type.includes('ogg') ? 'ogg' : 'webm';
+        fd.append('file', audioDraftBlob, `audio-${Date.now()}.${ext}`);
+
+        console.log('[AUDIO] Uploading to:', UPLOAD_URL);
+        const res = await fetch(UPLOAD_URL, { method: 'POST', body: fd });
+        const json = await res.json();
+
+        if (!json.success && !json.ok) {
+          throw new Error(json.error || 'Upload failed');
+        }
+
+        const audioUrl = json.url;
+
+        // Send audio message over WS
+        const messageData = {
+          type: 'audio',
+          id: messageId,
+          messageId: messageId,
+          nickname,
+          timestamp: Date.now(),
+          url: audioUrl,
+          caption: caption || ''
+        };
+
+        ws.send(JSON.stringify(messageData));
+        console.log('[AUDIO] Sent audio message, id=' + messageId);
+
+        // Update the optimistic message with the real URL
+        const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
+        if (msgElement) {
+          const audio = msgElement.querySelector('audio');
+          if (audio) {
+            audio.src = audioUrl;
+          }
+        }
+
+        // Clean up draft
+        discardAudioDraft();
+
+      } catch (error) {
+        console.error('[AUDIO] Upload error:', error);
+        showStatus('Audio upload failed: ' + error.message, 'error');
+        
+        // Mark message as error
+        const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
+        if (msgElement) {
+          msgElement.classList.remove('message-sending');
+          msgElement.classList.add('message-error');
+          const statusSpan = msgElement.querySelector('.message-status');
+          if (statusSpan) {
+            statusSpan.textContent = 'Failed to send';
+          }
+        }
+        
+        pendingMessages.delete(messageId);
+        
+        // Keep draft so user can retry
+      } finally {
+        sendBtn.disabled = false;
+      }
     }
 
     function toggleAudioRecording() {
