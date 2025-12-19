@@ -1,0 +1,31 @@
+CLOUDFLARE TUNNEL CONFIGURATION
+===============================
+
+The upload server runs on port 8082 and needs its own tunnel hostname.
+
+REQUIRED TUNNEL CONFIGURATION:
+------------------------------
+
+Add to your cloudflared config.yml (typically at ~/.cloudflared/config.yml):
+
+ingress:
+  - hostname: ws.ldawg7624.com
+    service: http://localhost:8080
+  - hostname: upload.ldawg7624.com
+    service: http://localhost:8082
+  - service: http_status:404
+
+EXPLANATION:
+- ws.ldawg7624.com -> port 8080 (WebSocket + tank game server)
+- upload.ldawg7624.com -> port 8082 (HTTP upload service)
+
+After updating the config, restart cloudflared:
+  sudo systemctl restart cloudflared
+
+Or if running manually:
+  cloudflared tunnel run
+
+VERIFY:
+After cloudflared restarts, test:
+  curl -i https://upload.ldawg7624.com/
+Should return: {"service":"Kennedy Chat Upload Service","status":"ok","port":8082}

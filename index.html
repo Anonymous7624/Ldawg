@@ -181,8 +181,8 @@
 
     .message-image {
       margin-top: 10px;
-      max-width: 240px;
-      max-height: 320px;
+      max-width: 192px;
+      max-height: 256px;
       cursor: pointer;
       border-radius: 8px;
       object-fit: cover;
@@ -598,18 +598,18 @@
     </div>
 
     <div class="sidebar">
-      <h2 style="font-size: 20px; font-weight: 700;">Rules</h2>
+      <h2 style="font-size: 22px; font-weight: 700;">Rules</h2>
       <div class="sidebar-content" style="margin-bottom: 25px;">
         <p>No spamming. Violators will be muted for 60 seconds.</p>
       </div>
       
-      <h2 style="font-size: 20px; font-weight: 700;">Benefits</h2>
+      <h2 style="font-size: 22px; font-weight: 700;">Benefits</h2>
       <div class="sidebar-content">
         <ul style="list-style: disc; padding-left: 20px; line-height: 2;">
-          <li>No moderators or censorship</li>
-          <li>No login or registration needed</li>
-          <li>Photo and GIF uploads supported</li>
-          <li>Clean UI with Dark Mode</li>
+          <li>No moderators</li>
+          <li>No login needed</li>
+          <li>Photo and GIF uploads</li>
+          <li>Cleaner UI and Dark Mode</li>
         </ul>
       </div>
     </div>
@@ -658,12 +658,8 @@
     // WebSocket configuration
     const WS_URL = 'wss://ws.ldawg7624.com';
     
-    // Upload configuration - try multiple endpoints if primary fails
-    const UPLOAD_ENDPOINTS = [
-      'https://ws.ldawg7624.com',        // Primary: same domain as WebSocket
-      'https://ldawg7624.com',           // Fallback: main domain (if server is accessible there)
-      'https://api.ldawg7624.com'        // Fallback: API subdomain (if configured)
-    ];
+    // Upload configuration
+    const UPLOAD_URL = 'https://upload.ldawg7624.com/upload';
 
     // Generate UUID v4
     function generateUUID() {
@@ -927,61 +923,24 @@
           // Store the file reference before removing composer
           const fileToUpload = selectedFile;
           
-          // Upload the file - try multiple endpoints if needed
+          // Upload the file
           const formData = new FormData();
           formData.append('file', fileToUpload);
           
-          let response = null;
-          let lastError = null;
+          console.log('[UPLOAD] Uploading to:', UPLOAD_URL);
+          console.log('[UPLOAD] File:', fileToUpload.name, 'Size:', fileToUpload.size);
           
-          for (let i = 0; i < UPLOAD_ENDPOINTS.length; i++) {
-            const endpoint = UPLOAD_ENDPOINTS[i];
-            const uploadUrl = endpoint + '/upload';
-            
-            try {
-              console.log(`[UPLOAD] Attempt ${i + 1}/${UPLOAD_ENDPOINTS.length}: ${uploadUrl}`);
-              console.log('[UPLOAD] File:', fileToUpload.name, 'Size:', fileToUpload.size);
-              
-              response = await fetch(uploadUrl, {
-                method: 'POST',
-                body: formData
-              });
+          const response = await fetch(UPLOAD_URL, {
+            method: 'POST',
+            body: formData
+          });
 
-              console.log('[UPLOAD] Response status:', response.status, response.statusText);
-              console.log('[UPLOAD] Response headers ACAO:', response.headers.get('access-control-allow-origin'));
-              console.log('[UPLOAD] Response content-type:', response.headers.get('content-type'));
-              
-              // Log all response headers
-              const allHeaders = {};
-              response.headers.forEach((value, key) => {
-                allHeaders[key] = value;
-              });
-              console.log('[UPLOAD] All response headers:', allHeaders);
-              
-              // Check for 426 Upgrade Required error
-              if (response.status === 426) {
-                console.error('[UPLOAD] ❌ 426 Upgrade Required - This endpoint only accepts WebSocket connections');
-                console.error('[UPLOAD] This means the tunnel/proxy is misconfigured to reject HTTP requests');
-                lastError = new Error('Upload endpoint is WebSocket-only (426). Server configuration error.');
-                continue; // Try next endpoint
-              }
-              
-              // If we got a response that's not 426, break and use it
-              if (response.status >= 200 && response.status < 500) {
-                break;
-              }
-              
-              lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
-            } catch (error) {
-              console.error(`[UPLOAD] Fetch error for ${uploadUrl}:`, error.message);
-              lastError = error;
-              continue; // Try next endpoint
-            }
-          }
+          console.log('[UPLOAD] Response status:', response.status, response.statusText);
+          console.log('[UPLOAD] Response headers ACAO:', response.headers.get('access-control-allow-origin'));
           
-          if (!response || response.status === 426) {
+          if (!response.ok) {
             clearTimeout(ackTimeout);
-            throw lastError || new Error('All upload endpoints failed');
+            throw new Error(`Upload failed: ${response.status} ${response.statusText}`);
           }
 
           // Check if response is JSON
@@ -997,14 +956,12 @@
 
           if (result.success || result.ok) {
             // Upload successful - send via WebSocket
-            const absoluteUrl = result.url.startsWith('http') ? result.url : API_BASE + result.url;
-            
             const wsMessage = {
               type: 'image',
               id: messageId,
               nickname,
               timestamp,
-              url: absoluteUrl,
+              url: result.url,
               filename: result.filename || result.name,
               mime: result.mime,
               size: result.size,
@@ -1021,8 +978,8 @@
             if (msgElement) {
               const img = msgElement.querySelector('.message-image');
               if (img) {
-                img.src = absoluteUrl;
-                img.setAttribute('data-url', absoluteUrl);
+                img.src = result.url;
+                img.setAttribute('data-url', result.url);
               }
             }
           } else {
