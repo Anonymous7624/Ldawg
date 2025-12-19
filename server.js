@@ -358,19 +358,20 @@ wss.on('connection', (ws, req) => {
         return;
       }
 
-      if (message.type === 'ping') {
-        // Handle ping - send ACK immediately for connection test
-        console.log(`[PING] Received ping from ${connectionId}, messageId=${msgId}`);
-        const ackPayload = {
-          type: 'ack',
+      // Ping -> ACK (so browser self-test passes)
+      if (message.type === "ping") {
+        const msgId = message.messageId || message.id || crypto.randomBytes(8).toString("hex");
+        ws.send(JSON.stringify({
+          type: "ack",
           id: msgId,
           messageId: msgId,
           serverTime: new Date().toISOString(),
           instanceId: SERVER_INSTANCE_ID
-        };
-        ws.send(JSON.stringify(ackPayload));
-        console.log(`[PING] Sent ACK for ping id=${msgId} messageId=${msgId} to ${clientId}`);
-      } else if (message.type === 'text') {
+        }));
+        return;
+      }
+      
+      if (message.type === 'text') {
         // Validate input
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
         const text = (message.text || '').substring(0, 1000);
