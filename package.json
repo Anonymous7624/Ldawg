@@ -1,12 +1,12 @@
 {
-  "name": "global-chat-room",
+  "name": "kennedy-chat",
   "version": "1.0.0",
-  "description": "Global Chat Room for Raspberry Pi with WebSocket support",
+  "description": "Kennedy Chat - Real-time communication server with WebSocket support",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
-  "keywords": ["chat", "websocket", "raspberry-pi"],
+  "keywords": ["chat", "websocket", "kennedy", "real-time"],
   "author": "",
   "license": "MIT",
   "dependencies": {

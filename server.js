@@ -19,6 +19,17 @@ const MUTE_DURATION_FIRST = 15000; // 15 seconds
 const MUTE_DURATION_STRIKES = 120000; // 120 seconds
 const UPLOAD_CLEANUP_AGE = 60 * 60 * 1000; // 1 hour
 
+// CORS middleware - allows GitHub Pages to access this API
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  next();
+});
+
 // In-memory state
 const chatHistory = [];
 const uploadFiles = new Map(); // Map of upload ID to {filename, timestamp, path}
@@ -68,8 +79,11 @@ app.get('/healthz', (req, res) => {
 // Upload endpoint
 app.post('/upload', upload.single('file'), (req, res) => {
   try {
+    console.log('[UPLOAD] Received upload request');
+    
     if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
+      console.log('[UPLOAD] Error: No file in request');
+      return res.status(400).json({ success: false, error: 'No file uploaded' });
     }
 
     const ext = path.extname(req.file.originalname).toLowerCase();
@@ -87,6 +101,8 @@ app.post('/upload', upload.single('file'), (req, res) => {
       path: req.file.path
     });
 
+    console.log(`[UPLOAD] Success: ${req.file.originalname} (${req.file.size} bytes, ${mime})`);
+
     res.json({
       success: true,
       url: uploadUrl,
@@ -96,7 +112,8 @@ app.post('/upload', upload.single('file'), (req, res) => {
       isImage
     });
   } catch (error) {
-    res.status(500).json({ error: error.message });
+    console.error('[UPLOAD] Error:', error.message);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 
@@ -145,11 +162,17 @@ function addToHistory(message) {
 // Broadcast message to all connected clients
 function broadcast(message) {
   const data = JSON.stringify(message);
+  let recipientCount = 0;
+  
   wss.clients.forEach(client => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(data);
+      recipientCount++;
     }
   });
+  
+  console.log(`[BROADCAST] Sent message type=${message.type} to ${recipientCount} clients`);
+  return recipientCount;
 }
 
 // Rate limiting
@@ -209,22 +232,29 @@ function checkRateLimit(clientId) {
 
 // WebSocket connection handler
 wss.on('connection', (ws, req) => {
-  const clientId = req.socket.remoteAddress;
-  console.log(`Client connected: ${clientId}`);
+  const clientId = req.socket.remoteAddress + ':' + req.socket.remotePort;
+  const connectionId = crypto.randomBytes(4).toString('hex');
+  
+  console.log(`[CONNECT] Client connected: ${clientId} (id: ${connectionId})`);
+  console.log(`[CONNECT] Total clients: ${wss.clients.size}`);
 
   // Send chat history
   ws.send(JSON.stringify({
     type: 'history',
     items: chatHistory
   }));
+  
+  console.log(`[HISTORY] Sent ${chatHistory.length} messages to ${connectionId}`);
 
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data);
+      console.log(`[MESSAGE] Received from ${connectionId}: type=${message.type}, length=${data.length} bytes`);
 
       // Rate limit check
       const rateLimitResult = checkRateLimit(clientId);
       if (!rateLimitResult.allowed) {
+        console.log(`[RATE-LIMIT] Client ${connectionId} muted for ${rateLimitResult.seconds}s (strikes: ${rateLimitResult.strikes})`);
         ws.send(JSON.stringify({
           type: 'muted',
           seconds: rateLimitResult.seconds,
@@ -239,6 +269,7 @@ wss.on('connection', (ws, req) => {
         const text = (message.text || '').substring(0, 1000);
 
         if (!text.trim()) {
+          console.log(`[MESSAGE] Ignored empty text from ${connectionId}`);
           return;
         }
 
@@ -252,6 +283,7 @@ wss.on('connection', (ws, req) => {
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
+        console.log(`[MESSAGE] Text message from ${nickname}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
       } else if (message.type === 'image') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
 
@@ -268,6 +300,7 @@ wss.on('connection', (ws, req) => {
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
+        console.log(`[MESSAGE] Image from ${nickname}: ${message.filename} (${message.size} bytes)`);
       } else if (message.type === 'file') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
 
@@ -284,14 +317,20 @@ wss.on('connection', (ws, req) => {
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
+        console.log(`[MESSAGE] File from ${nickname}: ${message.filename} (${message.size} bytes)`);
       }
     } catch (error) {
-      console.error('Error processing message:', error);
+      console.error(`[ERROR] Processing message from ${connectionId}:`, error.message);
     }
   });
 
-  ws.on('close', () => {
-    console.log(`Client disconnected: ${clientId}`);
+  ws.on('close', (code, reason) => {
+    console.log(`[DISCONNECT] Client ${connectionId} disconnected: code=${code}, reason=${reason || 'none'}`);
+    console.log(`[DISCONNECT] Remaining clients: ${wss.clients.size}`);
+  });
+  
+  ws.on('error', (error) => {
+    console.error(`[ERROR] WebSocket error for ${connectionId}:`, error.message);
   });
 });
 
@@ -312,6 +351,12 @@ setInterval(() => {
 
 // Start server
 server.listen(PORT, () => {
-  console.log(`Global Chat Room server running on port ${PORT}`);
-  console.log(`Access at http://localhost:${PORT}`);
+  console.log(`========================================`);
+  console.log(`Kennedy Chat Server`);
+  console.log(`========================================`);
+  console.log(`Port: ${PORT}`);
+  console.log(`WebSocket: ws://localhost:${PORT}`);
+  console.log(`HTTP API: http://localhost:${PORT}`);
+  console.log(`Uploads dir: ${UPLOADS_DIR}`);
+  console.log(`========================================`);
 });
