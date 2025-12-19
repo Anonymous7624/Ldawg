@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Global Chat Room</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      transition: background 0.3s ease;
+    }
+
+    body.light-mode {
+      background: linear-gradient(135deg, #e0f4ff 0%, #ffffff 100%);
+      color: #333;
+    }
+
+    body.dark-mode {
+      background: linear-gradient(135deg, #001a33 0%, #003366 100%);
+      color: #ffffff;
+    }
+
+    .container {
+      display: flex;
+      height: 100vh;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    .main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+      min-width: 0;
+    }
+
+    .sidebar {
+      width: 300px;
+      padding: 20px;
+      border-left: 1px solid rgba(0, 0, 0, 0.1);
+      overflow-y: auto;
+    }
+
+    body.dark-mode .sidebar {
+      border-left-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 600;
+    }
+
+    .dark-mode-toggle {
+      background: rgba(0, 0, 0, 0.1);
+      border: none;
+      padding: 10px 20px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.3s ease;
+    }
+
+    body.dark-mode .dark-mode-toggle {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+
+    .dark-mode-toggle:hover {
+      transform: scale(1.05);
+    }
+
+    .chat-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: rgba(255, 255, 255, 0.7);
+      border-radius: 15px;
+      padding: 20px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+    }
+
+    body.dark-mode .chat-container {
+      background: rgba(0, 26, 51, 0.5);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      margin-bottom: 20px;
+      padding-right: 10px;
+    }
+
+    .messages::-webkit-scrollbar {
+      width: 8px;
+    }
+
+    .messages::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 10px;
+    }
+
+    .messages::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 10px;
+    }
+
+    body.dark-mode .messages::-webkit-scrollbar-track {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    body.dark-mode .messages::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .message {
+      margin-bottom: 15px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.5);
+      border-radius: 10px;
+      animation: slideIn 0.3s ease;
+    }
+
+    body.dark-mode .message {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    @keyframes slideIn {
+      from {
+        opacity: 0;
+        transform: translateY(10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .message-header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 5px;
+      font-size: 12px;
+      opacity: 0.7;
+    }
+
+    .nickname {
+      font-weight: 600;
+      color: #0066cc;
+    }
+
+    body.dark-mode .nickname {
+      color: #66b3ff;
+    }
+
+    .timestamp {
+      font-size: 11px;
+    }
+
+    .message-content {
+      word-wrap: break-word;
+      line-height: 1.5;
+    }
+
+    .message-image {
+      margin-top: 10px;
+      max-width: 300px;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: transform 0.2s ease;
+    }
+
+    .message-image:hover {
+      transform: scale(1.02);
+    }
+
+    .message-file {
+      margin-top: 10px;
+      padding: 10px;
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 8px;
+      display: inline-block;
+    }
+
+    body.dark-mode .message-file {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .message-file a {
+      color: #0066cc;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    body.dark-mode .message-file a {
+      color: #66b3ff;
+    }
+
+    .file-info {
+      font-size: 11px;
+      opacity: 0.7;
+      margin-top: 5px;
+    }
+
+    .input-section {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    input[type="text"],
+    textarea {
+      flex: 1;
+      padding: 12px;
+      border: 2px solid rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.8);
+      font-size: 14px;
+      font-family: inherit;
+      transition: all 0.3s ease;
+    }
+
+    body.dark-mode input[type="text"],
+    body.dark-mode textarea {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+
+    input[type="text"]:focus,
+    textarea:focus {
+      outline: none;
+      border-color: #0066cc;
+    }
+
+    body.dark-mode input[type="text"]:focus,
+    body.dark-mode textarea:focus {
+      border-color: #66b3ff;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 60px;
+    }
+
+    .message-controls {
+      display: flex;
+      gap: 10px;
+    }
+
+    button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .btn-primary {
+      background: #0066cc;
+      color: white;
+      flex: 1;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: #0052a3;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(0, 102, 204, 0.3);
+    }
+
+    .btn-icon {
+      background: rgba(0, 0, 0, 0.1);
+      padding: 12px;
+      width: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    body.dark-mode .btn-icon {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+
+    .btn-icon:hover:not(:disabled) {
+      background: rgba(0, 0, 0, 0.2);
+      transform: scale(1.1);
+    }
+
+    body.dark-mode .btn-icon:hover:not(:disabled) {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .sidebar h2 {
+      font-size: 18px;
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid rgba(0, 102, 204, 0.3);
+    }
+
+    .sidebar-content {
+      font-size: 14px;
+      line-height: 1.8;
+      opacity: 0.8;
+    }
+
+    /* Modal styles */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .modal.active {
+      display: flex;
+    }
+
+    .modal-content {
+      background: white;
+      padding: 30px;
+      border-radius: 15px;
+      max-width: 90%;
+      max-height: 90%;
+      overflow: auto;
+      position: relative;
+    }
+
+    body.dark-mode .modal-content {
+      background: #003366;
+    }
+
+    .modal-close {
+      position: absolute;
+      top: 15px;
+      right: 15px;
+      background: rgba(0, 0, 0, 0.2);
+      border: none;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      font-size: 24px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    body.dark-mode .modal-close {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+
+    .camera-preview {
+      max-width: 100%;
+      border-radius: 10px;
+      margin-bottom: 20px;
+    }
+
+    .camera-controls {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+    }
+
+    .fullscreen-image {
+      max-width: 100%;
+      max-height: 80vh;
+      border-radius: 10px;
+    }
+
+    .status-message {
+      padding: 10px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      text-align: center;
+      font-size: 14px;
+      font-weight: 500;
+    }
+
+    .status-error {
+      background: rgba(220, 53, 69, 0.2);
+      color: #dc3545;
+    }
+
+    .status-muted {
+      background: rgba(255, 193, 7, 0.2);
+      color: #856404;
+    }
+
+    body.dark-mode .status-muted {
+      color: #ffc107;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    input[type="file"] {
+      display: none;
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        flex-direction: column;
+      }
+
+      .sidebar {
+        width: 100%;
+        border-left: none;
+        border-top: 1px solid rgba(0, 0, 0, 0.1);
+        max-height: 200px;
+      }
+
+      body.dark-mode .sidebar {
+        border-top-color: rgba(255, 255, 255, 0.2);
+      }
+    }
+  </style>
+</head>
+<body class="light-mode">
+  <div class="container">
+    <div class="main-content">
+      <div class="header">
+        <h1>🌍 Global Chat Room</h1>
+        <button class="dark-mode-toggle" onclick="toggleDarkMode()">🌙 Dark Mode</button>
+      </div>
+
+      <div class="chat-container">
+        <div class="messages" id="messages"></div>
+
+        <div id="statusMessage" class="hidden"></div>
+
+        <div class="input-section">
+          <input 
+            type="text" 
+            id="nickname" 
+            placeholder="Your nickname (max 100 chars)" 
+            maxlength="100"
+            autocomplete="off"
+          >
+          <div class="input-row">
+            <textarea 
+              id="messageInput" 
+              placeholder="Type your message (max 1000 chars)" 
+              maxlength="1000"
+            ></textarea>
+          </div>
+          <div class="message-controls">
+            <button class="btn-icon" onclick="openCamera()" title="Take Photo" id="cameraBtn">
+              📷
+            </button>
+            <button class="btn-icon" onclick="document.getElementById('fileInput').click()" title="Upload File" id="fileBtn">
+              📎
+            </button>
+            <button class="btn-primary" onclick="sendMessage()" id="sendBtn">Send Message</button>
+          </div>
+          <input type="file" id="fileInput" onchange="handleFileUpload()" accept="*/*">
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar">
+      <h2>Why This Chat Stands Out</h2>
+      <div class="sidebar-content">
+        <p>Real-time global communication with no barriers.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Camera Modal -->
+  <div id="cameraModal" class="modal">
+    <div class="modal-content">
+      <button class="modal-close" onclick="closeCamera()">×</button>
+      <h2 style="margin-bottom: 20px;">Take a Photo</h2>
+      <video id="cameraPreview" class="camera-preview" autoplay playsinline></video>
+      <canvas id="cameraCanvas" style="display: none;"></canvas>
+      <div class="camera-controls">
+        <button class="btn-primary" onclick="capturePhoto()">📸 Capture</button>
+        <button onclick="closeCamera()" style="background: #6c757d; color: white;">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Image Preview Modal -->
+  <div id="imageModal" class="modal" onclick="closeImagePreview()">
+    <div class="modal-content" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="closeImagePreview()">×</button>
+      <img id="fullscreenImage" class="fullscreen-image" src="" alt="Full size image">
+    </div>
+  </div>
+
+  <script>
+    let ws;
+    let reconnectTimeout;
+    let muteTimer;
+    let cameraStream;
+    const isDarkMode = localStorage.getItem('darkMode') === 'true';
+
+    // Apply saved theme
+    if (isDarkMode) {
+      document.body.className = 'dark-mode';
+      document.querySelector('.dark-mode-toggle').textContent = '☀️ Light Mode';
+    }
+
+    // Connect to WebSocket
+    function connect() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(`${protocol}//${window.location.host}`);
+
+      ws.onopen = () => {
+        console.log('Connected to chat server');
+        clearTimeout(reconnectTimeout);
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'history') {
+          displayHistory(data.items);
+        } else if (data.type === 'text' || data.type === 'image' || data.type === 'file') {
+          addMessage(data);
+        } else if (data.type === 'muted') {
+          handleMuted(data);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('Disconnected from chat server');
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
+
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+      };
+    }
+
+    connect();
+
+    function displayHistory(items) {
+      const messagesDiv = document.getElementById('messages');
+      messagesDiv.innerHTML = '';
+      items.forEach(item => addMessage(item, false));
+      scrollToBottom();
+    }
+
+    function addMessage(data, scroll = true) {
+      const messagesDiv = document.getElementById('messages');
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'message';
+
+      const timestamp = new Date(data.timestamp).toLocaleString();
+      
+      let content = '';
+      if (data.type === 'text') {
+        content = `<div class="message-content">${escapeHtml(data.text)}</div>`;
+      } else if (data.type === 'image') {
+        content = `
+          <div class="message-content">Shared an image</div>
+          <img src="${data.url}" class="message-image" onclick="openImagePreview('${data.url}')" alt="${escapeHtml(data.filename)}">
+        `;
+      } else if (data.type === 'file') {
+        const sizeStr = formatFileSize(data.size);
+        content = `
+          <div class="message-content">Shared a file</div>
+          <div class="message-file">
+            <a href="${data.url}" download="${escapeHtml(data.filename)}">📄 ${escapeHtml(data.filename)}</a>
+            <div class="file-info">${sizeStr} · ${data.mime}</div>
+          </div>
+        `;
+      }
+
+      messageDiv.innerHTML = `
+        <div class="message-header">
+          <span class="nickname">${escapeHtml(data.nickname)}</span>
+          <span class="timestamp">${timestamp}</span>
+        </div>
+        ${content}
+      `;
+
+      messagesDiv.appendChild(messageDiv);
+      if (scroll) {
+        scrollToBottom();
+      }
+    }
+
+    function sendMessage() {
+      const nicknameInput = document.getElementById('nickname');
+      const messageInput = document.getElementById('messageInput');
+      const text = messageInput.value.trim();
+
+      if (!text || ws.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      const nickname = nicknameInput.value.trim() || 'Anonymous';
+
+      ws.send(JSON.stringify({
+        type: 'text',
+        nickname: nickname.substring(0, 100),
+        text: text.substring(0, 1000)
+      }));
+
+      messageInput.value = '';
+    }
+
+    function handleMuted(data) {
+      const statusDiv = document.getElementById('statusMessage');
+      statusDiv.className = 'status-message status-muted';
+      statusDiv.textContent = `⏸️ Rate limit exceeded! Muted for ${data.seconds} seconds. Strikes: ${data.strikes}`;
+      statusDiv.classList.remove('hidden');
+
+      // Disable inputs
+      disableInputs(true);
+
+      // Clear existing timer
+      clearTimeout(muteTimer);
+
+      // Start countdown
+      let remaining = data.seconds;
+      const countdownInterval = setInterval(() => {
+        remaining--;
+        if (remaining > 0) {
+          statusDiv.textContent = `⏸️ Rate limit exceeded! Muted for ${remaining} seconds. Strikes: ${data.strikes}`;
+        } else {
+          clearInterval(countdownInterval);
+        }
+      }, 1000);
+
+      // Re-enable after mute period
+      muteTimer = setTimeout(() => {
+        statusDiv.classList.add('hidden');
+        disableInputs(false);
+      }, data.seconds * 1000);
+    }
+
+    function disableInputs(disabled) {
+      document.getElementById('sendBtn').disabled = disabled;
+      document.getElementById('messageInput').disabled = disabled;
+      document.getElementById('cameraBtn').disabled = disabled;
+      document.getElementById('fileBtn').disabled = disabled;
+    }
+
+    async function handleFileUpload() {
+      const fileInput = document.getElementById('fileInput');
+      const file = fileInput.files[0];
+      
+      if (!file) return;
+
+      if (file.size > 10 * 1024 * 1024) {
+        alert('File size must be less than 10MB');
+        fileInput.value = '';
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      try {
+        const response = await fetch('/upload', {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          const nickname = document.getElementById('nickname').value.trim() || 'Anonymous';
+          
+          const messageType = result.isImage ? 'image' : 'file';
+          
+          ws.send(JSON.stringify({
+            type: messageType,
+            nickname: nickname.substring(0, 100),
+            url: result.url,
+            filename: result.filename,
+            mime: result.mime,
+            size: result.size
+          }));
+        } else {
+          alert('Upload failed: ' + result.error);
+        }
+      } catch (error) {
+        alert('Upload error: ' + error.message);
+      }
+
+      fileInput.value = '';
+    }
+
+    async function openCamera() {
+      try {
+        const modal = document.getElementById('cameraModal');
+        const video = document.getElementById('cameraPreview');
+        
+        cameraStream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'user' },
+          audio: false 
+        });
+        
+        video.srcObject = cameraStream;
+        modal.classList.add('active');
+      } catch (error) {
+        alert('Camera access denied or not available: ' + error.message);
+      }
+    }
+
+    function closeCamera() {
+      const modal = document.getElementById('cameraModal');
+      const video = document.getElementById('cameraPreview');
+      
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+      }
+      
+      video.srcObject = null;
+      modal.classList.remove('active');
+    }
+
+    async function capturePhoto() {
+      const video = document.getElementById('cameraPreview');
+      const canvas = document.getElementById('cameraCanvas');
+      const context = canvas.getContext('2d');
+
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0);
+
+      canvas.toBlob(async (blob) => {
+        const formData = new FormData();
+        formData.append('file', blob, `camera-${Date.now()}.jpg`);
+
+        try {
+          const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+          });
+
+          const result = await response.json();
+
+          if (result.success) {
+            const nickname = document.getElementById('nickname').value.trim() || 'Anonymous';
+            
+            ws.send(JSON.stringify({
+              type: 'image',
+              nickname: nickname.substring(0, 100),
+              url: result.url,
+              filename: result.filename,
+              mime: result.mime,
+              size: result.size
+            }));
+
+            closeCamera();
+          } else {
+            alert('Upload failed: ' + result.error);
+          }
+        } catch (error) {
+          alert('Upload error: ' + error.message);
+        }
+      }, 'image/jpeg', 0.8);
+    }
+
+    function openImagePreview(url) {
+      const modal = document.getElementById('imageModal');
+      const img = document.getElementById('fullscreenImage');
+      img.src = url;
+      modal.classList.add('active');
+    }
+
+    function closeImagePreview() {
+      const modal = document.getElementById('imageModal');
+      modal.classList.remove('active');
+    }
+
+    function toggleDarkMode() {
+      const body = document.body;
+      const button = document.querySelector('.dark-mode-toggle');
+      
+      if (body.classList.contains('light-mode')) {
+        body.className = 'dark-mode';
+        button.textContent = '☀️ Light Mode';
+        localStorage.setItem('darkMode', 'true');
+      } else {
+        body.className = 'light-mode';
+        button.textContent = '🌙 Dark Mode';
+        localStorage.setItem('darkMode', 'false');
+      }
+    }
+
+    function scrollToBottom() {
+      const messagesDiv = document.getElementById('messages');
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    // Send message on Enter key
+    document.getElementById('messageInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  </script>
+</body>
+</html>
