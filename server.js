@@ -333,12 +333,15 @@ wss.on('connection', (ws, req) => {
   ws.on('message', (data) => {
     try {
       const message = JSON.parse(data);
-      const msgId = message.id || crypto.randomBytes(8).toString('hex');
+      // Backward compatible: accept both messageId and id
+      const msgId = message.messageId || message.id || crypto.randomBytes(8).toString('hex');
       console.log(`[MESSAGE] ========================================`);
       console.log(`[MESSAGE] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
       console.log(`[MESSAGE] Received from ${connectionId} (${clientId})`);
       console.log(`[MESSAGE] Type: ${message.type}`);
       console.log(`[MESSAGE] ID: ${msgId}`);
+      console.log(`[MESSAGE] message.messageId: ${message.messageId}`);
+      console.log(`[MESSAGE] message.id: ${message.id}`);
       console.log(`[MESSAGE] Size: ${data.length} bytes`);
       console.log(`[MESSAGE] Timestamp: ${new Date().toISOString()}`);
       console.log(`[MESSAGE] ========================================`);
@@ -360,12 +363,13 @@ wss.on('connection', (ws, req) => {
         console.log(`[PING] Received ping from ${connectionId}, messageId=${msgId}`);
         const ackPayload = {
           type: 'ack',
+          id: msgId,
           messageId: msgId,
           serverTime: new Date().toISOString(),
           instanceId: SERVER_INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[PING] Sent ACK for ping messageId=${msgId} to ${clientId}`);
+        console.log(`[PING] Sent ACK for ping id=${msgId} messageId=${msgId} to ${clientId}`);
       } else if (message.type === 'text') {
         // Validate input
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
@@ -387,12 +391,13 @@ wss.on('connection', (ws, req) => {
         // Send ACK to sender immediately
         const ackPayload = {
           type: 'ack',
+          id: msgId,
           messageId: msgId,
           serverTime: new Date().toISOString(),
           instanceId: SERVER_INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for messageId=${msgId} to ${clientId}`);
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for id=${msgId} messageId=${msgId} to ${clientId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -415,12 +420,13 @@ wss.on('connection', (ws, req) => {
         // Send ACK to sender immediately
         const ackPayload = {
           type: 'ack',
+          id: msgId,
           messageId: msgId,
           serverTime: new Date().toISOString(),
           instanceId: SERVER_INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for image messageId=${msgId} to ${clientId}`);
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for image id=${msgId} messageId=${msgId} to ${clientId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
@@ -442,12 +448,13 @@ wss.on('connection', (ws, req) => {
         // Send ACK to sender immediately
         const ackPayload = {
           type: 'ack',
+          id: msgId,
           messageId: msgId,
           serverTime: new Date().toISOString(),
           instanceId: SERVER_INSTANCE_ID
         };
         ws.send(JSON.stringify(ackPayload));
-        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for file messageId=${msgId} to ${clientId}`);
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for file id=${msgId} messageId=${msgId} to ${clientId}`);
 
         addToHistory(chatMessage);
         broadcast(chatMessage);
