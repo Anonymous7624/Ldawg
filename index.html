@@ -254,6 +254,44 @@
       margin-top: 5px;
     }
 
+    .file-warning {
+      font-size: 11px;
+      font-style: italic;
+      opacity: 0.7;
+      margin-top: 5px;
+      color: #856404;
+    }
+
+    body.dark-mode .file-warning {
+      color: #ffc107;
+    }
+
+    .file-download-btn {
+      display: inline-block;
+      padding: 8px 16px;
+      background: #0066cc;
+      color: white;
+      text-decoration: none;
+      border-radius: 5px;
+      font-size: 13px;
+      font-weight: 600;
+      transition: all 0.2s;
+      margin-top: 8px;
+    }
+
+    .file-download-btn:hover {
+      background: #0052a3;
+      transform: translateY(-1px);
+    }
+
+    body.dark-mode .file-download-btn {
+      background: #3b82f6;
+    }
+
+    body.dark-mode .file-download-btn:hover {
+      background: #2563eb;
+    }
+
     .input-section {
       display: flex;
       flex-direction: column;
@@ -439,10 +477,56 @@
       border-radius: 8px;
       margin-bottom: 8px;
       flex-wrap: wrap;
+      transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.3s ease;
+      overflow: hidden;
+      max-height: 200px;
+    }
+
+    .text-toolbar.collapsed {
+      max-height: 0;
+      padding: 0 10px;
+      opacity: 0;
+      margin-bottom: 0;
     }
 
     body.dark-mode .text-toolbar {
       background: rgba(255, 255, 255, 0.05);
+    }
+
+    .toolbar-toggle {
+      background: rgba(0, 0, 0, 0.05);
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      padding: 4px 12px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 11px;
+      margin-bottom: 8px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+
+    body.dark-mode .toolbar-toggle {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+
+    .toolbar-toggle:hover {
+      background: rgba(0, 0, 0, 0.1);
+    }
+
+    body.dark-mode .toolbar-toggle:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .toolbar-toggle-icon {
+      transition: transform 0.3s ease;
+    }
+
+    .toolbar-toggle-icon.expanded {
+      transform: rotate(180deg);
     }
 
     .toolbar-btn {
@@ -529,6 +613,24 @@
 
     .emoji-panel span:hover {
       transform: scale(1.3);
+    }
+
+    .quick-emoji {
+      font-size: 20px;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 5px;
+      transition: all 0.2s;
+      display: inline-block;
+    }
+
+    .quick-emoji:hover {
+      background: rgba(0, 0, 0, 0.1);
+      transform: scale(1.2);
+    }
+
+    body.dark-mode .quick-emoji:hover {
+      background: rgba(255, 255, 255, 0.2);
     }
 
     #composer {
@@ -885,28 +987,32 @@
             </div>
           </div>
 
+          <!-- Toolbar Toggle Button -->
+          <button class="toolbar-toggle" onclick="toggleToolbar()" id="toolbarToggle">
+            <span class="toolbar-toggle-icon" id="toolbarToggleIcon">▼</span>
+            <span>Formatting</span>
+          </button>
+
           <!-- Rich Text Toolbar -->
-          <div class="text-toolbar">
-            <button class="toolbar-btn" onclick="formatText('bold')" title="Bold">B</button>
-            <button class="toolbar-btn" onclick="formatText('italic')" title="Italic">I</button>
-            <button class="toolbar-btn" onclick="formatText('underline')" title="Underline">U</button>
-            <select class="toolbar-select" onchange="setFont(this.value)">
-              <option value="">Font</option>
-              <option value="Arial">Arial</option>
-              <option value="Georgia">Georgia</option>
-              <option value="Times New Roman">Times</option>
-              <option value="Courier New">Courier</option>
+          <div class="text-toolbar collapsed" id="textToolbar">
+            <button class="toolbar-btn" onclick="formatText('bold')" title="Bold"><b>B</b></button>
+            <button class="toolbar-btn" onclick="formatText('italic')" title="Italic"><i>I</i></button>
+            <button class="toolbar-btn" onclick="formatText('underline')" title="Underline"><u>U</u></button>
+            <select class="toolbar-select" onchange="setTextStyle(this.value)" id="styleSelect">
+              <option value="">Style</option>
+              <option value="monospace">Monospace</option>
             </select>
-            <select class="toolbar-select" onchange="setFontSize(this.value)">
-              <option value="">Size</option>
-              <option value="12px">12</option>
-              <option value="14px">14</option>
-              <option value="16px">16</option>
-              <option value="18px">18</option>
-              <option value="22px">22</option>
-            </select>
+            
+            <!-- Quick Emojis -->
+            <span class="quick-emoji" onclick="insertEmojiQuick('❤️')" title="Heart">❤️</span>
+            <span class="quick-emoji" onclick="insertEmojiQuick('😂')" title="Laughing">😂</span>
+            <span class="quick-emoji" onclick="insertEmojiQuick('😭')" title="Crying">😭</span>
+            <span class="quick-emoji" onclick="insertEmojiQuick('👍')" title="Thumbs up">👍</span>
+            <span class="quick-emoji" onclick="insertEmojiQuick('🔥')" title="Fire">🔥</span>
+            
+            <!-- Emoji Picker Dropdown -->
             <div class="emoji-picker-container">
-              <button class="toolbar-btn" onclick="toggleEmojiPicker()" title="Emoji">😊</button>
+              <button class="toolbar-btn" onclick="toggleEmojiPicker()" title="More Emojis">😊+</button>
               <div class="emoji-panel" id="emojiPanel">
                 <span onclick="insertEmoji('😀')">😀</span>
                 <span onclick="insertEmoji('😁')">😁</span>
@@ -935,6 +1041,7 @@
                 <span onclick="insertEmoji('💪')">💪</span>
                 <span onclick="insertEmoji('❤️')">❤️</span>
                 <span onclick="insertEmoji('💔')">💔</span>
+                <span onclick="insertEmoji('🥀')">🥀</span>
                 <span onclick="insertEmoji('🔥')">🔥</span>
                 <span onclick="insertEmoji('⭐')">⭐</span>
                 <span onclick="insertEmoji('🎉')">🎉</span>
@@ -961,7 +1068,7 @@
             </button>
             <button class="btn-primary" onclick="sendMessage()" id="sendBtn">Send</button>
           </div>
-          <input type="file" id="fileInput" onchange="handleFileSelect()" accept="image/*">
+          <input type="file" id="fileInput" onchange="handleFileSelect()">
         </div>
       </div>
     </div>
@@ -1177,6 +1284,9 @@
     // Check ban state on page load
     checkAndApplyBanState();
 
+    // Initialize toolbar state on page load
+    window.addEventListener('DOMContentLoaded', initToolbarState);
+
     // Generate UUID v4
     function generateUUID() {
       return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
@@ -1196,8 +1306,7 @@
       
       // Allowed tags and attributes
       const allowedTags = ['B', 'STRONG', 'I', 'EM', 'U', 'BR', 'SPAN'];
-      const allowedStyles = ['font-family', 'font-size'];
-      const allowedFonts = ['Arial', 'Georgia', 'Times New Roman', 'Courier New'];
+      const allowedStyles = ['font-family', 'background', 'padding', 'border-radius'];
       
       function sanitizeNode(node) {
         // Text nodes are OK
@@ -1220,20 +1329,18 @@
                 const [prop, value] = part.split(':').map(s => s.trim());
                 if (allowedStyles.includes(prop)) {
                   if (prop === 'font-family') {
-                    // Validate font
-                    const font = value.replace(/['"]/g, '').trim();
-                    if (allowedFonts.includes(font)) {
+                    // Only allow monospace
+                    if (value === 'monospace') {
                       newStyle.push(`${prop}: ${value}`);
                     }
-                  } else if (prop === 'font-size') {
-                    // Validate size (must be in px and between 12-22)
-                    const match = value.match(/^(\d+)px$/);
-                    if (match) {
-                      const size = parseInt(match[1], 10);
-                      if (size >= 12 && size <= 22) {
-                        newStyle.push(`${prop}: ${value}`);
-                      }
+                  } else if (prop === 'background') {
+                    // Allow only rgba backgrounds
+                    if (value.startsWith('rgba(')) {
+                      newStyle.push(`${prop}: ${value}`);
                     }
+                  } else if (prop === 'padding' || prop === 'border-radius') {
+                    // Allow basic padding and border-radius
+                    newStyle.push(`${prop}: ${value}`);
                   }
                 }
               }
@@ -1279,41 +1386,103 @@
     }
 
     // ========================================
+    // FILE UPLOAD VALIDATION
+    // ========================================
+    
+    const BLOCKED_EXTENSIONS = [
+      '.exe', '.msi', '.bat', '.cmd', '.com', '.scr', '.ps1', 
+      '.vbs', '.js', '.jar', '.app', '.dmg', '.sh', '.deb', 
+      '.rpm', '.apk', '.ipa'
+    ];
+
+    function isDangerousFile(filename) {
+      const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
+      return BLOCKED_EXTENSIONS.includes(ext);
+    }
+
+    function getFileExtension(filename) {
+      return filename.substring(filename.lastIndexOf('.')).toLowerCase();
+    }
+
+    function isImageFile(filename, mime) {
+      const imageExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+      const ext = getFileExtension(filename);
+      return imageExts.includes(ext) || (mime && mime.startsWith('image/'));
+    }
+
+    function isAudioFile(filename, mime) {
+      const audioExts = ['.mp3', '.wav', '.ogg', '.webm', '.m4a', '.aac'];
+      const ext = getFileExtension(filename);
+      return audioExts.includes(ext) || (mime && mime.startsWith('audio/'));
+    }
+
+    // ========================================
     // RICH TEXT EDITOR (Feature 1)
     // ========================================
+    
+    // Initialize toolbar state from sessionStorage
+    function initToolbarState() {
+      const toolbarExpanded = sessionStorage.getItem('toolbarExpanded') === 'true';
+      const toolbar = document.getElementById('textToolbar');
+      const toggleIcon = document.getElementById('toolbarToggleIcon');
+      
+      if (toolbarExpanded) {
+        toolbar.classList.remove('collapsed');
+        toggleIcon.classList.add('expanded');
+      }
+    }
+
+    // Toggle toolbar collapsed/expanded state
+    function toggleToolbar() {
+      const toolbar = document.getElementById('textToolbar');
+      const toggleIcon = document.getElementById('toolbarToggleIcon');
+      const isCollapsed = toolbar.classList.contains('collapsed');
+      
+      if (isCollapsed) {
+        toolbar.classList.remove('collapsed');
+        toggleIcon.classList.add('expanded');
+        sessionStorage.setItem('toolbarExpanded', 'true');
+      } else {
+        toolbar.classList.add('collapsed');
+        toggleIcon.classList.remove('expanded');
+        sessionStorage.setItem('toolbarExpanded', 'false');
+      }
+    }
     
     function formatText(command) {
       document.execCommand(command, false, null);
       document.getElementById('composer').focus();
     }
 
-    function setFont(font) {
-      if (font) {
-        document.execCommand('fontName', false, font);
-        document.getElementById('composer').focus();
+    function setTextStyle(style) {
+      if (!style) return;
+      
+      const composer = document.getElementById('composer');
+      const selection = window.getSelection();
+      
+      if (!selection.rangeCount) return;
+      
+      const range = selection.getRangeAt(0);
+      const span = document.createElement('span');
+      
+      if (style === 'monospace') {
+        span.style.fontFamily = 'monospace';
+        span.style.background = 'rgba(0, 0, 0, 0.05)';
+        span.style.padding = '2px 4px';
+        span.style.borderRadius = '3px';
       }
-    }
-
-    function setFontSize(size) {
-      if (size) {
-        // Use CSS to set font size on selected text
-        const selection = window.getSelection();
-        if (!selection.rangeCount) return;
-        
-        const range = selection.getRangeAt(0);
-        const span = document.createElement('span');
-        span.style.fontSize = size;
-        
-        try {
-          range.surroundContents(span);
-        } catch (e) {
-          // If surroundContents fails, insert at cursor
-          span.appendChild(range.extractContents());
-          range.insertNode(span);
-        }
-        
-        document.getElementById('composer').focus();
+      
+      try {
+        range.surroundContents(span);
+      } catch (e) {
+        span.appendChild(range.extractContents());
+        range.insertNode(span);
       }
+      
+      composer.focus();
+      
+      // Reset selector
+      document.getElementById('styleSelect').value = '';
     }
 
     function toggleEmojiPicker() {
@@ -1326,6 +1495,12 @@
       composer.focus();
       document.execCommand('insertText', false, emoji);
       toggleEmojiPicker();
+    }
+
+    function insertEmojiQuick(emoji) {
+      const composer = document.getElementById('composer');
+      composer.focus();
+      document.execCommand('insertText', false, emoji);
     }
 
     // Close emoji picker when clicking outside
@@ -1709,11 +1884,14 @@
         `;
       } else if (data.type === 'file') {
         const sizeStr = formatFileSize(data.size);
+        const caption = data.caption ? `<div class="message-content">${escapeHtml(data.caption)}</div>` : '';
         content = `
-          <div class="message-content">Shared a file</div>
+          ${caption || '<div class="message-content">Shared a file</div>'}
           <div class="message-file">
-            <a href="${data.url}" download="${escapeHtml(data.filename)}">${escapeHtml(data.filename)}</a>
-            <div class="file-info">${sizeStr} · ${data.mime}</div>
+            <div style="font-weight: 600; margin-bottom: 8px;">${escapeHtml(data.filename)}</div>
+            <div class="file-info">${sizeStr} · ${data.mime || 'unknown'}</div>
+            <a href="${data.url}" download="${escapeHtml(data.filename)}" class="file-download-btn">Download File</a>
+            <div class="file-warning">⚠️ This site does not scan files for malicious content. Only download files you trust.</div>
           </div>
         `;
       }
@@ -1860,11 +2038,16 @@
 
       try {
         if (selectedFile) {
-          // Photo upload flow (unchanged)
-          console.log('[SEND] Uploading photo with caption:', text.substring(0, 50));
+          // File upload flow
+          console.log('[SEND] Uploading file with caption:', text.substring(0, 50));
+          
+          // Determine if it's an image, audio, or generic file
+          const isImage = isImageFile(selectedFile.name, selectedFile.type);
+          const isAudio = isAudioFile(selectedFile.name, selectedFile.type);
+          const fileType = isImage ? 'image' : (isAudio ? 'audio' : 'file');
           
           const optimisticData = {
-            type: 'image',
+            type: fileType,
             id: messageId,
             nickname,
             timestamp,
@@ -1872,6 +2055,7 @@
             filename: selectedFile.name,
             caption: text || '',
             size: selectedFile.size,
+            mime: selectedFile.type,
             senderId: myClientId
           };
           
@@ -1906,7 +2090,13 @@
           
           if (!response.ok) {
             clearTimeout(ackTimeout);
-            throw new Error(`Upload failed: ${response.status}`);
+            const errorText = await response.text();
+            let errorMessage = `Upload failed: ${response.status}`;
+            try {
+              const errorJson = JSON.parse(errorText);
+              errorMessage = errorJson.error || errorMessage;
+            } catch (e) {}
+            throw new Error(errorMessage);
           }
 
           const contentType = response.headers.get('content-type');
@@ -1920,7 +2110,7 @@
 
           if (result.success || result.ok) {
             const wsMessage = {
-              type: 'image',
+              type: fileType,
               id: messageId,
               messageId: messageId,
               nickname,
@@ -1937,10 +2127,17 @@
             removePhotoAttachment();
             
             if (msgElement) {
-              const img = msgElement.querySelector('.message-image');
-              if (img) {
-                img.src = result.url;
-                img.setAttribute('data-url', result.url);
+              if (fileType === 'image') {
+                const img = msgElement.querySelector('.message-image');
+                if (img) {
+                  img.src = result.url;
+                  img.setAttribute('data-url', result.url);
+                }
+              } else if (fileType === 'audio') {
+                const audio = msgElement.querySelector('audio');
+                if (audio) {
+                  audio.src = result.url;
+                }
               }
             }
           } else {
@@ -2276,7 +2473,7 @@
     }
 
     // ========================================
-    // FILE/PHOTO HANDLING (unchanged)
+    // FILE/PHOTO HANDLING
     // ========================================
     
     function handleFileSelect() {
@@ -2284,6 +2481,13 @@
       const file = fileInput.files[0];
       
       if (!file) return;
+
+      // Check for dangerous file extensions
+      if (isDangerousFile(file.name)) {
+        showStatus(`File type not allowed for security reasons: ${getFileExtension(file.name)}`, 'error');
+        fileInput.value = '';
+        return;
+      }
 
       if (file.size > 10 * 1024 * 1024) {
         showStatus('File size must be less than 10MB', 'error');
@@ -2304,7 +2508,14 @@
       const previewFilename = document.getElementById('previewFilename');
       const previewSize = document.getElementById('previewSize');
       
-      previewImg.src = previewURL;
+      // Only show image preview if it's actually an image
+      if (isImageFile(file.name, file.type)) {
+        previewImg.src = previewURL;
+        previewImg.style.display = 'block';
+      } else {
+        previewImg.style.display = 'none';
+      }
+      
       previewFilename.textContent = file.name;
       previewSize.textContent = formatFileSize(file.size);
       
