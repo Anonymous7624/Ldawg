@@ -17,8 +17,8 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'chat.db');
 const MAX_MESSAGES = parseInt(process.env.MAX_MESSAGES || '600', 10);
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
-const RATE_LIMIT_MESSAGES = 2; // 2 messages per window
-const RATE_LIMIT_WINDOW = 10000; // 10 seconds
+const RATE_LIMIT_MESSAGES = 4; // 4 messages per window
+const RATE_LIMIT_WINDOW = 1000; // 1 second (rolling window)
 
 // Helper to generate client IDs
 function makeId() { 
@@ -180,11 +180,13 @@ function violationBanMs(info) {
   return 15 * 1000;
 }
 
-function registerViolation(info) {
+function registerViolation(info, messageCount, windowMs) {
   // if we already hit stage>=1, escalate stage each violation
   if (info.stage >= 1) {
     info.stage += 1; // stage1->2 gives 5m, then grows
-    banFor(info, violationBanMs(info));
+    const banDurationMs = violationBanMs(info);
+    banFor(info, banDurationMs);
+    console.log(`[RATE-LIMIT-BAN] Violation detected: ${messageCount} messages in ${windowMs}ms window | Stage: ${info.stage} | Ban duration: ${Math.ceil(banDurationMs / 1000)}s`);
     return;
   }
 
@@ -194,8 +196,10 @@ function registerViolation(info) {
     info.stage = 1;           // mark that we hit the 1-min level
     info.strikes = 0;         // reset strikes after escalation
     banFor(info, 60 * 1000);  // 1 minute
+    console.log(`[RATE-LIMIT-BAN] Violation detected: ${messageCount} messages in ${windowMs}ms window | Strikes reached 3, escalating to stage 1 | Ban duration: 60s`);
   } else {
     banFor(info, 15 * 1000);
+    console.log(`[RATE-LIMIT-BAN] Violation detected: ${messageCount} messages in ${windowMs}ms window | Strike ${info.strikes}/3 | Ban duration: 15s`);
   }
 }
 
@@ -219,7 +223,7 @@ function checkRateLimit(state) {
   state.msgTimes.push(now());
 
   if (state.msgTimes.length > limit) {
-    registerViolation(state);
+    registerViolation(state, state.msgTimes.length, windowMs);
     return {
       allowed: false,
       muted: true,

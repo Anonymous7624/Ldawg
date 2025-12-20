@@ -1,180 +1,326 @@
-# Persistent Chat History - Implementation Complete ✅
+# Rate Limiter Implementation - COMPLETE ✅
 
-## Summary
+## Executive Summary
 
-Successfully implemented persistent chat history for Kennedy Chat using SQLite. All requirements met, all tests passing, zero breaking changes.
+Successfully updated the WebSocket server rate limiter to enforce **4 messages per second per client** with immediate violation detection and enhanced debug logging. The implementation preserves all existing functionality while providing better user experience and improved monitoring.
 
-## What Was Implemented
+---
 
-### 1. Database Layer (`db.js`)
-- SQLite database with `better-sqlite3` package
-- Five core functions:
-  - `initDb()` - Create database and tables
-  - `saveMessage(msg)` - Save message to database
-  - `getRecentMessages(limit)` - Retrieve recent messages
-  - `deleteMessageById(id)` - Delete message from database
-  - `pruneToLimit(limit)` - Prune to message cap and clean up files
+## Implementation Details
 
-### 2. Server Integration (`server.js`)
-- Async startup with database initialization
-- History loaded from database on connection (not RAM)
-- All messages saved to database after broadcast
-- Automatic pruning to 600 message cap
-- Delete feature uses database
-- File cleanup only on pruning (not on delete)
+### Core Changes
 
-### 3. Smart File Management
-- Files tracked via `storedFilename` field in database
-- Pruning checks all remaining messages for file references
-- File deleted only if reference count = 0
-- Prevents premature deletion of shared files
+#### 1. Rate Limit Configuration (server.js:20-21)
+```javascript
+const RATE_LIMIT_MESSAGES = 4;     // 4 messages per window (was 2)
+const RATE_LIMIT_WINDOW = 1000;    // 1 second rolling window (was 10000)
+```
 
-## Test Results
+**Impact:** 
+- Previous: 2 messages per 10 seconds = 0.2 msg/sec average
+- Current: 4 messages per 1 second = 4 msg/sec
+- Improvement: 20× more permissive for legitimate users
 
-| Test | Status | Description |
-|------|--------|-------------|
-| Basic Persistence | ✅ PASS | Messages survive server restart |
-| File Persistence | ✅ PASS | Uploaded files survive restart |
-| Delete Functionality | ✅ PASS | Delete works with database |
-| Message Pruning | ✅ PASS | Cap enforced at 600 messages |
-| File Cleanup | ✅ PASS | Files deleted only when unreferenced |
-| ACK System | ✅ PASS | Unchanged and working |
-| Rate Limiting | ✅ PASS | Unchanged and working |
-| Presence | ✅ PASS | Unchanged and working |
-| Upload/Download | ✅ PASS | Working with persistence |
+#### 2. Enhanced Violation Logging (server.js:183-204)
 
-## Key Features
+Added detailed debug output showing:
+- Number of messages that triggered the violation
+- Rolling window size in milliseconds
+- Current strike count or stage
+- Ban duration in seconds
 
-✅ **600 Message Cap** - History limited to 600 messages, oldest pruned first
-✅ **Restart Persistence** - All messages survive server restart
-✅ **File Persistence** - Uploaded files persist and remain accessible
-✅ **Smart Cleanup** - Files deleted only when no longer referenced
-✅ **Zero Breaking Changes** - Client protocol completely unchanged
-✅ **All Message Types** - Text, images, audio, files all supported
-✅ **Delete Feature** - Works with database, ownership verified
-✅ **Fast Performance** - <100ms startup, ~1ms save overhead
+**Example Logs:**
+```
+[RATE-LIMIT-BAN] Violation detected: 5 messages in 1000ms window | Strike 1/3 | Ban duration: 15s
+[RATE-LIMIT-BAN] Violation detected: 5 messages in 1000ms window | Stage: 2 | Ban duration: 300s
+```
 
-## Files Changed
+#### 3. Context Passing (server.js:226)
 
-### Created
-- `db.js` - Database module (237 lines)
-- `test-persistence.js` - Basic persistence test
-- `test-file-persistence.js` - File persistence test
-- `test-delete.js` - Delete functionality test
-- `test-pruning.js` - Pruning and cap test
-- `test-file-cleanup.js` - File cleanup behavior test
-- `PERSISTENT_CHAT_IMPLEMENTATION.md` - Technical documentation
-- `QUICK_START_PERSISTENCE.md` - Quick start guide
+Updated `checkRateLimit()` to pass violation context:
+```javascript
+registerViolation(state, state.msgTimes.length, windowMs);
+```
 
-### Modified
-- `server.js` - Added database integration (62 line changes)
-  - Added db.js import
-  - Changed MAX_MESSAGES from 100 to 600
-  - Removed in-memory chatHistory array
-  - Made WS connection handler async
-  - Made message handler async
-  - Added database save calls
-  - Added pruning calls
-  - Updated delete handler for database
-  - Wrapped startup in async main()
-- `README.md` - Added persistence feature section
-- `package.json` - Added `better-sqlite3` dependency
+---
 
-## Dependencies Added
+## What's Preserved (No Changes)
 
+### ✅ Ban Escalation System
+| Violation | Action | Duration |
+|-----------|--------|----------|
+| 1st | Strike 1/3 | 15 seconds |
+| 2nd | Strike 2/3 | 15 seconds |
+| 3rd | Strike 3/3 → Stage 1 | 1 minute |
+| 4th | Stage 2 | 5 minutes |
+| 5th | Stage 3 | 10 minutes |
+| 6th+ | +1 stage each | +5 minutes each |
+
+### ✅ Message Type Filtering
+
+**Rate Limited:**
+- `text` - Chat messages
+- `image` - Image uploads
+- `audio` - Audio recordings
+- `file` - File attachments
+
+**Exempt (Not Rate Limited):**
+- `presence` - Online/offline status
+- `typing` - Typing indicators
+- `ping` - Connection health checks
+- `delete` - Message deletions
+- `ack` - Server acknowledgments
+
+### ✅ Token-Based Tracking
+- Bans persist across reconnections
+- Each client token has independent rate limit state
+- Multiple tabs with same token share rate limit
+- Clearing browser storage resets token
+
+### ✅ Client Response Format
 ```json
 {
-  "better-sqlite3": "^11.8.1"  // For SQLite database
+  "type": "banned",
+  "until": 1234567890000,
+  "seconds": 15,
+  "strikes": 1,
+  "reason": "rate"
 }
 ```
 
-Test-only dependencies:
-```json
-{
-  "form-data": "^4.0.1"  // For upload testing
-}
-```
+---
 
-## Usage
+## Testing
 
-### Starting Server
+### Automated Test
+Created `/workspace/test-rate-limit.js` for automated verification:
+
 ```bash
+node test-rate-limit.js
+```
+
+**Expected Results:**
+- ✅ Connects to server
+- ✅ Sends 5 rapid messages
+- ✅ Receives 4 ACKs (messages 1-4)
+- ✅ Receives 1 BANNED (message 5)
+- ✅ Exits with code 0 (pass)
+
+### Manual Testing
+
+**Setup:**
+```bash
+# Terminal 1: Start server
+node server.js
+
+# Terminal 2: Run test
+node test-rate-limit.js
+```
+
+**Expected Server Logs:**
+```
+[RATE-LIMIT-BAN] Violation detected: 5 messages in 1000ms window | Strike 1/3 | Ban duration: 15s
+[RATE-LIMIT] Client abc123 (token def45678...) banned for 15s (strikes: 1)
+```
+
+---
+
+## Verification Checklist
+
+- ✅ Configuration updated (4 msg/sec, 1s window)
+- ✅ Debug logging added to `registerViolation()`
+- ✅ Context passed from `checkRateLimit()` to `registerViolation()`
+- ✅ Rate limiting only applies to text/image/audio/file
+- ✅ Presence/typing/ping/delete/ack bypass rate limit
+- ✅ Ban escalation system unchanged
+- ✅ Token-based tracking preserved
+- ✅ Rolling window implementation correct
+- ✅ JavaScript syntax valid (verified)
+- ✅ No linter errors (verified)
+- ✅ Test script created and validated
+- ✅ Documentation complete
+
+---
+
+## Files Modified
+
+### server.js
+- **Lines 20-21:** Updated rate limit constants
+- **Lines 183-204:** Enhanced `registerViolation()` with logging
+- **Line 226:** Pass context to `registerViolation()`
+
+**Total changes:** 3 sections, ~15 lines modified
+
+---
+
+## Files Created
+
+1. **test-rate-limit.js** - Automated test script
+2. **RATE_LIMIT_UPDATE.md** - Detailed change documentation
+3. **RATE_LIMIT_REFERENCE.md** - Quick reference guide
+4. **RATE_LIMIT_COMPLETE.md** - Implementation summary
+5. **RATE_LIMIT_DIFF.md** - Side-by-side comparison
+6. **IMPLEMENTATION_SUMMARY.md** - This document
+
+---
+
+## Production Deployment
+
+### Pre-Deployment
+```bash
+# Verify syntax
+node -c server.js
+
+# Run test
+node test-rate-limit.js
+```
+
+### Deployment
+```bash
+# Stop server
+pm2 stop server || pkill -f "node server.js"
+
+# Deploy updated server.js
+# (copy new version to production)
+
+# Start server
+pm2 start server.js
+# OR
 node server.js
 ```
 
-### Running Tests
+### Post-Deployment Monitoring
 ```bash
-# Quick test
-node test-persistence.js
+# Watch for rate limit violations
+tail -f /path/to/logs | grep RATE-LIMIT-BAN
 
-# All tests
-node test-persistence.js
-node test-file-persistence.js
-node test-delete.js
-node test-pruning.js
-node test-file-cleanup.js
-
-# Flood test (605 messages)
-node test-persistence.js --flood
+# Expected output when users violate:
+# [RATE-LIMIT-BAN] Violation detected: 5 messages in 1000ms window | Strike 1/3 | Ban duration: 15s
 ```
 
-### Database Management
-```bash
-# View messages
-sqlite3 chat.db "SELECT COUNT(*) FROM messages;"
+---
 
-# Clear history
-rm chat.db  # Then restart server
+## Tuning Guide
 
-# Backup
-cp chat.db chat.db.backup
+### If users report rate limit is too strict:
+
+**Option 1: Increase message limit**
+```javascript
+const RATE_LIMIT_MESSAGES = 5; // Allow 5 messages per second
 ```
 
-## Validation Checklist
+**Option 2: Increase window size**
+```javascript
+const RATE_LIMIT_WINDOW = 2000; // 2-second window
+```
 
-- [x] Messages persist across server restarts
-- [x] History capped at 600 messages
-- [x] Files persist across restarts
-- [x] Files deleted only when message pruned AND unreferenced
-- [x] Delete feature works with database
-- [x] ACK system still works
-- [x] Rate limiting still works
-- [x] Presence system still works
-- [x] Upload/download still works
-- [x] Client protocol unchanged
-- [x] No breaking changes
-- [x] All tests passing
-- [x] Documentation complete
+### If abuse continues:
 
-## Next Steps (Optional)
+**Option 1: Decrease message limit**
+```javascript
+const RATE_LIMIT_MESSAGES = 3; // Only 3 messages per second
+```
 
-Future enhancements could include:
-- Database vacuum/optimize on startup
-- Message search functionality
-- Export chat history
-- User-specific message persistence
-- Message read receipts
-- Typing indicators persistence
-- Database compression for old messages
+**Option 2: Decrease window size**
+```javascript
+const RATE_LIMIT_WINDOW = 500; // Half-second window
+```
 
-## Conclusion
+---
 
-**Status**: ✅ COMPLETE AND PRODUCTION READY
+## Monitoring Metrics
 
-The implementation is:
-- **Fully functional** - All tests pass
-- **Non-breaking** - Zero client changes needed
-- **Well-tested** - 5 comprehensive test suites
-- **Well-documented** - 3 documentation files
-- **Production-ready** - Can be deployed immediately
+Track these patterns in your logs:
 
-All requirements from the original specification have been met:
-1. ✅ Persist chat history + files across restarts using SQLite
-2. ✅ Cap history to 600 items
-3. ✅ Delete uploaded files only when message falls off cap (and no other references)
-4. ✅ No existing features broken (ACK, chat, delete, audio, rate limit, presence)
-5. ✅ Use existing db.js module structure
-6. ✅ Keep message protocol exactly the same
-7. ✅ Database is source of truth
+### Normal Usage
+```
+[MESSAGE] Type: text
+[ACK] Sent ACK for id=...
+```
 
-The server is ready for production use.
+### Rate Limit Violations
+```
+[RATE-LIMIT-BAN] Violation detected: 5 messages in 1000ms window | Strike 1/3 | Ban duration: 15s
+[RATE-LIMIT] Client abc123 (token def45678...) banned for 15s (strikes: 1)
+```
+
+### Escalated Bans (Repeat Offenders)
+```
+[RATE-LIMIT-BAN] Violation detected: 5 messages in 1000ms window | Stage: 2 | Ban duration: 300s
+[RATE-LIMIT] Client abc123 (token def45678...) banned for 300s (strikes: 0)
+```
+
+---
+
+## Rollback Plan
+
+If issues arise, revert these lines in `server.js`:
+
+```javascript
+// Revert to original values
+const RATE_LIMIT_MESSAGES = 2;
+const RATE_LIMIT_WINDOW = 10000;
+
+// Revert registerViolation() - remove parameters and logs
+function registerViolation(info) {
+  // Original implementation without logging
+}
+
+// Revert checkRateLimit() call
+registerViolation(state); // Remove extra parameters
+```
+
+---
+
+## Success Criteria
+
+✅ **All criteria met:**
+
+1. Rate limit set to 4 messages per second ✓
+2. Rolling 1-second window implemented ✓
+3. Only applies to text/image/audio/file ✓
+4. Presence/typing/ping/delete/ack exempt ✓
+5. Existing ban system preserved ✓
+6. Debug logging added ✓
+7. Shows message count in log ✓
+8. Shows window size in log ✓
+9. No breaking changes ✓
+10. Test script created ✓
+11. Documentation complete ✓
+
+---
+
+## Support & Troubleshooting
+
+### "Too many bans being triggered"
+- Check if window is too small (increase from 1000ms to 2000ms)
+- Check if limit is too low (increase from 4 to 5)
+- Review logs to see if legitimate usage patterns
+
+### "Abusers still getting through"
+- Decrease message limit (4 → 3)
+- Decrease window size (1000ms → 500ms)
+- Review ban escalation (may need shorter initial bans)
+
+### "Debug logs too verbose"
+- Comment out `console.log()` calls in `registerViolation()`
+- Or filter logs: `tail -f log | grep -v RATE-LIMIT-BAN`
+
+---
+
+## Contact & References
+
+**Modified File:** `/workspace/server.js`  
+**Test Script:** `/workspace/test-rate-limit.js`  
+**Documentation:** `/workspace/RATE_LIMIT_*.md`
+
+**Key Functions:**
+- `checkRateLimit(state)` - Lines 206-234
+- `registerViolation(info, messageCount, windowMs)` - Lines 183-204
+- Message handler - Lines 430-455
+
+---
+
+**Implementation Date:** 2025-12-20  
+**Status:** ✅ COMPLETE AND TESTED  
+**Production Ready:** ✅ YES
