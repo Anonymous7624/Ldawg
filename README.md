@@ -1,6 +1,6 @@
 # Kennedy Chat
 
-Real-time chat application with WebSocket support, file uploads, and camera integration.
+Real-time chat application with WebSocket support, file uploads, camera integration, and persistent chat history.
 
 ## Architecture
 
@@ -8,6 +8,18 @@ Real-time chat application with WebSocket support, file uploads, and camera inte
 - **Backend**: Node.js server on Raspberry Pi (port 8080)
 - **WebSocket**: `wss://ws.ldawg7624.com` (via Cloudflare tunnel)
 - **HTTP API**: `https://ws.ldawg7624.com` (via Cloudflare tunnel)
+- **Database**: SQLite (`chat.db`) for persistent message history
+
+## Features
+
+### Persistent Chat History
+- ✅ **Messages persist across server restarts** using SQLite database
+- ✅ **600 message cap** - automatically prunes oldest messages when limit exceeded
+- ✅ **Smart file cleanup** - uploaded files deleted only when message pruned and no other references exist
+- ✅ **All message types supported**: text, images, audio, files
+- ✅ **Zero client changes required** - same protocol as before
+
+See [PERSISTENT_CHAT_IMPLEMENTATION.md](PERSISTENT_CHAT_IMPLEMENTATION.md) for technical details.
 
 ## Recent Bug Fixes (Production)
 
