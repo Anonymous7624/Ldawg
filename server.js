@@ -482,25 +482,52 @@ wss.on('connection', (ws, req) => {
 
       // Handle delete messages (don't rate limit)
       if (message.type === "delete") {
+        console.log(`[DELETE] ========================================`);
+        console.log(`[DELETE] Delete request received`);
+        console.log(`[DELETE] From clientId: ${info.clientId}`);
+        console.log(`[DELETE] Token: ${info.token.substring(0, 8)}...`);
+        console.log(`[DELETE] Message ID to delete: ${message.id}`);
+        
         const deleteId = typeof message.id === "string" ? message.id : null;
-        if (!deleteId) return;
+        if (!deleteId) {
+          console.log(`[DELETE] ❌ Invalid delete ID (not a string)`);
+          console.log(`[DELETE] ========================================`);
+          return;
+        }
 
         // Find message in history
         const idx = chatHistory.findIndex(m => m.id === deleteId);
-        if (idx === -1) return;
+        if (idx === -1) {
+          console.log(`[DELETE] ❌ Message not found in history`);
+          console.log(`[DELETE] History contains ${chatHistory.length} messages`);
+          console.log(`[DELETE] History IDs:`, chatHistory.map(m => m.id).join(', '));
+          console.log(`[DELETE] ========================================`);
+          return;
+        }
+
+        const messageToDelete = chatHistory[idx];
+        console.log(`[DELETE] Found message in history at index ${idx}`);
+        console.log(`[DELETE] Message senderId: ${messageToDelete.senderId}`);
+        console.log(`[DELETE] Requester clientId: ${info.clientId}`);
+        console.log(`[DELETE] Ownership match: ${messageToDelete.senderId === info.clientId}`);
 
         // Only allow if sender matches
-        if (chatHistory[idx].senderId !== info.clientId) {
-          console.log(`[DELETE] Denied: ${info.clientId} tried to delete message from ${chatHistory[idx].senderId}`);
+        if (messageToDelete.senderId !== info.clientId) {
+          console.log(`[DELETE] ❌ Denied: ownership mismatch`);
+          console.log(`[DELETE] ${info.clientId} tried to delete message from ${messageToDelete.senderId}`);
+          console.log(`[DELETE] ========================================`);
           return;
         }
 
         // Remove from history
         chatHistory.splice(idx, 1);
+        console.log(`[DELETE] ✓ Removed from history (${chatHistory.length} messages remaining)`);
 
         // Tell everyone to remove it
-        broadcast({ type: "delete", id: deleteId });
-        console.log(`[DELETE] Message ${deleteId} deleted by ${info.clientId}`);
+        const recipientCount = broadcast({ type: "delete", id: deleteId });
+        console.log(`[DELETE] ✓ Broadcasted delete to ${recipientCount} clients`);
+        console.log(`[DELETE] ✓ Message ${deleteId} successfully deleted by ${info.clientId}`);
+        console.log(`[DELETE] ========================================`);
         return;
       }
 

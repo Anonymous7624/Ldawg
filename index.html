@@ -136,6 +136,7 @@
       background: rgba(255, 255, 255, 0.5);
       border-radius: 10px;
       animation: slideIn 0.3s ease;
+      position: relative;
     }
 
     /* Own messages = GREEN */
@@ -344,31 +345,50 @@
     }
 
     .deleteBtn {
-      font-size: 11px;
-      padding: 4px 8px;
-      background: rgba(220, 53, 69, 0.2);
-      color: #dc3545;
-      border: 1px solid #dc3545;
-      border-radius: 4px;
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      font-size: 10px;
+      padding: 3px 6px;
+      background: rgba(220, 53, 69, 0.9);
+      color: white;
+      border: none;
+      border-radius: 3px;
       cursor: pointer;
-      margin-top: 8px;
-      display: inline-block;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      z-index: 10;
+      font-weight: 500;
+    }
+
+    /* Show delete button on hover for desktop */
+    .message.own-message:hover .deleteBtn {
+      opacity: 1;
+    }
+
+    /* Always show delete button on mobile/touch devices */
+    @media (hover: none) and (pointer: coarse) {
+      .deleteBtn {
+        opacity: 0.7;
+        position: static;
+        display: inline-block;
+        margin-top: 6px;
+        margin-left: 8px;
+      }
     }
 
     body.dark-mode .deleteBtn {
-      background: rgba(220, 53, 69, 0.3);
-      color: #ff6b6b;
-      border-color: #ff6b6b;
+      background: rgba(220, 53, 69, 0.95);
+      color: white;
     }
 
     .deleteBtn:hover {
       background: #dc3545;
-      color: white;
+      opacity: 1;
     }
 
     body.dark-mode .deleteBtn:hover {
       background: #ff6b6b;
-      color: white;
     }
 
     .recording-indicator {
@@ -781,6 +801,39 @@
       display: none;
     }
 
+    /* Toast notification for delete feedback */
+    .toast {
+      position: fixed;
+      bottom: 80px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 12px 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      z-index: 1000;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
+    }
+
+    .toast.show {
+      opacity: 1;
+    }
+
+    .toast.success {
+      background: rgba(34, 197, 94, 0.9);
+    }
+
+    .toast.error {
+      background: rgba(220, 53, 69, 0.9);
+    }
+
+    body.dark-mode .toast {
+      background: rgba(0, 0, 0, 0.95);
+    }
+
     /* Typing indicators */
     .typing-indicators {
       padding: 8px 12px;
@@ -1010,12 +1063,18 @@
     </div>
   </div>
 
+  <!-- Toast notification -->
+  <div id="toast" class="toast"></div>
+
   <script>
     let ws;
     let reconnectTimeout;
     let muteTimer;
     let cameraStream;
     const isDarkMode = localStorage.getItem('darkMode') === 'true';
+
+    // DEBUG flag for delete feature troubleshooting
+    const DEBUG_DELETE = true; // Set to false in production
 
     // Client state - persist in sessionStorage to survive refreshes
     let myClientId = sessionStorage.getItem('myClientId') || null;
@@ -1518,6 +1577,11 @@
           console.log('[WS] History received with', data.items.length, 'items');
           displayHistory(data.items);
         } else if (data.type === 'delete') {
+          if (DEBUG_DELETE) {
+            console.log('========================================');
+            console.log('[DELETE] 📡 Received delete broadcast from server');
+            console.log('[DELETE] Message ID to delete:', data.id);
+          }
           removeMessageFromUI(data.id);
         } else if (data.type === 'typing') {
           // Update typing indicator
@@ -1608,6 +1672,16 @@
           statusDiv.classList.add('hidden');
         }, 2000);
       }
+    }
+
+    function showToast(message, type = 'success') {
+      const toast = document.getElementById('toast');
+      toast.textContent = message;
+      toast.className = `toast ${type} show`;
+      
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2500);
     }
 
     function handleBanned(data) {
@@ -1727,7 +1801,11 @@
 
       let deleteButtonHTML = '';
       if (isOwnMessage && status === 'sent') {
-        deleteButtonHTML = `<button class="deleteBtn" onclick="deleteMessage('${data.id}')">Delete</button>`;
+        deleteButtonHTML = `<button class="deleteBtn" onclick="deleteMessage('${data.id}')" title="Delete this message">Delete</button>`;
+        
+        if (DEBUG_DELETE) {
+          console.log('[RENDER] ✓ Added delete button for message:', data.id);
+        }
       }
 
       messageDiv.innerHTML = `
@@ -1760,29 +1838,109 @@
     }
 
     function deleteMessage(msgId) {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(JSON.stringify({ type: "delete", id: msgId }));
-      console.log('[DELETE] Requested deletion of message:', msgId);
+      if (DEBUG_DELETE) {
+        console.log('========================================');
+        console.log('[DELETE] 🗑️  Delete button clicked');
+        console.log('[DELETE] Message ID:', msgId);
+        console.log('[DELETE] My Client ID:', myClientId);
+        console.log('[DELETE] WebSocket state:', ws ? ws.readyState : 'no ws');
+      }
+      
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        if (DEBUG_DELETE) {
+          console.error('[DELETE] ❌ Cannot delete - WebSocket not connected');
+          console.log('========================================');
+        }
+        showToast('Cannot delete - not connected', 'error');
+        return;
+      }
+      
+      // Find the message to verify ownership
+      const msgElement = document.querySelector(`[data-msg-id="${msgId}"]`);
+      if (msgElement) {
+        const senderId = msgElement.getAttribute('data-sender-id');
+        if (DEBUG_DELETE) {
+          console.log('[DELETE] Found message element');
+          console.log('[DELETE] Message senderId:', senderId);
+          console.log('[DELETE] Ownership match:', senderId === myClientId);
+        }
+        
+        if (senderId !== myClientId) {
+          if (DEBUG_DELETE) {
+            console.error('[DELETE] ❌ Ownership mismatch - cannot delete');
+            console.log('========================================');
+          }
+          showToast('Cannot delete - not your message', 'error');
+          return;
+        }
+      }
+      
+      const deletePayload = { type: "delete", id: msgId };
+      ws.send(JSON.stringify(deletePayload));
+      
+      if (DEBUG_DELETE) {
+        console.log('[DELETE] ✓ Delete request sent to server');
+        console.log('[DELETE] Payload:', JSON.stringify(deletePayload));
+        console.log('========================================');
+      }
+      
+      // Optimistic UI update
+      const elem = document.querySelector(`[data-msg-id="${msgId}"]`);
+      if (elem) {
+        elem.style.opacity = '0.5';
+        elem.style.pointerEvents = 'none';
+      }
     }
 
     function removeMessageFromUI(msgId) {
+      if (DEBUG_DELETE) {
+        console.log('========================================');
+        console.log('[DELETE] 🗑️  Removing message from UI');
+        console.log('[DELETE] Message ID:', msgId);
+      }
+      
       const msgElement = document.querySelector(`[data-msg-id="${msgId}"]`);
       if (msgElement) {
+        // Check if this was our own message
+        const senderId = msgElement.getAttribute('data-sender-id');
+        const wasOwnMessage = senderId === myClientId;
+        
         msgElement.style.animation = 'slideOut 0.3s ease';
-        setTimeout(() => msgElement.remove(), 300);
-        console.log('[DELETE] Removed message from UI:', msgId);
+        setTimeout(() => {
+          msgElement.remove();
+          if (DEBUG_DELETE) {
+            console.log('[DELETE] ✓ Message removed from DOM');
+            console.log('========================================');
+          }
+          
+          // Show toast only if it was our own message being deleted
+          if (wasOwnMessage) {
+            showToast('Message deleted', 'success');
+          }
+        }, 300);
+      } else {
+        if (DEBUG_DELETE) {
+          console.warn('[DELETE] ⚠️  Message element not found in DOM');
+          console.log('========================================');
+        }
       }
     }
 
     // Refresh delete buttons and colors after myClientId is set/restored
     function refreshDeleteButtons() {
-      if (!myClientId) return;
+      if (!myClientId) {
+        if (DEBUG_DELETE) {
+          console.log('[REFRESH] ⚠️  Skipping refresh - no myClientId yet');
+        }
+        return;
+      }
       
       console.log('[REFRESH] 🔄 Refreshing ownership UI with myClientId:', myClientId);
       
       const allMessages = document.querySelectorAll('[data-msg-id]');
       let buttonCount = 0;
       let colorCount = 0;
+      let ownMessageCount = 0;
       
       allMessages.forEach(msgElement => {
         const msgId = msgElement.getAttribute('data-msg-id');
@@ -1791,6 +1949,8 @@
         if (!senderId) return; // Skip messages without senderId
         
         const isOwnMessage = senderId === myClientId;
+        
+        if (isOwnMessage) ownMessageCount++;
         
         // Apply color classes if not already applied
         if (isOwnMessage && !msgElement.classList.contains('own-message')) {
@@ -1813,15 +1973,20 @@
             const deleteBtn = document.createElement('button');
             deleteBtn.className = 'deleteBtn';
             deleteBtn.textContent = 'Delete';
+            deleteBtn.title = 'Delete this message';
             deleteBtn.onclick = () => deleteMessage(msgId);
             msgElement.appendChild(deleteBtn);
             buttonCount++;
-            console.log('[REFRESH] ✓ Added delete button to message:', msgId);
+            if (DEBUG_DELETE) {
+              console.log('[REFRESH] ✓ Added delete button to message:', msgId);
+            }
           }
         }
       });
       
-      console.log('[REFRESH] ✓ Applied colors to', colorCount, 'messages, added', buttonCount, 'delete buttons');
+      console.log('[REFRESH] ✓ Found', ownMessageCount, 'own messages');
+      console.log('[REFRESH] ✓ Applied colors to', colorCount, 'messages');
+      console.log('[REFRESH] ✓ Added', buttonCount, 'delete buttons');
     }
 
     // ========================================
