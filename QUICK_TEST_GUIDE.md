@@ -1,280 +1,117 @@
-# Quick Test Guide - 3 New Features
+# Quick Test List - Bug Fixes Verification
 
-## Setup
-1. Start the server: `node server.js`
-2. Open 3-4 browser tabs to `http://localhost:8080` (or your deployed URL)
-3. Give each tab a different nickname (e.g., "Alice", "Bob", "Charlie", "Diana")
+## Test Scenario 1: Send Message & Delete (Core Flow)
+1. Open the chat app
+2. Type a message and click Send
+3. **Expected**: Message bubble turns GREEN immediately
+4. **Expected**: After ~1 second, you see "Sent ✓" briefly
+5. Hover over your green message (desktop) or tap it (mobile)
+6. **Expected**: Delete button appears
+7. Click Delete
+8. **Expected**: Message disappears with animation
 
----
-
-## Test 1: Rich Text + Emoji Picker
-
-### Basic Formatting
-1. In Tab 1 (Alice):
-   - Type "Hello World"
-   - Select "Hello" and click **B** (bold)
-   - Select "World" and click **I** (italic)
-   - Click Send
-2. In Tabs 2-4:
-   - ✅ Verify "**Hello** *World*" displays with formatting
-
-### Font Changes
-1. In Tab 2 (Bob):
-   - Type "Testing fonts"
-   - Select all text
-   - Change font dropdown to "Georgia"
-   - Click Send
-2. In other tabs:
-   - ✅ Verify text displays in Georgia font
-
-### Font Size
-1. In Tab 3 (Charlie):
-   - Type "BIG TEXT"
-   - Select all
-   - Change size dropdown to "22"
-   - Click Send
-2. In other tabs:
-   - ✅ Verify text displays larger
-
-### Emoji Picker
-1. In any tab:
-   - Click the 😊 emoji button
-   - ✅ Verify emoji panel opens with ~30 emojis
-   - Click 🔥 emoji
-   - ✅ Verify it inserts into composer
-   - Click Send
-2. In other tabs:
-   - ✅ Verify emoji displays correctly
-
-### Security Test (CRITICAL)
-1. In Tab 1:
-   - Open browser DevTools Console
-   - Type: `document.getElementById('composer').innerHTML = '<script>alert("XSS")</script>Test'`
-   - Click Send
-2. In other tabs:
-   - ✅ Verify NO alert appears (script was sanitized)
-   - ✅ Verify only "Test" text displays
+**Result**: ✅ Green message → delete button visible → deletion works
 
 ---
 
-## Test 2: Persistent Ban (Most Important)
+## Test Scenario 2: New Tab Persistence
+1. Send a message (should be green with delete button)
+2. Open the same URL in a NEW TAB (Ctrl+Shift+N or Cmd+Shift+N for new window)
+3. **Expected**: Your message is still GREEN in the new tab
+4. Hover over it
+5. **Expected**: Delete button STILL appears (ownership persists in session)
+6. Switch back to original tab
+7. **Expected**: Message still green, delete still works
 
-### Initial Ban
-1. In Tab 1 (Alice):
-   - Send 3 messages rapidly (within 10 seconds)
-   - ✅ Should see "Temporarily blocked" message with countdown
-
-### Refresh Test (THE KEY TEST)
-2. **Do NOT close Tab 1** - just click browser refresh (F5 or Cmd+R)
-3. After page reloads:
-   - ✅ Ban message should IMMEDIATELY appear
-   - ✅ Timer should continue from where it was (not reset to full time)
-   - ✅ Try to send message → should be blocked
-   - ✅ Inputs should be disabled
-
-### Cross-Tab Test
-4. Open a NEW tab in the SAME browser
-5. Go to chat app
-   - ✅ Should ALSO show ban message
-   - ✅ Same token = same ban
-
-### Different Browser Test
-6. Open chat in a DIFFERENT browser (or incognito)
-   - ✅ Should NOT be banned (different token)
-   - ✅ Can send messages normally
-
-### Wait for Expiry
-7. Wait for ban timer to reach 0:00
-   - ✅ Ban message disappears
-   - ✅ Inputs re-enabled
-   - ✅ Can send messages again
+**Result**: ✅ Green persists across tabs → delete persists
 
 ---
 
-## Test 3: Typing Indicators
+## Test Scenario 3: Reload Resets Ownership
+1. Send a message (green with delete button)
+2. Press F5 or Ctrl+R to RELOAD the page
+3. **Expected**: Your previous message turns BLUE (lost ownership)
+4. Hover over it
+5. **Expected**: No delete button appears (you can't delete old messages after reload)
 
-### Single User Typing
-1. In Tab 1 (Alice):
-   - Start typing in the composer (don't send)
-2. In Tab 2 (Bob):
-   - ✅ Should see "Alice is typing..." appear (below messages, above composer)
-3. In Tab 1:
-   - Stop typing (don't clear text)
-   - Wait 12 seconds
-4. In Tab 2:
-   - ✅ "Alice is typing..." should disappear after ~12s
-
-### Multiple Users (2-3)
-1. In Tabs 1, 2, 3:
-   - All start typing at same time
-2. In Tab 4 (observer):
-   - ✅ Should see "Alice is typing... • Bob is typing... • Charlie is typing..."
-   - ✅ Should see all 3 names
-
-### Multiple Users (4+) - THE AGGREGATE TEST
-1. Open 4 or more tabs with different nicknames
-2. In Tabs 1, 2, 3, 4:
-   - All start typing at same time
-3. In Tab 5 (observer):
-   - ✅ Should see **"Several people are typing..."** (NOT 4 individual names)
-   - ✅ Should see ONLY ONE line
-
-### Stop Typing on Send
-1. In Tab 1 (Alice):
-   - Start typing
-2. In Tab 2:
-   - ✅ See "Alice is typing..."
-3. In Tab 1:
-   - Click Send button
-4. In Tab 2:
-   - ✅ "Alice is typing..." should disappear IMMEDIATELY when message sends
-
-### Throttling Test
-1. In Tab 1:
-   - Open DevTools Network tab
-   - Type continuously for 5 seconds
-2. Check network:
-   - ✅ Should see typing events sent ~every 800ms (not every keystroke)
+**Result**: ✅ Reload resets ownership → message becomes blue → no delete button
 
 ---
 
-## Regression Tests (Ensure Nothing Broke)
+## Test Scenario 4: File Download Readability
+1. Upload any file (PDF, TXT, ZIP, etc.) and send
+2. Check if it appears in a BLUE bubble (sent by "other user" view)
+3. **Expected**: Download link/button has WHITE text, readable on blue background
+4. Send another file from your account
+5. **Expected**: File appears in GREEN bubble with readable download button (white/high contrast)
+6. Hover over download button
+7. **Expected**: Hover effect works, text stays readable
 
-### Text Messages
-- ✅ Can send plain text messages
-- ✅ Messages appear on all clients
-- ✅ ACK shows "Sent ✓"
-
-### Image Upload
-- ✅ Click File button
-- ✅ Select an image
-- ✅ Add caption
-- ✅ Click Send
-- ✅ Image displays on all clients with caption
-
-### Audio Messages
-- ✅ Click "Audio Message"
-- ✅ Allow microphone
-- ✅ Record for a few seconds
-- ✅ Click Stop
-- ✅ Preview plays correctly
-- ✅ Click Send
-- ✅ Audio message appears on all clients
-
-### Delete Messages
-- ✅ Send a message
-- ✅ "Delete" button appears on YOUR messages
-- ✅ Click Delete
-- ✅ Message removes from all clients
-
-### Online Count
-- ✅ Open multiple tabs
-- ✅ "Online: X" count increases
-- ✅ Close a tab
-- ✅ Count decreases
-
-### Dark Mode
-- ✅ Click "Dark Mode" button
-- ✅ Theme changes to dark
-- ✅ Refresh page → theme persists
+**Result**: ✅ Download buttons readable in both blue and green bubbles
 
 ---
 
-## Expected Console Output
+## Test Scenario 5: Emoji Dropdown Visibility
+1. Click the "Formatting" button to expand toolbar
+2. Click the "😊+" emoji picker button
+3. **Expected**: Emoji dropdown appears ABOVE or BELOW the button (not cut off)
+4. Scroll to bottom of page
+5. Click emoji picker again
+6. **Expected**: Dropdown flips position if needed to stay in viewport
+7. Click an emoji from the dropdown
+8. **Expected**: Emoji inserts into text box, dropdown closes
 
-### Client Console (DevTools)
+**Result**: ✅ Emoji dropdown fully visible and clickable, not clipped
+
+---
+
+## Quick Visual Check (All Together)
+### Send 3 messages:
+1. **Text message**: "Hello world"
+   - Green bubble ✅
+   - Delete button on hover ✅
+   
+2. **File message**: Upload test.pdf
+   - Green bubble ✅
+   - Download button readable (white text) ✅
+   - Delete button on hover ✅
+
+3. **Image message**: Upload test.jpg
+   - Green bubble ✅
+   - Image displays ✅
+   - Delete button on hover ✅
+
+### Then test emoji:
+4. Click emoji picker → dropdown visible ✅
+5. Insert emoji → works ✅
+
+---
+
+## Expected Console Logs (DEBUG_DELETE enabled)
+When you send a message, you should see:
 ```
-[TOKEN] Using client token: abc123...
-[CONNECT] Attempting WebSocket connection
-[CONNECT] ✓ WebSocket connection OPEN
-[SELF-TEST] Sending ping...
-[SELF-TEST] ✓ Ping ACK received
-[SEND] Sending text message with formatting
-[WS] ✓ ACK RECEIVED for id=...
+[RENDER] 🔍 Ownership Check: { messageId: "xxx", senderId: "abc123", myClientId: "abc123", isOwnMessage: true, canDelete: false, colorClass: "GREEN" }
+[ACK] ✓ Added delete button to message after ACK: xxx
 ```
 
-### Server Console
-```
-[CONNECT] Client connected: a1b2 (token: abc123...)
-[MESSAGE] Type: text
-[MESSAGE] ID: abc123
-[ACK] Sent ACK for id=abc123
-[BROADCAST] Sent message type=text to 3 clients
-[MESSAGE] Type: typing
-[RATE-LIMIT] Client a1b2 banned for 60s
-```
+When you hover, delete button should appear on screen (no console needed).
 
 ---
 
-## Troubleshooting
-
-### Rich text not working?
-- Check browser console for sanitization errors
-- Verify `composer` is contenteditable div (not textarea)
-
-### Ban not persisting after refresh?
-- Check browser console for token
-- Verify cookies are enabled
-- Check `localStorage.getItem('chat_token')`
-
-### Typing indicator not showing?
-- Check server logs for "Type: typing" messages
-- Verify WebSocket is connected
-- Check if typing container exists in DOM
-
-### "Connected but ACK path not working"?
-- Server may be wrong instance
-- Check server console for ACK logs
-- Verify WebSocket URL is correct
+## Edge Cases to Verify
+- [ ] **Other users' messages**: Should be BLUE with NO delete button
+- [ ] **System messages** (if any): Should have no color class, no delete button
+- [ ] **Failed messages**: Should show error, NO delete button (can't delete unsent)
+- [ ] **Dark mode**: All fixes work in dark mode (download buttons, emoji, delete buttons)
+- [ ] **Mobile**: Delete button visible on long-press or tap (CSS handles with `@media (hover: none)`)
 
 ---
 
-## Success Indicators
+## Summary
+If all 5 test scenarios pass:
+- ✅ BUG #1 Fixed: Download buttons readable
+- ✅ BUG #2 Fixed: Emoji dropdown not cut off
+- ✅ BUG #3 Fixed: Delete button shows on green messages
+- ✅ No regressions: Chat, uploads, audio, ACKs, rate limits, coloring all work
 
-When all tests pass, you should see:
-
-✅ **Rich text** displays correctly across all clients  
-✅ **No XSS** possible (scripts blocked)  
-✅ **Bans persist** through page refresh  
-✅ **Typing shows** for 1-3 users individually  
-✅ **Typing aggregates** to "Several people..." for 4+  
-✅ **All old features** still work perfectly
-
----
-
-## Quick Verification Script
-
-Run in browser console on any client:
-
-```javascript
-// Check token exists
-console.log('Token:', localStorage.getItem('chat_token'));
-
-// Check ban state
-console.log('Ban until:', localStorage.getItem('chatBanUntil'));
-
-// Check WebSocket
-console.log('WebSocket:', ws ? 'Connected' : 'Not connected');
-
-// Check clientId
-console.log('My Client ID:', myClientId);
-
-// Test sanitizer
-console.log('Sanitizer test:', sanitizeHTML('<script>alert("bad")</script><b>Good</b>'));
-// Should output: <b>Good</b>
-```
-
-Expected output:
-```
-Token: abc123-def456-...
-Ban until: null
-WebSocket: Connected
-My Client ID: a1b2c3d4
-Sanitizer test: <b>Good</b>
-```
-
----
-
-**End of Test Guide**
-
-All features ready for production! 🚀
+**Status**: All bugs fixed, ready for production testing.
