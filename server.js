@@ -1,7 +1,6 @@
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
-const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
@@ -12,12 +11,14 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-const PORT = 8080;
-const MAX_MESSAGES = 600; // History limit: 600 messages
+// Environment-driven configuration
+const PORT = parseInt(process.env.WS_PORT || '8080', 10);
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'chat.db');
+const MAX_MESSAGES = parseInt(process.env.MAX_MESSAGES || '600', 10);
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
 const RATE_LIMIT_MESSAGES = 2; // 2 messages per window
 const RATE_LIMIT_WINDOW = 10000; // 10 seconds
-const UPLOAD_CLEANUP_AGE = 60 * 60 * 1000; // 1 hour
 
 // Helper to generate client IDs
 function makeId() { 
@@ -70,49 +71,14 @@ app.use((req, res, next) => {
 });
 
 // In-memory state
-// chatHistory removed - DB is now the source of truth
-const uploadFiles = new Map(); // Map of upload ID to {filename, timestamp, path}
 const clients = new Map(); // ws -> { clientId, token, presenceOnline }
 const clientState = new Map(); // token -> { strikes, stage, bannedUntil, msgTimes }
 
-// Ensure uploads directory exists
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+// Ensure uploads directory exists (for serving files)
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  console.log(`[STARTUP] Created upload directory: ${UPLOAD_DIR}`);
 }
-
-// Multer configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, UPLOADS_DIR);
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = crypto.randomBytes(16).toString('hex') + path.extname(file.originalname);
-    cb(null, uniqueName);
-  }
-});
-
-// Blocked file extensions for security
-const BLOCKED_EXTENSIONS = [
-  '.exe', '.msi', '.bat', '.cmd', '.com', '.scr', '.ps1', 
-  '.vbs', '.js', '.jar', '.app', '.dmg', '.sh', '.deb', 
-  '.rpm', '.apk', '.ipa', '.html', '.svg'
-];
-
-const upload = multer({
-  storage,
-  limits: { fileSize: MAX_UPLOAD_SIZE },
-  fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
-    
-    // Reject dangerous files
-    if (BLOCKED_EXTENSIONS.includes(ext)) {
-      return cb(new Error(`File type not allowed for security reasons: ${ext}`));
-    }
-    
-    cb(null, true);
-  }
-});
 
 // Serve static files
 app.use(express.static(__dirname));
@@ -122,97 +88,10 @@ app.get('/healthz', (req, res) => {
   res.json({ ok: true });
 });
 
-// Upload endpoint with comprehensive error handling
-app.post('/upload', (req, res) => {
-  const origin = req.headers.origin || 'direct';
-  console.log(`[UPLOAD] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
-  console.log(`[UPLOAD] ${req.method} ${req.path} - Origin: ${origin} - Status: starting`);
-  console.log(`[UPLOAD] Headers:`, JSON.stringify(req.headers, null, 2));
-  
-  // Use multer as middleware but handle its errors
-  upload.single('file')(req, res, (err) => {
-    // Ensure CORS headers are set even on error
-    const allowedOrigins = [
-      'https://ldawg7624.com',
-      'https://www.ldawg7624.com',
-      'http://localhost:8080',
-      'http://127.0.0.1:8080'
-    ];
-    
-    if (origin && allowedOrigins.includes(origin)) {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type');
-    }
-    
-    res.setHeader('Content-Type', 'application/json');
-    
-    if (err) {
-      console.error('[UPLOAD] Multer error:', err.message);
-      console.log(`[UPLOAD] ${req.method} ${req.path} - Status: 400 (error)`);
-      return res.status(400).json({ 
-        success: false, 
-        ok: false, 
-        error: err.message || 'Upload failed' 
-      });
-    }
-    
-    try {
-      if (!req.file) {
-        console.log('[UPLOAD] Error: No file in request');
-        console.log(`[UPLOAD] ${req.method} ${req.path} - Status: 400 (no file)`);
-        return res.status(400).json({ 
-          success: false, 
-          ok: false, 
-          error: 'No file uploaded' 
-        });
-      }
-
-      const ext = path.extname(req.file.originalname).toLowerCase();
-      const mime = req.file.mimetype.toLowerCase();
-      const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
-      const isImage = imageExts.includes(ext) && mime.startsWith('image/');
-
-      const uploadId = path.basename(req.file.filename, path.extname(req.file.filename));
-      const uploadUrl = `/uploads/${req.file.filename}`;
-
-      // Store upload metadata
-      uploadFiles.set(uploadId, {
-        filename: req.file.filename,
-        timestamp: Date.now(),
-        path: req.file.path
-      });
-
-      console.log(`[UPLOAD] Success: ${req.file.originalname} (${req.file.size} bytes, ${mime})`);
-      console.log(`[UPLOAD] ${req.method} ${req.path} - Status: 200 (success)`);
-
-      res.status(200).json({
-        success: true,
-        ok: true,
-        url: uploadUrl,
-        name: req.file.originalname,
-        filename: req.file.originalname,
-        mime: req.file.mimetype,
-        size: req.file.size,
-        isImage
-      });
-    } catch (error) {
-      console.error('[UPLOAD] Handler error:', error.message);
-      console.error('[UPLOAD] Stack:', error.stack);
-      console.log(`[UPLOAD] ${req.method} ${req.path} - Status: 500 (exception)`);
-      res.status(500).json({ 
-        success: false, 
-        ok: false, 
-        error: error.message 
-      });
-    }
-  });
-});
-
 // Serve uploads with security headers
 app.get('/uploads/:filename', (req, res) => {
   const filename = req.params.filename;
-  const filePath = path.join(UPLOADS_DIR, filename);
+  const filePath = path.join(UPLOAD_DIR, filename);
   const origin = req.headers.origin || 'direct';
 
   console.log(`[UPLOADS] GET request for ${filename} from origin: ${origin}`);
@@ -737,20 +616,8 @@ wss.on('connection', async (ws, req) => {
   });
 });
 
-// Cleanup old uploads every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  
-  uploadFiles.forEach((metadata, uploadId) => {
-    if (now - metadata.timestamp > UPLOAD_CLEANUP_AGE) {
-      if (fs.existsSync(metadata.path)) {
-        fs.unlinkSync(metadata.path);
-      }
-      uploadFiles.delete(uploadId);
-      console.log(`Cleaned up old upload: ${metadata.filename}`);
-    }
-  });
-}, 5 * 60 * 1000);
+// Note: File cleanup is handled by db.js pruneToLimit() which deletes
+// files that are no longer referenced by any message in the database.
 
 // Start server - wrapped in async main()
 async function main() {
@@ -766,15 +633,21 @@ async function main() {
     const SERVER_START_TIME = new Date().toISOString();
     server.listen(PORT, () => {
       console.log(`========================================`);
-      console.log(`Kennedy Chat Server`);
+      console.log(`Kennedy Chat WebSocket Server`);
       console.log(`========================================`);
       console.log(`Server Instance ID: ${SERVER_INSTANCE_ID}`);
       console.log(`Started: ${SERVER_START_TIME}`);
       console.log(`Port: ${PORT}`);
       console.log(`WebSocket: ws://localhost:${PORT}`);
       console.log(`HTTP API: http://localhost:${PORT}`);
-      console.log(`Uploads dir: ${UPLOADS_DIR}`);
+      console.log(`Database: ${DB_PATH}`);
+      console.log(`Upload dir: ${UPLOAD_DIR}`);
       console.log(`History limit: ${MAX_MESSAGES} messages`);
+      console.log(`========================================`);
+      console.log(`[CONFIG] Environment variables:`);
+      console.log(`  DB_PATH=${process.env.DB_PATH || '(default)'}`);
+      console.log(`  UPLOAD_DIR=${process.env.UPLOAD_DIR || '(default)'}`);
+      console.log(`  MAX_MESSAGES=${process.env.MAX_MESSAGES || '(default)'}`);
       console.log(`========================================`);
     });
   } catch (error) {
