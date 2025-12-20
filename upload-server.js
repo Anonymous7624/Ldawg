@@ -56,6 +56,13 @@ const storage = multer.diskStorage({
   }
 });
 
+// Blocked file extensions for security
+const BLOCKED_EXTENSIONS = [
+  '.exe', '.msi', '.bat', '.cmd', '.com', '.scr', '.ps1', 
+  '.vbs', '.js', '.jar', '.app', '.dmg', '.sh', '.deb', 
+  '.rpm', '.apk', '.ipa', '.html', '.svg'
+];
+
 const upload = multer({
   storage,
   limits: { fileSize: MAX_UPLOAD_SIZE },
@@ -63,8 +70,8 @@ const upload = multer({
     const ext = path.extname(file.originalname).toLowerCase();
     
     // Block dangerous file types
-    if (['.js', '.html', '.svg', '.exe', '.sh'].includes(ext)) {
-      return cb(new Error('File type not allowed'));
+    if (BLOCKED_EXTENSIONS.includes(ext)) {
+      return cb(new Error(`File type not allowed for security reasons: ${ext}`));
     }
     
     cb(null, true);
