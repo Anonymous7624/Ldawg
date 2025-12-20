@@ -6,13 +6,14 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const url = require('url');
+const { initDb, saveMessage, getRecentMessages, deleteMessageById, pruneToLimit } = require('./db');
 
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
 const PORT = 8080;
-const MAX_MESSAGES = 100;
+const MAX_MESSAGES = 600; // History limit: 600 messages
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
 const RATE_LIMIT_MESSAGES = 2; // 2 messages per window
 const RATE_LIMIT_WINDOW = 10000; // 10 seconds
@@ -69,7 +70,7 @@ app.use((req, res, next) => {
 });
 
 // In-memory state
-const chatHistory = [];
+// chatHistory removed - DB is now the source of truth
 const uploadFiles = new Map(); // Map of upload ID to {filename, timestamp, path}
 const clients = new Map(); // ws -> { clientId, token, presenceOnline }
 const clientState = new Map(); // token -> { strikes, stage, bannedUntil, msgTimes }
@@ -236,22 +237,14 @@ app.get('/uploads/:filename', (req, res) => {
   res.sendFile(filePath);
 });
 
-// Add message to history (ring buffer)
-function addToHistory(message) {
-  chatHistory.push(message);
-  if (chatHistory.length > MAX_MESSAGES) {
-    const removed = chatHistory.shift();
-    
-    // Cleanup file if it's an image or file message
-    if ((removed.type === 'image' || removed.type === 'file') && removed.url) {
-      const filename = path.basename(removed.url);
-      const filePath = path.join(UPLOADS_DIR, filename);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        const uploadId = path.basename(filename, path.extname(filename));
-        uploadFiles.delete(uploadId);
-      }
-    }
+// Helper to extract filename from URL
+function extractFilename(urlString) {
+  if (!urlString) return null;
+  try {
+    const urlPath = urlString.split('?')[0]; // Remove query params
+    return path.basename(urlPath);
+  } catch {
+    return null;
   }
 }
 
@@ -376,7 +369,7 @@ function getClientState(token) {
 const SERVER_INSTANCE_ID = crypto.randomBytes(6).toString('hex');
 
 // WebSocket connection handler
-wss.on('connection', (ws, req) => {
+wss.on('connection', async (ws, req) => {
   const clientId = makeId();
   const connectionId = clientId;
   
@@ -413,18 +406,27 @@ wss.on('connection', (ws, req) => {
     token // Send token back so client can store it if needed
   }));
 
-  // Send chat history
-  ws.send(JSON.stringify({
-    type: 'history',
-    items: chatHistory
-  }));
-  
-  console.log(`[HISTORY] Sent ${chatHistory.length} messages to ${connectionId}`);
+  // Send chat history from database
+  try {
+    const items = await getRecentMessages(MAX_MESSAGES);
+    ws.send(JSON.stringify({
+      type: 'history',
+      items: items
+    }));
+    console.log(`[HISTORY] Sent ${items.length} messages to ${connectionId} from DB`);
+  } catch (error) {
+    console.error(`[HISTORY] Error loading history for ${connectionId}:`, error);
+    // Send empty history on error
+    ws.send(JSON.stringify({
+      type: 'history',
+      items: []
+    }));
+  }
 
   // Broadcast updated online count
   broadcastOnlineCount();
 
-  ws.on('message', (data) => {
+  ws.on('message', async (data) => {
     try {
       const message = JSON.parse(data);
       const info = clients.get(ws);
@@ -501,39 +503,44 @@ wss.on('connection', (ws, req) => {
           return;
         }
 
-        // Find message in history
-        const idx = chatHistory.findIndex(m => m.id === deleteId);
-        if (idx === -1) {
-          console.log(`[DELETE] ❌ Message not found in history`);
-          console.log(`[DELETE] History contains ${chatHistory.length} messages`);
-          console.log(`[DELETE] History IDs:`, chatHistory.map(m => m.id).join(', '));
+        try {
+          // Get messages from DB to check ownership
+          const allMessages = await getRecentMessages(MAX_MESSAGES);
+          const messageToDelete = allMessages.find(m => m.id === deleteId);
+          
+          if (!messageToDelete) {
+            console.log(`[DELETE] ❌ Message not found in database`);
+            console.log(`[DELETE] ========================================`);
+            return;
+          }
+
+          console.log(`[DELETE] Found message in database`);
+          console.log(`[DELETE] Message senderId: ${messageToDelete.senderId}`);
+          console.log(`[DELETE] Requester clientId: ${info.clientId}`);
+          console.log(`[DELETE] Ownership match: ${messageToDelete.senderId === info.clientId}`);
+
+          // Only allow if sender matches
+          if (messageToDelete.senderId !== info.clientId) {
+            console.log(`[DELETE] ❌ Denied: ownership mismatch`);
+            console.log(`[DELETE] ${info.clientId} tried to delete message from ${messageToDelete.senderId}`);
+            console.log(`[DELETE] ========================================`);
+            return;
+          }
+
+          // Delete from database (files are NOT deleted here per requirements)
+          await deleteMessageById(deleteId);
+          console.log(`[DELETE] ✓ Removed from database`);
+
+          // Tell everyone to remove it
+          const recipientCount = broadcast({ type: "delete", id: deleteId });
+          console.log(`[DELETE] ✓ Broadcasted delete to ${recipientCount} clients`);
+          console.log(`[DELETE] ✓ Message ${deleteId} successfully deleted by ${info.clientId}`);
           console.log(`[DELETE] ========================================`);
-          return;
-        }
-
-        const messageToDelete = chatHistory[idx];
-        console.log(`[DELETE] Found message in history at index ${idx}`);
-        console.log(`[DELETE] Message senderId: ${messageToDelete.senderId}`);
-        console.log(`[DELETE] Requester clientId: ${info.clientId}`);
-        console.log(`[DELETE] Ownership match: ${messageToDelete.senderId === info.clientId}`);
-
-        // Only allow if sender matches
-        if (messageToDelete.senderId !== info.clientId) {
-          console.log(`[DELETE] ❌ Denied: ownership mismatch`);
-          console.log(`[DELETE] ${info.clientId} tried to delete message from ${messageToDelete.senderId}`);
+        } catch (dbError) {
+          console.error(`[DELETE] ❌ Database error:`, dbError);
           console.log(`[DELETE] ========================================`);
-          return;
         }
-
-        // Remove from history
-        chatHistory.splice(idx, 1);
-        console.log(`[DELETE] ✓ Removed from history (${chatHistory.length} messages remaining)`);
-
-        // Tell everyone to remove it
-        const recipientCount = broadcast({ type: "delete", id: deleteId });
-        console.log(`[DELETE] ✓ Broadcasted delete to ${recipientCount} clients`);
-        console.log(`[DELETE] ✓ Message ${deleteId} successfully deleted by ${info.clientId}`);
-        console.log(`[DELETE] ========================================`);
+        
         return;
       }
 
@@ -596,7 +603,14 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify(ackPayload));
         console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for id=${msgId} messageId=${msgId}`);
 
-        addToHistory(chatMessage);
+        // Save to database and prune
+        try {
+          await saveMessage(chatMessage);
+          await pruneToLimit(MAX_MESSAGES);
+        } catch (dbError) {
+          console.error(`[DB] Error saving text message:`, dbError);
+        }
+
         broadcast(chatMessage);
         console.log(`[MESSAGE] Text message from ${nickname}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
       } else if (message.type === 'image') {
@@ -626,7 +640,14 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify(ackPayload));
         console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for image id=${msgId} messageId=${msgId}`);
 
-        addToHistory(chatMessage);
+        // Save to database and prune
+        try {
+          await saveMessage(chatMessage);
+          await pruneToLimit(MAX_MESSAGES);
+        } catch (dbError) {
+          console.error(`[DB] Error saving image message:`, dbError);
+        }
+
         broadcast(chatMessage);
         console.log(`[MESSAGE] Image from ${nickname}: ${message.filename} (${message.size} bytes)`);
       } else if (message.type === 'audio') {
@@ -652,7 +673,14 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify(ackPayload));
         console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for audio id=${msgId} messageId=${msgId}`);
 
-        addToHistory(chatMessage);
+        // Save to database and prune
+        try {
+          await saveMessage(chatMessage);
+          await pruneToLimit(MAX_MESSAGES);
+        } catch (dbError) {
+          console.error(`[DB] Error saving audio message:`, dbError);
+        }
+
         broadcast(chatMessage);
         console.log(`[MESSAGE] Audio from ${nickname}: ${message.url}`);
       } else if (message.type === 'file') {
@@ -681,7 +709,14 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify(ackPayload));
         console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for file id=${msgId} messageId=${msgId}`);
 
-        addToHistory(chatMessage);
+        // Save to database and prune
+        try {
+          await saveMessage(chatMessage);
+          await pruneToLimit(MAX_MESSAGES);
+        } catch (dbError) {
+          console.error(`[DB] Error saving file message:`, dbError);
+        }
+
         broadcast(chatMessage);
         console.log(`[MESSAGE] File from ${nickname}: ${message.filename} (${message.size} bytes)`);
       }
@@ -717,17 +752,36 @@ setInterval(() => {
   });
 }, 5 * 60 * 1000);
 
-// Start server
-const SERVER_START_TIME = new Date().toISOString();
-server.listen(PORT, () => {
-  console.log(`========================================`);
-  console.log(`Kennedy Chat Server`);
-  console.log(`========================================`);
-  console.log(`Server Instance ID: ${SERVER_INSTANCE_ID}`);
-  console.log(`Started: ${SERVER_START_TIME}`);
-  console.log(`Port: ${PORT}`);
-  console.log(`WebSocket: ws://localhost:${PORT}`);
-  console.log(`HTTP API: http://localhost:${PORT}`);
-  console.log(`Uploads dir: ${UPLOADS_DIR}`);
-  console.log(`========================================`);
-});
+// Start server - wrapped in async main()
+async function main() {
+  try {
+    console.log(`========================================`);
+    console.log(`Kennedy Chat Server - Initializing`);
+    console.log(`========================================`);
+    
+    // Initialize database
+    await initDb();
+    console.log(`[STARTUP] Database initialized successfully`);
+    
+    const SERVER_START_TIME = new Date().toISOString();
+    server.listen(PORT, () => {
+      console.log(`========================================`);
+      console.log(`Kennedy Chat Server`);
+      console.log(`========================================`);
+      console.log(`Server Instance ID: ${SERVER_INSTANCE_ID}`);
+      console.log(`Started: ${SERVER_START_TIME}`);
+      console.log(`Port: ${PORT}`);
+      console.log(`WebSocket: ws://localhost:${PORT}`);
+      console.log(`HTTP API: http://localhost:${PORT}`);
+      console.log(`Uploads dir: ${UPLOADS_DIR}`);
+      console.log(`History limit: ${MAX_MESSAGES} messages`);
+      console.log(`========================================`);
+    });
+  } catch (error) {
+    console.error(`[STARTUP] Fatal error:`, error);
+    process.exit(1);
+  }
+}
+
+// Start the server
+main();
