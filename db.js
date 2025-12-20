@@ -11,7 +11,8 @@ let db = null;
 function initDb() {
   return new Promise((resolve, reject) => {
     try {
-      const dbPath = path.join(__dirname, 'chat.db');
+      // Use DB_PATH environment variable or default to ./chat.db
+      const dbPath = process.env.DB_PATH || path.join(__dirname, 'chat.db');
       console.log('[DB] Initializing database at:', dbPath);
       
       db = new Database(dbPath);
@@ -110,13 +111,17 @@ function getRecentMessages(limit) {
     }
     
     try {
+      // Get the most recent N messages by selecting from the end
       const stmt = db.prepare(`
         SELECT * FROM messages 
-        ORDER BY timestamp ASC
+        ORDER BY timestamp DESC
         LIMIT ?
       `);
       
       const rows = stmt.all(limit);
+      
+      // Reverse to return in chronological order (oldest first)
+      rows.reverse();
       
       // Convert rows back to message objects
       const messages = rows.map(row => {
@@ -230,7 +235,7 @@ function pruneToLimit(limit) {
       
       // Check which files should be deleted
       // Only delete files that are no longer referenced by ANY remaining message
-      const uploadsDir = path.join(__dirname, 'uploads');
+      const uploadsDir = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
       for (const filename of filenamesToCheck) {
         // Check if this filename is still referenced
         const checkStmt = db.prepare('SELECT COUNT(*) as count FROM messages WHERE storedFilename = ?');

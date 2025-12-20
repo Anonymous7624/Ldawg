@@ -6,7 +6,11 @@ const crypto = require('crypto');
 const { execFile } = require('child_process');
 
 const app = express();
-const PORT = 8082;
+
+// Environment-driven configuration
+const PORT = parseInt(process.env.UPLOAD_PORT || '8082', 10);
+const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
+const UPLOAD_BASE_URL = process.env.UPLOAD_BASE_URL || 'https://upload.ldawg7624.com';
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
 
 // Allowed origins
@@ -18,9 +22,9 @@ const ALLOWED_ORIGINS = [
 ];
 
 // Ensure uploads directory exists
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+  console.log(`[STARTUP] Created upload directory: ${UPLOAD_DIR}`);
 }
 
 // CORS middleware
@@ -48,7 +52,7 @@ app.use((req, res, next) => {
 // Multer storage configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, UPLOADS_DIR);
+    cb(null, UPLOAD_DIR);
   },
   filename: (req, file, cb) => {
     const uniqueName = crypto.randomBytes(16).toString('hex') + path.extname(file.originalname);
@@ -160,7 +164,7 @@ app.post('/upload', (req, res) => {
       // Convert audio to MP3 if needed
       if (isAudio && !ext.endsWith('.mp3')) {
         const mp3Filename = path.basename(req.file.filename, ext) + '.mp3';
-        const mp3Path = path.join(UPLOADS_DIR, mp3Filename);
+        const mp3Path = path.join(UPLOAD_DIR, mp3Filename);
         
         console.log(`[UPLOAD] Converting audio to MP3: ${req.file.filename} -> ${mp3Filename}`);
         
@@ -183,7 +187,7 @@ app.post('/upload', (req, res) => {
       }
       
       // Return URL that points to this upload service
-      const uploadUrl = `https://upload.ldawg7624.com/uploads/${finalFilename}`;
+      const uploadUrl = `${UPLOAD_BASE_URL}/uploads/${finalFilename}`;
       
       console.log(`[UPLOAD] Success: ${req.file.originalname} (${req.file.size} bytes)`);
       console.log(`[UPLOAD] URL: ${uploadUrl}`);
@@ -210,7 +214,7 @@ app.post('/upload', (req, res) => {
 });
 
 // Serve uploaded files
-app.use('/uploads', express.static(UPLOADS_DIR, {
+app.use('/uploads', express.static(UPLOAD_DIR, {
   setHeaders: (res, filePath) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     
@@ -223,37 +227,44 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
   }
 }));
 
-// Cleanup old uploads (older than 1 hour)
+// Cleanup old uploads (older than 7 days) - files managed by messages in DB
+// This is a safety cleanup for orphaned files
 setInterval(() => {
   const now = Date.now();
-  const MAX_AGE = 60 * 60 * 1000; // 1 hour
+  const MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
   
-  fs.readdir(UPLOADS_DIR, (err, files) => {
+  fs.readdir(UPLOAD_DIR, (err, files) => {
     if (err) return;
     
     files.forEach(file => {
-      const filePath = path.join(UPLOADS_DIR, file);
+      const filePath = path.join(UPLOAD_DIR, file);
       fs.stat(filePath, (err, stats) => {
         if (err) return;
         
         if (now - stats.mtimeMs > MAX_AGE) {
           fs.unlink(filePath, (err) => {
             if (!err) {
-              console.log(`[CLEANUP] Removed old file: ${file}`);
+              console.log(`[CLEANUP] Removed old orphaned file: ${file}`);
             }
           });
         }
       });
     });
   });
-}, 5 * 60 * 1000); // Run every 5 minutes
+}, 24 * 60 * 60 * 1000); // Run once per day
 
 app.listen(PORT, () => {
   console.log('========================================');
   console.log('Kennedy Chat Upload Service');
   console.log('========================================');
   console.log(`Port: ${PORT}`);
-  console.log(`Uploads dir: ${UPLOADS_DIR}`);
+  console.log(`Upload dir: ${UPLOAD_DIR}`);
+  console.log(`Base URL: ${UPLOAD_BASE_URL}`);
   console.log(`Max file size: ${MAX_UPLOAD_SIZE / 1024 / 1024}MB`);
+  console.log('========================================');
+  console.log('[CONFIG] Environment variables:');
+  console.log(`  UPLOAD_DIR=${process.env.UPLOAD_DIR || '(default)'}`);
+  console.log(`  UPLOAD_BASE_URL=${process.env.UPLOAD_BASE_URL || '(default)'}`);
+  console.log(`  UPLOAD_PORT=${process.env.UPLOAD_PORT || '(default)'}`);
   console.log('========================================');
 });
