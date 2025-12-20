@@ -249,6 +249,37 @@
       color: #66b3ff;
     }
 
+    /* BUG FIX #1: High contrast download links in message bubbles */
+    .message.own-message .message-file a,
+    .message.other-message .message-file a {
+      color: white;
+      background: rgba(0, 0, 0, 0.3);
+      padding: 8px 16px;
+      border-radius: 5px;
+      display: inline-block;
+      text-decoration: none;
+      font-weight: 600;
+      transition: all 0.2s;
+      margin-top: 8px;
+    }
+
+    .message.own-message .message-file a:hover,
+    .message.other-message .message-file a:hover {
+      background: rgba(0, 0, 0, 0.5);
+      transform: translateY(-1px);
+    }
+
+    body.dark-mode .message.own-message .message-file a,
+    body.dark-mode .message.other-message .message-file a {
+      color: white;
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    body.dark-mode .message.own-message .message-file a:hover,
+    body.dark-mode .message.other-message .message-file a:hover {
+      background: rgba(255, 255, 255, 0.35);
+    }
+
     .file-info {
       font-size: 11px;
       opacity: 0.7;
@@ -291,6 +322,31 @@
 
     body.dark-mode .file-download-btn:hover {
       background: #2563eb;
+    }
+
+    /* BUG FIX #1: High contrast download buttons in message bubbles */
+    .message.own-message .file-download-btn,
+    .message.other-message .file-download-btn {
+      background: rgba(255, 255, 255, 0.9);
+      color: #333;
+    }
+
+    .message.own-message .file-download-btn:hover,
+    .message.other-message .file-download-btn:hover {
+      background: white;
+      color: #000;
+    }
+
+    body.dark-mode .message.own-message .file-download-btn,
+    body.dark-mode .message.other-message .file-download-btn {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+
+    body.dark-mode .message.own-message .file-download-btn:hover,
+    body.dark-mode .message.other-message .file-download-btn:hover {
+      background: rgba(255, 255, 255, 0.35);
+      color: white;
     }
 
     .input-section {
@@ -597,11 +653,10 @@
       display: inline-block;
     }
 
+    /* BUG FIX #2: Emoji dropdown positioning to prevent cutoff */
     .emoji-panel {
       display: none;
-      position: absolute;
-      bottom: 100%;
-      left: 0;
+      position: fixed; /* Changed from absolute to fixed for better viewport positioning */
       background: white;
       border: 2px solid rgba(0, 0, 0, 0.1);
       border-radius: 10px;
@@ -610,7 +665,7 @@
       max-width: 320px;
       max-height: 200px;
       overflow-y: auto;
-      z-index: 100;
+      z-index: 10000; /* Very high z-index to ensure it's above everything */
       margin-bottom: 8px;
     }
 
@@ -1546,7 +1601,41 @@
 
     function toggleEmojiPicker() {
       const panel = document.getElementById('emojiPanel');
-      panel.classList.toggle('active');
+      const button = event.target.closest('.toolbar-btn');
+      
+      if (panel.classList.contains('active')) {
+        panel.classList.remove('active');
+      } else {
+        // Calculate position relative to button
+        if (button) {
+          const rect = button.getBoundingClientRect();
+          const panelHeight = 200; // max-height from CSS
+          const spaceAbove = rect.top;
+          const spaceBelow = window.innerHeight - rect.bottom;
+          
+          // Position below if there's more space, or if not enough space above
+          if (spaceBelow > panelHeight || spaceAbove < panelHeight) {
+            // Position below button
+            panel.style.top = (rect.bottom + 8) + 'px';
+            panel.style.bottom = 'auto';
+          } else {
+            // Position above button
+            panel.style.bottom = (window.innerHeight - rect.top + 8) + 'px';
+            panel.style.top = 'auto';
+          }
+          
+          // Horizontal positioning
+          panel.style.left = rect.left + 'px';
+          
+          // Ensure panel doesn't overflow viewport horizontally
+          const maxLeft = window.innerWidth - 320 - 10; // 320px max-width + 10px margin
+          if (rect.left > maxLeft) {
+            panel.style.left = maxLeft + 'px';
+          }
+        }
+        
+        panel.classList.add('active');
+      }
     }
 
     function insertEmoji(emoji) {
@@ -1751,6 +1840,10 @@
         } else if (data.type === 'history') {
           console.log('[WS] History received with', data.items.length, 'items');
           displayHistory(data.items);
+          // BUG FIX #3: Ensure delete buttons are refreshed after history loads
+          // This handles the case where myClientId was restored from session storage
+          // but messages from history need their delete buttons added retroactively
+          setTimeout(() => refreshDeleteButtons(), 100);
         } else if (data.type === 'delete') {
           if (DEBUG_DELETE) {
             console.log('========================================');
@@ -1794,6 +1887,25 @@
             if (statusSpan) {
               statusSpan.textContent = 'Sent ✓';
               setTimeout(() => statusSpan.remove(), 2000);
+            }
+            
+            // BUG FIX #3: Add delete button when message transitions from 'sending' to 'sent'
+            // Check if this is our own message and delete button doesn't exist yet
+            const senderId = msgElement.getAttribute('data-sender-id');
+            const isOwnMessage = senderId === myClientId;
+            const existingDeleteBtn = msgElement.querySelector('.deleteBtn');
+            
+            if (isOwnMessage && !existingDeleteBtn) {
+              const deleteBtn = document.createElement('button');
+              deleteBtn.className = 'deleteBtn';
+              deleteBtn.textContent = 'Delete';
+              deleteBtn.title = 'Delete this message';
+              deleteBtn.onclick = () => deleteMessage(ackId);
+              msgElement.appendChild(deleteBtn);
+              
+              if (DEBUG_DELETE) {
+                console.log('[ACK] ✓ Added delete button to message after ACK:', ackId);
+              }
             }
           }
         } else if (data.type === 'text' || data.type === 'image' || data.type === 'audio' || data.type === 'file') {
@@ -1982,8 +2094,14 @@
         deleteButtonHTML = `<button class="deleteBtn" onclick="deleteMessage('${data.id}')" title="Delete this message">Delete</button>`;
         
         if (DEBUG_DELETE) {
-          console.log('[RENDER] ✓ Added delete button for message:', data.id);
+          console.log('[RENDER] ✓ Added delete button for message:', data.id, '(green message)');
         }
+      } else if (DEBUG_DELETE) {
+        console.log('[RENDER] ⊘ No delete button for message:', data.id, 
+          '- isOwnMessage:', isOwnMessage, 
+          '- status:', status,
+          '- senderId:', data.senderId,
+          '- myClientId:', myClientId);
       }
 
       messageDiv.innerHTML = `
