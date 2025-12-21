@@ -430,12 +430,69 @@
     .message-error {
       border-left: 3px solid #dc3545;
     }
+    
+    /* Failed message styling - red bubble */
+    .message-failed {
+      background: rgba(220, 53, 69, 0.2) !important;
+      border-left: 3px solid #dc3545 !important;
+    }
+    
+    body.dark-mode .message-failed {
+      background: rgba(220, 53, 69, 0.15) !important;
+      border-left-color: #ef4444 !important;
+    }
 
     .message-status {
       font-size: 11px;
       opacity: 0.6;
       margin-top: 5px;
       font-style: italic;
+    }
+    
+    /* Retry button styling */
+    .retryBtn {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      font-size: 10px;
+      padding: 4px 8px;
+      background: rgba(239, 68, 68, 0.3);
+      color: #dc3545;
+      border: 1px solid rgba(220, 53, 69, 0.6);
+      border-radius: 3px;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.2s ease, background 0.2s ease;
+      z-index: 10;
+      font-weight: 500;
+    }
+    
+    /* Show retry button on hover for desktop */
+    .message-failed:hover .retryBtn {
+      opacity: 1;
+    }
+    
+    .retryBtn:hover {
+      background: rgba(239, 68, 68, 0.5);
+      border-color: #dc3545;
+    }
+    
+    /* Always show retry button on mobile/touch devices */
+    @media (hover: none) and (pointer: coarse) {
+      .retryBtn {
+        opacity: 0.8;
+      }
+    }
+    
+    body.dark-mode .retryBtn {
+      background: rgba(239, 68, 68, 0.25);
+      color: #fca5a5;
+      border-color: rgba(239, 68, 68, 0.6);
+    }
+    
+    body.dark-mode .retryBtn:hover {
+      background: rgba(239, 68, 68, 0.4);
+      border-color: #ef4444;
     }
 
     .deleteBtn {
@@ -1477,6 +1534,13 @@
     let selectedFile = null;
     let previewURL = null;
     let pendingMessages = new Map(); // Map of client message ID to message data
+    
+    // Failed message handling configuration
+    const DEFAULT_ACK_TIMEOUT_MS = 10000; // 10 seconds (increased from 5s)
+    const RETRY_ACK_TIMEOUT_MS = 20000; // 20 seconds for retry attempts
+    
+    // Message retry metadata: messageId -> { payload, uploadedUrl, attempt, timeoutMs }
+    let messageRetryData = new Map();
 
     // Audio recording state
     let recorder = null;
@@ -2120,12 +2184,33 @@
           
           const msgElement = document.querySelector(`[data-msg-id="${ackId}"]`);
           if (msgElement) {
-            msgElement.classList.remove('message-sending');
+            // Clear any pending ACK timeout
+            if (pendingMsg && pendingMsg.timeout) {
+              clearTimeout(pendingMsg.timeout);
+            }
+            
+            // Check if message is currently in failed state (late ACK arrival)
+            const wasFailed = msgElement.classList.contains('message-failed');
+            
+            // Remove all state classes and apply sent state
+            msgElement.classList.remove('message-sending', 'message-error', 'message-failed');
             msgElement.classList.add('message-sent');
+            
             const statusSpan = msgElement.querySelector('.message-status');
             if (statusSpan) {
               statusSpan.textContent = 'Sent ✓';
               setTimeout(() => statusSpan.remove(), 2000);
+            }
+            
+            // Remove retry button if it exists (late ACK case)
+            const retryBtn = msgElement.querySelector('.retryBtn');
+            if (retryBtn) {
+              retryBtn.remove();
+              console.log('[ACK] ✓ Late ACK received - removed retry button for:', ackId);
+            }
+            
+            if (wasFailed) {
+              console.log('[ACK] ✓ Late ACK flipped message from failed to sent:', ackId);
             }
             
             // BUG FIX #3: Add delete button when message transitions from 'sending' to 'sent'
@@ -2147,6 +2232,10 @@
               }
             }
           }
+          
+          // Clean up pending message and retry data
+          pendingMessages.delete(ackId);
+          messageRetryData.delete(ackId);
         } else if (data.type === 'text' || data.type === 'image' || data.type === 'audio' || data.type === 'file' || data.type === 'video') {
           if (pendingMessages.has(data.id)) {
             console.log('[WS] Received broadcast of our own message id=' + data.id);
@@ -2265,6 +2354,8 @@
         messageDiv.classList.add('message-sending');
       } else if (status === 'error') {
         messageDiv.classList.add('message-error');
+      } else if (status === 'failed') {
+        messageDiv.classList.add('message-failed');
       }
       
       if (messageId || data.id) {
@@ -2560,6 +2651,138 @@
     }
 
     // ========================================
+    // FAILED MESSAGE & RETRY HANDLING
+    // ========================================
+    
+    function markMessageAsFailed(messageId) {
+      const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
+      if (!msgElement) return;
+      
+      console.log('[FAIL] Marking message as failed:', messageId);
+      
+      // Update UI state
+      msgElement.classList.remove('message-sending', 'message-error');
+      msgElement.classList.add('message-failed');
+      
+      const statusSpan = msgElement.querySelector('.message-status');
+      if (statusSpan) {
+        statusSpan.textContent = 'Failed to send';
+      }
+      
+      // Add retry button (only for own messages)
+      const senderId = msgElement.getAttribute('data-sender-id');
+      const isOwnMessage = senderId === myClientId;
+      
+      if (isOwnMessage && !msgElement.querySelector('.retryBtn')) {
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'retryBtn';
+        retryBtn.textContent = 'Retry';
+        retryBtn.title = 'Retry sending this message';
+        retryBtn.onclick = () => retryMessage(messageId);
+        msgElement.appendChild(retryBtn);
+        console.log('[FAIL] Added retry button to message:', messageId);
+      }
+    }
+    
+    async function retryMessage(messageId) {
+      console.log('[RETRY] Attempting to retry message:', messageId);
+      
+      const retryData = messageRetryData.get(messageId);
+      if (!retryData) {
+        console.error('[RETRY] No retry data found for message:', messageId);
+        showStatus('Cannot retry - message data not found', 'error');
+        return;
+      }
+      
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        console.error('[RETRY] WebSocket not connected');
+        showStatus('Cannot retry - not connected', 'error');
+        return;
+      }
+      
+      const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
+      if (!msgElement) return;
+      
+      // Increment retry attempt
+      retryData.attempt = (retryData.attempt || 0) + 1;
+      console.log('[RETRY] Retry attempt #' + retryData.attempt);
+      
+      // Update UI to "sending" state
+      msgElement.classList.remove('message-failed', 'message-error');
+      msgElement.classList.add('message-sending');
+      
+      const statusSpan = msgElement.querySelector('.message-status');
+      if (statusSpan) {
+        statusSpan.textContent = 'Sending...';
+      }
+      
+      // Remove retry button temporarily
+      const retryBtn = msgElement.querySelector('.retryBtn');
+      if (retryBtn) {
+        retryBtn.remove();
+      }
+      
+      try {
+        const payload = retryData.payload;
+        const timeoutMs = RETRY_ACK_TIMEOUT_MS; // 20 seconds for retry
+        
+        // Store in pending messages
+        pendingMessages.set(messageId, { ...payload, retrying: true });
+        
+        // For attachment messages that already have an uploaded URL, don't re-upload
+        if (retryData.uploadedUrl && (payload.type === 'image' || payload.type === 'audio' || payload.type === 'video' || payload.type === 'file')) {
+          console.log('[RETRY] Reusing uploaded URL:', retryData.uploadedUrl);
+          
+          // Send WebSocket message with existing URL
+          const wsMessage = {
+            ...payload,
+            url: retryData.uploadedUrl
+          };
+          
+          ws.send(JSON.stringify(wsMessage));
+          console.log('[RETRY] WS message sent, waiting for ACK with timeout:', timeoutMs + 'ms');
+          
+          // Set up ACK timeout
+          const ackTimeout = setTimeout(() => {
+            if (pendingMessages.has(messageId)) {
+              console.error('[RETRY] ACK timeout after retry for message:', messageId);
+              markMessageAsFailed(messageId);
+              pendingMessages.delete(messageId);
+            }
+          }, timeoutMs);
+          
+          pendingMessages.get(messageId).timeout = ackTimeout;
+          
+        } else if (payload.type === 'text') {
+          // Text message retry
+          ws.send(JSON.stringify(payload));
+          console.log('[RETRY] Text message sent, waiting for ACK with timeout:', timeoutMs + 'ms');
+          
+          // Set up ACK timeout
+          const ackTimeout = setTimeout(() => {
+            if (pendingMessages.has(messageId)) {
+              console.error('[RETRY] ACK timeout after retry for message:', messageId);
+              markMessageAsFailed(messageId);
+              pendingMessages.delete(messageId);
+            }
+          }, timeoutMs);
+          
+          pendingMessages.get(messageId).timeout = ackTimeout;
+          
+        } else {
+          // This shouldn't happen, but handle it
+          console.error('[RETRY] Cannot retry - unsupported message type or missing URL');
+          markMessageAsFailed(messageId);
+        }
+        
+      } catch (error) {
+        console.error('[RETRY] Error during retry:', error);
+        markMessageAsFailed(messageId);
+        showStatus('Retry failed: ' + error.message, 'error');
+      }
+    }
+
+    // ========================================
     // SEND MESSAGE (Updated for Feature 1)
     // ========================================
     
@@ -2622,20 +2845,7 @@
           const msgElement = addMessage(optimisticData, true, messageId, 'sending');
           pendingMessages.set(messageId, optimisticData);
           
-          const ackTimeout = setTimeout(() => {
-            if (pendingMessages.has(messageId)) {
-              const elem = document.querySelector(`[data-msg-id="${messageId}"]`);
-              if (elem) {
-                elem.classList.remove('message-sending');
-                elem.classList.add('message-error');
-                const statusSpan = elem.querySelector('.message-status');
-                if (statusSpan) {
-                  statusSpan.textContent = 'Failed to send (timeout)';
-                }
-              }
-              pendingMessages.delete(messageId);
-            }
-          }, 5000);
+          // DO NOT start ACK timer yet - wait until after upload completes
           
           clearComposer();
           
@@ -2643,13 +2853,13 @@
           const formData = new FormData();
           formData.append('file', fileToUpload);
           
+          console.log('[SEND] Starting file upload...');
           const response = await fetch(UPLOAD_URL, {
             method: 'POST',
             body: formData
           });
           
           if (!response.ok) {
-            clearTimeout(ackTimeout);
             const errorText = await response.text();
             let errorMessage = `Upload failed: ${response.status}`;
             try {
@@ -2669,6 +2879,8 @@
           const result = await response.json();
 
           if (result.success || result.ok) {
+            console.log('[SEND] Upload complete, now sending WS message...');
+            
             const wsMessage = {
               type: fileType,
               id: messageId,
@@ -2682,7 +2894,26 @@
               caption: text || ''
             };
             
+            // Store retry data with uploaded URL
+            messageRetryData.set(messageId, {
+              payload: wsMessage,
+              uploadedUrl: result.url,
+              attempt: 0,
+              timeoutMs: DEFAULT_ACK_TIMEOUT_MS
+            });
+            
+            // NOW start ACK timer after upload completes and WS message is sent
             ws.send(JSON.stringify(wsMessage));
+            
+            const ackTimeout = setTimeout(() => {
+              if (pendingMessages.has(messageId)) {
+                console.error('[SEND] ACK timeout for uploaded file:', messageId);
+                markMessageAsFailed(messageId);
+                pendingMessages.delete(messageId);
+              }
+            }, DEFAULT_ACK_TIMEOUT_MS);
+            
+            pendingMessages.get(messageId).timeout = ackTimeout;
             
             removePhotoAttachment();
             
@@ -2715,7 +2946,6 @@
               }
             }
           } else {
-            clearTimeout(ackTimeout);
             throw new Error(result.error || 'Upload failed');
           }
         } else {
@@ -2736,21 +2966,22 @@
           addMessage(messageData, true, messageId, 'sending');
           pendingMessages.set(messageId, messageData);
           
-          setTimeout(() => {
+          // Store retry data
+          messageRetryData.set(messageId, {
+            payload: messageData,
+            attempt: 0,
+            timeoutMs: DEFAULT_ACK_TIMEOUT_MS
+          });
+          
+          const ackTimeout = setTimeout(() => {
             if (pendingMessages.has(messageId)) {
               console.error('[SEND] ACK timeout for message:', messageId);
-              const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
-              if (msgElement) {
-                msgElement.classList.remove('message-sending');
-                msgElement.classList.add('message-error');
-                const statusSpan = msgElement.querySelector('.message-status');
-                if (statusSpan) {
-                  statusSpan.textContent = 'Failed to send (timeout)';
-                }
-              }
+              markMessageAsFailed(messageId);
               pendingMessages.delete(messageId);
             }
-          }, 5000);
+          }, DEFAULT_ACK_TIMEOUT_MS);
+          
+          pendingMessages.get(messageId).timeout = ackTimeout;
           
           clearComposer();
           ws.send(JSON.stringify(messageData));
@@ -2760,16 +2991,8 @@
         console.error('[SEND] Error:', error);
         showStatus('Send failed: ' + error.message, 'error');
         
-        const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
-        if (msgElement) {
-          msgElement.classList.remove('message-sending');
-          msgElement.classList.add('message-error');
-          const statusSpan = msgElement.querySelector('.message-status');
-          if (statusSpan) {
-            statusSpan.textContent = 'Failed to send';
-          }
-        }
-        
+        // Mark message as failed (will add retry button)
+        markMessageAsFailed(messageId);
         pendingMessages.delete(messageId);
       } finally {
         sendBtn.disabled = false;
