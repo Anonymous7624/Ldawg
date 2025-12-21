@@ -13,7 +13,19 @@ function initDb() {
     try {
       // Use DB_PATH environment variable or default to ./chat.db
       const dbPath = process.env.DB_PATH || path.join(__dirname, 'chat.db');
-      console.log('[DB] Initializing database at:', dbPath);
+      
+      // FAIL LOUDLY if DB_PATH is not set in production
+      if (!process.env.DB_PATH) {
+        console.warn('[DB] ⚠️  WARNING: DB_PATH environment variable not set, using default');
+      }
+      
+      // Log the resolved DB path prominently
+      console.log('========================================');
+      console.log('[DB] DATABASE CONFIGURATION');
+      console.log('[DB] Resolved DB path:', dbPath);
+      console.log('[DB] DB_PATH env var:', process.env.DB_PATH || '(not set)');
+      console.log('[DB] File exists:', fs.existsSync(dbPath) ? 'YES' : 'NO (will be created)');
+      console.log('========================================');
       
       db = new Database(dbPath);
       
@@ -41,10 +53,18 @@ function initDb() {
         CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp DESC)
       `);
       
+      // Get count of messages in DB
+      const countStmt = db.prepare('SELECT COUNT(*) as count FROM messages');
+      const { count } = countStmt.get();
+      
       console.log('[DB] Database initialized successfully');
+      console.log('[DB] Current message count:', count);
+      console.log('========================================');
+      
       resolve();
     } catch (error) {
-      console.error('[DB] Initialization error:', error);
+      console.error('[DB] ❌ FATAL: Database initialization error:', error);
+      console.error('[DB] This will prevent persistence from working!');
       reject(error);
     }
   });
