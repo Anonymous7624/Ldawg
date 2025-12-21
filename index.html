@@ -1759,15 +1759,24 @@
     }
 
     function isAudioFile(filename, mime) {
-      const audioExts = ['.mp3', '.wav', '.ogg', '.webm', '.m4a', '.aac'];
+      // Prioritize MIME type - if it's video, it's not audio even if extension matches
+      if (mime) {
+        if (mime.startsWith('video/')) return false;
+        if (mime.startsWith('audio/')) return true;
+      }
+      // Fallback to extension (but ambiguous extensions like .webm, .ogg default to video)
+      const audioExts = ['.mp3', '.wav', '.m4a', '.aac'];
       const ext = getFileExtension(filename);
-      return audioExts.includes(ext) || (mime && mime.startsWith('audio/'));
+      return audioExts.includes(ext);
     }
 
     function isVideoFile(filename, mime) {
+      // Prioritize MIME type
+      if (mime && mime.startsWith('video/')) return true;
+      // Fallback to extension
       const videoExts = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
       const ext = getFileExtension(filename);
-      return videoExts.includes(ext) || (mime && mime.startsWith('video/'));
+      return videoExts.includes(ext);
     }
 
     // ========================================
@@ -2698,6 +2707,20 @@
                 const audio = msgElement.querySelector('audio');
                 if (audio) {
                   audio.src = result.url;
+                }
+              } else if (fileType === 'video') {
+                const video = msgElement.querySelector('video');
+                if (video) {
+                  const source = video.querySelector('source');
+                  if (source) {
+                    source.src = result.url;
+                    source.type = result.mime || 'video/webm';
+                  }
+                  video.load(); // Reload the video with new source
+                }
+                const videoContainer = msgElement.querySelector('.message-video');
+                if (videoContainer) {
+                  videoContainer.setAttribute('data-url', result.url);
                 }
               }
             }

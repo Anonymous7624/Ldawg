@@ -153,13 +153,13 @@ app.post('/upload', (req, res) => {
       const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
       const isImage = imageExts.includes(ext) && mime.startsWith('image/');
       
-      // Check if it's audio that needs conversion
-      const audioExts = ['.webm', '.ogg', '.wav'];
-      const isAudio = (audioExts.includes(ext) || mime.startsWith('audio/')) && !mime.startsWith('video/');
-      
-      // Check if it's video
+      // Check if it's video FIRST (before audio check, since .webm can be both)
       const videoExts = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
-      const isVideo = videoExts.includes(ext) || mime.startsWith('video/');
+      const isVideo = videoExts.includes(ext) && mime.startsWith('video/');
+      
+      // Check if it's audio that needs conversion (exclude videos)
+      const audioExts = ['.webm', '.ogg', '.wav', '.mp3', '.m4a', '.aac'];
+      const isAudio = !isVideo && (audioExts.includes(ext) || mime.startsWith('audio/'));
       
       let finalFilename = req.file.filename;
       let finalPath = req.file.path;
@@ -204,7 +204,9 @@ app.post('/upload', (req, res) => {
         filename: req.file.originalname,
         mime: finalMime,
         size: fs.statSync(finalPath).size,
-        isImage
+        isImage,
+        isVideo,
+        isAudio
       });
     } catch (error) {
       console.error('[UPLOAD] Handler error:', error);
