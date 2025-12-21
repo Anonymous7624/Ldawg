@@ -543,6 +543,8 @@
       margin-bottom: 10px;
     }
 
+    /* REMOVED - audio now uses unified media composer */
+
     /* Rich text toolbar */
     .text-toolbar {
       display: flex;
@@ -1240,21 +1242,7 @@
           <button class="btn-remove" onclick="stopAudioRecording()" style="margin-left: 10px;">Stop</button>
         </div>
 
-        <!-- Audio Draft Composer -->
-        <div id="audioDraft" class="audio-draft">
-          <div class="audio-draft-header">Voice Message Draft</div>
-          <audio id="audioDraftPlayer" controls></audio>
-          <textarea 
-            id="audioCaptionInput" 
-            placeholder="Add a caption (optional, max 1000 chars)" 
-            maxlength="1000"
-            style="width: 100%; min-height: 50px; margin-bottom: 10px;"
-          ></textarea>
-          <div class="audio-draft-controls">
-            <button class="btn-primary" onclick="sendAudioDraft()">Send</button>
-            <button class="btn-remove" onclick="discardAudioDraft()">Discard</button>
-          </div>
-        </div>
+        <!-- Audio Draft Composer - REMOVED (unified with media composer below) -->
 
         <div class="input-section">
           <input 
@@ -1265,14 +1253,16 @@
             autocomplete="off"
           >
           
-          <!-- Photo Composer Preview -->
+          <!-- Media Composer Preview (unified for photos, videos, audio, files) -->
           <div id="photoComposer" class="photo-composer">
             <div class="composer-header">
-              <span>Photo Attached</span>
+              <span id="mediaTypeLabel">Media Attached</span>
               <button class="btn-remove" onclick="removePhotoAttachment()">Remove</button>
             </div>
             <div class="composer-preview">
-              <img id="previewImage" class="preview-image" src="" alt="Preview">
+              <img id="previewImage" class="preview-image" src="" alt="Preview" style="display: none;">
+              <video id="previewVideo" class="preview-image" controls style="display: none; max-width: 200px; max-height: 200px; cursor: pointer;"></video>
+              <audio id="previewAudio" controls style="display: none; width: 100%; margin-bottom: 10px;"></audio>
               <div class="preview-details">
                 <div class="preview-filename" id="previewFilename"></div>
                 <div class="preview-size" id="previewSize"></div>
@@ -2927,125 +2917,58 @@
       
       audioDraftURL = URL.createObjectURL(blob);
       
-      const draftDiv = document.getElementById('audioDraft');
-      const player = document.getElementById('audioDraftPlayer');
-      const captionInput = document.getElementById('audioCaptionInput');
+      // Create file attachment
+      const ext = blob.type.includes('ogg') ? 'ogg' : 'webm';
+      const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type });
+      selectedFile = file;
       
-      player.src = audioDraftURL;
-      captionInput.value = '';
+      if (previewURL) {
+        URL.revokeObjectURL(previewURL);
+      }
+      previewURL = audioDraftURL;
       
-      draftDiv.classList.add('active');
+      // Show in unified media composer
+      const composer = document.getElementById('photoComposer');
+      const previewImg = document.getElementById('previewImage');
+      const previewVideo = document.getElementById('previewVideo');
+      const previewAudio = document.getElementById('previewAudio');
+      const previewFilename = document.getElementById('previewFilename');
+      const previewSize = document.getElementById('previewSize');
+      const mediaTypeLabel = document.getElementById('mediaTypeLabel');
+      
+      // Hide other media types
+      previewImg.style.display = 'none';
+      previewVideo.style.display = 'none';
+      
+      // Show audio preview
+      previewAudio.style.display = 'block';
+      previewAudio.src = audioDraftURL;
+      previewFilename.textContent = file.name;
+      previewSize.textContent = formatFileSize(blob.size);
+      mediaTypeLabel.textContent = 'Voice Message';
+      
+      composer.classList.add('active');
+      document.getElementById('composer').focus();
+      
       resetAudioButton();
       
-      console.log('[AUDIO] Draft created, size:', blob.size);
+      console.log('[AUDIO] Draft created in unified composer, size:', blob.size);
     }
 
     function discardAudioDraft() {
+      // Just use the unified removal function
+      removePhotoAttachment();
+      
       if (audioDraftURL) {
         URL.revokeObjectURL(audioDraftURL);
         audioDraftURL = null;
       }
       
       audioDraftBlob = null;
-      
-      const draftDiv = document.getElementById('audioDraft');
-      draftDiv.classList.remove('active');
-      
-      document.getElementById('audioCaptionInput').value = '';
     }
 
-    async function sendAudioDraft() {
-      if (!audioDraftBlob) {
-        showStatus('No audio to send', 'error');
-        return;
-      }
-
-      const banUntil = getBanState();
-      if (banUntil && banUntil > Date.now()) {
-        showStatus('You are temporarily blocked from sending messages', 'error');
-        return;
-      }
-
-      if (ws.readyState !== WebSocket.OPEN) {
-        showStatus('Not connected. Please wait...', 'error');
-        return;
-      }
-
-      const caption = document.getElementById('audioCaptionInput').value.trim();
-      const nickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
-      const messageId = generateUUID();
-
-      const sendBtn = document.getElementById('sendBtn');
-      sendBtn.disabled = true;
-
-      try {
-        const optimisticData = {
-          type: 'audio',
-          id: messageId,
-          nickname,
-          timestamp: Date.now(),
-          url: audioDraftURL,
-          caption: caption || '',
-          senderId: myClientId
-        };
-        
-        addMessage(optimisticData, true, messageId, 'sending');
-        pendingMessages.set(messageId, optimisticData);
-
-        const fd = new FormData();
-        const ext = audioDraftBlob.type.includes('ogg') ? 'ogg' : 'webm';
-        fd.append('file', audioDraftBlob, `audio-${Date.now()}.${ext}`);
-
-        const res = await fetch(UPLOAD_URL, { method: 'POST', body: fd });
-        const json = await res.json();
-
-        if (!json.success && !json.ok) {
-          throw new Error(json.error || 'Upload failed');
-        }
-
-        const audioUrl = json.url;
-
-        const messageData = {
-          type: 'audio',
-          id: messageId,
-          messageId: messageId,
-          nickname,
-          timestamp: Date.now(),
-          url: audioUrl,
-          caption: caption || ''
-        };
-
-        ws.send(JSON.stringify(messageData));
-
-        const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
-        if (msgElement) {
-          const audio = msgElement.querySelector('audio');
-          if (audio) {
-            audio.src = audioUrl;
-          }
-        }
-
-        discardAudioDraft();
-
-      } catch (error) {
-        console.error('[AUDIO] Upload error:', error);
-        showStatus('Audio upload failed: ' + error.message, 'error');
-        
-        const msgElement = document.querySelector(`[data-msg-id="${messageId}"]`);
-        if (msgElement) {
-          msgElement.classList.remove('message-sending');
-          msgElement.classList.add('message-error');
-          const statusSpan = msgElement.querySelector('.message-status');
-          if (statusSpan) {
-            statusSpan.textContent = 'Failed to send';
-          }
-        }
-        
-        pendingMessages.delete(messageId);
-      } finally {
-        sendBtn.disabled = false;
-      }
-    }
+    // REMOVED: sendAudioDraft() - Audio now uses unified sendMessage() flow
+    // Audio attachments are created in createAudioDraft() and sent via the main sendMessage() function
 
     function toggleAudioRecording() {
       if (recorder && recorder.state === 'recording') {
@@ -3400,7 +3323,7 @@
       }
     }
 
-    function handleVideoRecordingComplete() {
+    async function handleVideoRecordingComplete() {
       const blob = new Blob(videoChunks, { type: 'video/webm' });
       
       console.log('[VIDEO] Recording complete, size:', formatFileSize(blob.size));
@@ -3422,15 +3345,28 @@
       
       previewURL = URL.createObjectURL(file);
       
-      // Show in composer
+      // Show in unified media composer with video preview
       const composer = document.getElementById('photoComposer');
       const previewImg = document.getElementById('previewImage');
+      const previewVideo = document.getElementById('previewVideo');
+      const previewAudio = document.getElementById('previewAudio');
       const previewFilename = document.getElementById('previewFilename');
       const previewSize = document.getElementById('previewSize');
+      const mediaTypeLabel = document.getElementById('mediaTypeLabel');
       
-      previewImg.style.display = 'none'; // Don't show video thumbnail
+      // Hide other media types
+      previewImg.style.display = 'none';
+      previewAudio.style.display = 'none';
+      
+      // Show video preview
+      previewVideo.style.display = 'block';
+      previewVideo.src = previewURL;
       previewFilename.textContent = file.name;
       previewSize.textContent = formatFileSize(file.size);
+      mediaTypeLabel.textContent = 'Video Attached';
+      
+      // Add click handler for full preview
+      previewVideo.onclick = () => openVideoPreview(previewURL);
       
       composer.classList.add('active');
       closeCamera();
@@ -3439,7 +3375,7 @@
       showStatus('Video ready to send!', 'success');
     }
 
-    function handleVideoSelect() {
+    async function handleVideoSelect() {
       const videoInput = document.getElementById('videoInput');
       const file = videoInput.files[0];
       
@@ -3462,14 +3398,34 @@
       
       previewURL = URL.createObjectURL(file);
       
+      // Show in unified media composer with video preview
       const composer = document.getElementById('photoComposer');
       const previewImg = document.getElementById('previewImage');
+      const previewVideo = document.getElementById('previewVideo');
+      const previewAudio = document.getElementById('previewAudio');
       const previewFilename = document.getElementById('previewFilename');
       const previewSize = document.getElementById('previewSize');
+      const mediaTypeLabel = document.getElementById('mediaTypeLabel');
       
+      // Hide other media types
       previewImg.style.display = 'none';
+      previewAudio.style.display = 'none';
+      
+      // Show video preview
+      previewVideo.style.display = 'block';
+      previewVideo.src = previewURL;
       previewFilename.textContent = file.name;
       previewSize.textContent = formatFileSize(file.size);
+      mediaTypeLabel.textContent = 'Video Attached';
+      
+      // Add click handler for full preview
+      previewVideo.onclick = () => openVideoPreview(previewURL);
+      
+      composer.classList.add('active');
+      document.getElementById('composer').focus();
+      
+      videoInput.value = '';
+    }
       
       composer.classList.add('active');
       document.getElementById('composer').focus();
@@ -3530,15 +3486,38 @@
       
       const composer = document.getElementById('photoComposer');
       const previewImg = document.getElementById('previewImage');
+      const previewVideo = document.getElementById('previewVideo');
+      const previewAudio = document.getElementById('previewAudio');
       const previewFilename = document.getElementById('previewFilename');
       const previewSize = document.getElementById('previewSize');
+      const mediaTypeLabel = document.getElementById('mediaTypeLabel');
       
-      // Only show image preview if it's actually an image
-      if (isImageFile(file.name, file.type)) {
-        previewImg.src = previewURL;
+      // Determine file type
+      const isImage = isImageFile(file.name, file.type);
+      const isVideo = isVideoFile(file.name, file.type);
+      const isAudio = isAudioFile(file.name, file.type);
+      
+      // Hide all preview types first
+      previewImg.style.display = 'none';
+      previewVideo.style.display = 'none';
+      previewAudio.style.display = 'none';
+      
+      if (isImage) {
         previewImg.style.display = 'block';
+        previewImg.src = previewURL;
+        previewImg.onclick = () => openImagePreview(previewURL);
+        mediaTypeLabel.textContent = 'Photo Attached';
+      } else if (isVideo) {
+        previewVideo.style.display = 'block';
+        previewVideo.src = previewURL;
+        previewVideo.onclick = () => openVideoPreview(previewURL);
+        mediaTypeLabel.textContent = 'Video Attached';
+      } else if (isAudio) {
+        previewAudio.style.display = 'block';
+        previewAudio.src = previewURL;
+        mediaTypeLabel.textContent = 'Audio Attached';
       } else {
-        previewImg.style.display = 'none';
+        mediaTypeLabel.textContent = 'File Attached';
       }
       
       previewFilename.textContent = file.name;
@@ -3556,6 +3535,19 @@
       
       selectedFile = null;
       document.getElementById('fileInput').value = '';
+      document.getElementById('videoInput').value = '';
+      
+      // Clear all preview elements
+      const previewImg = document.getElementById('previewImage');
+      const previewVideo = document.getElementById('previewVideo');
+      const previewAudio = document.getElementById('previewAudio');
+      
+      previewImg.src = '';
+      previewImg.style.display = 'none';
+      previewVideo.src = '';
+      previewVideo.style.display = 'none';
+      previewAudio.src = '';
+      previewAudio.style.display = 'none';
       
       const composer = document.getElementById('photoComposer');
       composer.classList.remove('active');
@@ -3637,6 +3629,7 @@
       canvas.toBlob((blob) => {
         const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
         
+        // Store as pending attachment
         selectedFile = file;
         
         if (previewURL) {
@@ -3645,14 +3638,25 @@
         
         previewURL = URL.createObjectURL(file);
         
+        // Show preview in unified media composer
         const composer = document.getElementById('photoComposer');
         const previewImg = document.getElementById('previewImage');
+        const previewVideo = document.getElementById('previewVideo');
+        const previewAudio = document.getElementById('previewAudio');
         const previewFilename = document.getElementById('previewFilename');
         const previewSize = document.getElementById('previewSize');
+        const mediaTypeLabel = document.getElementById('mediaTypeLabel');
         
+        // Hide other media types
+        previewVideo.style.display = 'none';
+        previewAudio.style.display = 'none';
+        
+        // Show image preview
+        previewImg.style.display = 'block';
         previewImg.src = previewURL;
         previewFilename.textContent = file.name;
         previewSize.textContent = formatFileSize(file.size);
+        mediaTypeLabel.textContent = 'Photo Attached';
         
         composer.classList.add('active');
         closeCamera();
