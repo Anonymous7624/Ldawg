@@ -1,0 +1,132 @@
+═══════════════════════════════════════════════════════════════════
+    RATE LIMITER UPDATE - KEY CODE CHANGES
+═══════════════════════════════════════════════════════════════════
+
+📍 LOCATION: /workspace/server.js
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE #1: Rate Limit Configuration (Lines 20-21)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BEFORE:
+  const RATE_LIMIT_MESSAGES = 2;
+  const RATE_LIMIT_WINDOW = 10000;
+
+AFTER:
+  const RATE_LIMIT_MESSAGES = 4;
+  const RATE_LIMIT_WINDOW = 1000;
+
+IMPACT: 2 msg/10sec → 4 msg/1sec (20× more permissive)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE #2: Enhanced Logging (Lines 183-204)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BEFORE:
+  function registerViolation(info) {
+    if (info.stage >= 1) {
+      info.stage += 1;
+      banFor(info, violationBanMs(info));
+      return;
+    }
+    info.strikes += 1;
+    if (info.strikes >= 3) {
+      info.stage = 1;
+      info.strikes = 0;
+      banFor(info, 60 * 1000);
+    } else {
+      banFor(info, 15 * 1000);
+    }
+  }
+
+AFTER:
+  function registerViolation(info, messageCount, windowMs) {
+    if (info.stage >= 1) {
+      info.stage += 1;
+      const banDurationMs = violationBanMs(info);
+      banFor(info, banDurationMs);
+      console.log(`[RATE-LIMIT-BAN] Violation detected: ${messageCount} messages in ${windowMs}ms window | Stage: ${info.stage} | Ban duration: ${Math.ceil(banDurationMs / 1000)}s`);
+      return;
+    }
+    info.strikes += 1;
+    if (info.strikes >= 3) {
+      info.stage = 1;
+      info.strikes = 0;
+      banFor(info, 60 * 1000);
+      console.log(`[RATE-LIMIT-BAN] Violation detected: ${messageCount} messages in ${windowMs}ms window | Strikes reached 3, escalating to stage 1 | Ban duration: 60s`);
+    } else {
+      banFor(info, 15 * 1000);
+      console.log(`[RATE-LIMIT-BAN] Violation detected: ${messageCount} messages in ${windowMs}ms window | Strike ${info.strikes}/3 | Ban duration: 15s`);
+    }
+  }
+
+IMPACT: Added detailed debug logs showing violation context
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CHANGE #3: Context Passing (Line 226)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BEFORE:
+  if (state.msgTimes.length > limit) {
+    registerViolation(state);
+
+AFTER:
+  if (state.msgTimes.length > limit) {
+    registerViolation(state, state.msgTimes.length, windowMs);
+
+IMPACT: Pass message count and window for logging
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EXAMPLE LOG OUTPUT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When a client sends 5 rapid messages:
+
+  [RATE-LIMIT-BAN] Violation detected: 5 messages in 1000ms window | Strike 1/3 | Ban duration: 15s
+  [RATE-LIMIT] Client abc123 (token def45678...) banned for 15s (strikes: 1)
+
+On repeated violations (stage escalation):
+
+  [RATE-LIMIT-BAN] Violation detected: 5 messages in 1000ms window | Stage: 2 | Ban duration: 300s
+  [RATE-LIMIT] Client abc123 (token def45678...) banned for 300s (strikes: 0)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TESTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Test Script: /workspace/test-rate-limit.js
+
+Run:
+  node test-rate-limit.js
+
+Expected:
+  ✅ 4 ACKs received (messages 1-4 accepted)
+  ✅ 1 BANNED response (message 5 rejected)
+  ✅ Server log shows violation details
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+WHAT'S PRESERVED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ Ban escalation system (15s, 15s, 1min, 5min, 10min, +5min...)
+✅ Strike-based progression (3 strikes = escalation)
+✅ Token-based tracking (persists across reconnects)
+✅ Message type filtering (only text/image/audio/file)
+✅ Exempt types (presence/typing/ping/delete/ack)
+✅ Client response format (banned message unchanged)
+✅ All other functionality
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Total Changes: 3 sections, ~15 lines
+Files Modified: 1 (server.js)
+Files Created: 6 (docs + test)
+Breaking Changes: None
+Backward Compatible: Yes
+Production Ready: Yes
+
+═══════════════════════════════════════════════════════════════════
+STATUS: ✅ COMPLETE
+═══════════════════════════════════════════════════════════════════
