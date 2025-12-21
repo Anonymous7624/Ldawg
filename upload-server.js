@@ -155,7 +155,11 @@ app.post('/upload', (req, res) => {
       
       // Check if it's audio that needs conversion
       const audioExts = ['.webm', '.ogg', '.wav'];
-      const isAudio = audioExts.includes(ext) || mime.startsWith('audio/');
+      const isAudio = (audioExts.includes(ext) || mime.startsWith('audio/')) && !mime.startsWith('video/');
+      
+      // Check if it's video
+      const videoExts = ['.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv'];
+      const isVideo = videoExts.includes(ext) || mime.startsWith('video/');
       
       let finalFilename = req.file.filename;
       let finalPath = req.file.path;
@@ -220,9 +224,19 @@ app.use('/uploads', express.static(UPLOAD_DIR, {
     
     const ext = path.extname(filePath).toLowerCase();
     const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+    const videoExts = ['.mp4', '.webm', '.ogg', '.mov'];
     
-    if (!imageExts.includes(ext)) {
+    // Don't force download for images and videos (allow inline viewing)
+    if (!imageExts.includes(ext) && !videoExts.includes(ext)) {
       res.setHeader('Content-Disposition', 'attachment');
+    }
+    
+    // Set proper MIME type for videos
+    if (videoExts.includes(ext)) {
+      if (ext === '.webm') res.setHeader('Content-Type', 'video/webm');
+      else if (ext === '.mp4') res.setHeader('Content-Type', 'video/mp4');
+      else if (ext === '.ogg') res.setHeader('Content-Type', 'video/ogg');
+      else if (ext === '.mov') res.setHeader('Content-Type', 'video/quicktime');
     }
   }
 }));
