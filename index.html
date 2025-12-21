@@ -2334,6 +2334,24 @@
     connect();
 
     // ========================================
+    // STARTUP SELF-CHECK (for debugging)
+    // ========================================
+    setTimeout(() => {
+      console.log('========================================');
+      console.log('[INIT] STARTUP SELF-CHECK');
+      console.log('[INIT] typeof sendMessage:', typeof sendMessage);
+      console.log('[INIT] typeof toggleDarkMode:', typeof toggleDarkMode);
+      console.log('[INIT] WebSocket readyState:', ws ? ws.readyState : 'undefined');
+      console.log('[INIT] WebSocket states: 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED');
+      if (typeof sendMessage === 'function' && typeof toggleDarkMode === 'function') {
+        console.log('[INIT] ✓ INIT OK - All critical functions defined');
+      } else {
+        console.error('[INIT] ❌ INIT FAILED - Missing functions!');
+      }
+      console.log('========================================');
+    }, 100);
+
+    // ========================================
     // MESSAGE DISPLAY
     // ========================================
     
@@ -3648,10 +3666,6 @@
       document.getElementById('composer').focus();
       
       videoInput.value = '';
-    }
-      
-      composer.classList.add('active');
-      document.getElementById('composer').focus();
     }
 
     function openVideoPreview(url, filename) {
