@@ -17,8 +17,11 @@ const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'chat.db');
 const MAX_MESSAGES = parseInt(process.env.MAX_MESSAGES || '600', 10);
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
-const RATE_LIMIT_MESSAGES = 4; // 4 messages per window
-const RATE_LIMIT_WINDOW = 1000; // 1 second (rolling window)
+
+// Two-layer spam control configuration
+const RATE_LIMIT_MESSAGES = 5; // Max messages in sliding window
+const RATE_LIMIT_WINDOW = 10000; // 10 seconds (rolling window)
+const RATE_LIMIT_COOLDOWN = 750; // Minimum 750ms between sends
 
 // Helper to generate client IDs
 function makeId() { 
@@ -191,13 +194,16 @@ function violationBanMs(info) {
   return 15 * 1000;
 }
 
-function registerViolation(info, messageCount, windowMs) {
+function registerViolation(info, reason, details) {
+  // reason: 'WINDOW' or 'COOLDOWN'
+  // details: for debugging (messageCount, windowMs, or cooldownDelta)
+  
   // if we already hit stage>=1, escalate stage each violation
   if (info.stage >= 1) {
     info.stage += 1; // stage1->2 gives 5m, then grows
     const banDurationMs = violationBanMs(info);
     banFor(info, banDurationMs);
-    console.log(`[RATE-LIMIT-BAN] Violation detected: ${messageCount} messages in ${windowMs}ms window | Stage: ${info.stage} | Ban duration: ${Math.ceil(banDurationMs / 1000)}s`);
+    console.log(`[RATE-LIMIT-BAN] Violation: ${reason} | ${details} | Stage: ${info.stage} | Ban: ${Math.ceil(banDurationMs / 1000)}s`);
     return;
   }
 
@@ -207,41 +213,67 @@ function registerViolation(info, messageCount, windowMs) {
     info.stage = 1;           // mark that we hit the 1-min level
     info.strikes = 0;         // reset strikes after escalation
     banFor(info, 60 * 1000);  // 1 minute
-    console.log(`[RATE-LIMIT-BAN] Violation detected: ${messageCount} messages in ${windowMs}ms window | Strikes reached 3, escalating to stage 1 | Ban duration: 60s`);
+    console.log(`[RATE-LIMIT-BAN] Violation: ${reason} | ${details} | Strikes reached 3, escalating to stage 1 | Ban: 60s`);
   } else {
     banFor(info, 15 * 1000);
-    console.log(`[RATE-LIMIT-BAN] Violation detected: ${messageCount} messages in ${windowMs}ms window | Strike ${info.strikes}/3 | Ban duration: 15s`);
+    console.log(`[RATE-LIMIT-BAN] Violation: ${reason} | ${details} | Strike ${info.strikes}/3 | Ban: 15s`);
   }
 }
 
 function checkRateLimit(state) {
   if (!state) return { allowed: false };
 
+  const currentTime = now();
+
+  // Check if already banned
   if (isBanned(state)) {
     return {
       allowed: false,
       muted: true,
-      seconds: Math.ceil((state.bannedUntil - now()) / 1000),
+      seconds: Math.ceil((state.bannedUntil - currentTime) / 1000),
       strikes: state.strikes
     };
   }
 
+  // LAYER 1: Cooldown check (minimum time between sends)
+  // Only update lastSendAt when message is allowed through (stricter option)
+  if (state.lastSendAt) {
+    const timeSinceLastSend = currentTime - state.lastSendAt;
+    if (timeSinceLastSend < RATE_LIMIT_COOLDOWN) {
+      registerViolation(state, 'COOLDOWN', `delta=${timeSinceLastSend}ms (min=${RATE_LIMIT_COOLDOWN}ms)`);
+      return {
+        allowed: false,
+        muted: true,
+        seconds: Math.ceil((state.bannedUntil - currentTime) / 1000),
+        strikes: state.strikes
+      };
+    }
+  }
+
+  // LAYER 2: Sliding window check (max messages in rolling window)
   const windowMs = RATE_LIMIT_WINDOW;
   const limit = RATE_LIMIT_MESSAGES;
 
-  // Keep timestamps inside last window
-  state.msgTimes = state.msgTimes.filter(ts => now() - ts < windowMs);
-  state.msgTimes.push(now());
-
-  if (state.msgTimes.length > limit) {
-    registerViolation(state, state.msgTimes.length, windowMs);
+  // Prune timestamps older than the window
+  state.msgTimes = state.msgTimes.filter(ts => currentTime - ts < windowMs);
+  
+  // Check if adding this message would exceed the limit
+  if (state.msgTimes.length >= limit) {
+    // Calculate actual window span for logging
+    const oldestTimestamp = Math.min(...state.msgTimes);
+    const actualWindowMs = currentTime - oldestTimestamp;
+    registerViolation(state, 'WINDOW', `count=${state.msgTimes.length + 1}/${limit} in ${actualWindowMs}ms (max window=${windowMs}ms)`);
     return {
       allowed: false,
       muted: true,
-      seconds: Math.ceil((state.bannedUntil - now()) / 1000),
+      seconds: Math.ceil((state.bannedUntil - currentTime) / 1000),
       strikes: state.strikes
     };
   }
+
+  // Message is allowed - update state
+  state.msgTimes.push(currentTime);
+  state.lastSendAt = currentTime;
 
   return { allowed: true };
 }
@@ -253,7 +285,8 @@ function getClientState(token) {
       strikes: 0,
       stage: 0,
       bannedUntil: 0,
-      msgTimes: []
+      msgTimes: [],
+      lastSendAt: 0 // Track last send time for cooldown
     });
   }
   return clientState.get(token);
