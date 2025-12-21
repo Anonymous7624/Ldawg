@@ -1355,9 +1355,9 @@
                 Media
               </button>
               <div id="mediaMenu" class="media-menu">
-                <div class="media-menu-item" onclick="selectMediaOption('photo')">📷 Photo</div>
-                <div class="media-menu-item" onclick="selectMediaOption('video')">🎥 Video</div>
-                <div class="media-menu-item" onclick="selectMediaOption('file')">📁 File</div>
+                <div class="media-menu-item" onclick="selectMediaOption('photo')">Photo</div>
+                <div class="media-menu-item" onclick="selectMediaOption('video')">Video</div>
+                <div class="media-menu-item" onclick="selectMediaOption('file')">File</div>
               </div>
             </div>
             <button class="btn-icon" onclick="toggleAudioRecording()" title="Record Audio" id="audioBtn">
@@ -3122,29 +3122,142 @@
         const controls = document.getElementById('cameraControls');
         const captureBtn = document.getElementById('captureBtn');
         
-        // Determine video constraints based on quality
-        const constraints = {
+        console.log('[VIDEO] Starting video recording flow...');
+        
+        // Step 1: Enumerate devices to check for camera availability
+        let devices = [];
+        try {
+          devices = await navigator.mediaDevices.enumerateDevices();
+          console.log('[VIDEO] Enumerated devices:', devices.map(d => ({ kind: d.kind, label: d.label, deviceId: d.deviceId })));
+        } catch (enumError) {
+          console.error('[VIDEO] Device enumeration failed:', enumError);
+          // Continue anyway - getUserMedia might still work
+        }
+        
+        const videoInputs = devices.filter(d => d.kind === 'videoinput');
+        console.log('[VIDEO] Found', videoInputs.length, 'video input device(s)');
+        
+        // If labels are empty, we may need permission first
+        if (videoInputs.length > 0 && !videoInputs[0].label) {
+          console.log('[VIDEO] Device labels empty - requesting permission to enumerate properly');
+          try {
+            // Request permission with minimal constraints
+            const permStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            permStream.getTracks().forEach(track => track.stop());
+            
+            // Re-enumerate after permission granted
+            devices = await navigator.mediaDevices.enumerateDevices();
+            const updatedVideoInputs = devices.filter(d => d.kind === 'videoinput');
+            console.log('[VIDEO] After permission, found', updatedVideoInputs.length, 'video input device(s) with labels');
+          } catch (permError) {
+            console.warn('[VIDEO] Permission request failed:', permError);
+          }
+        }
+        
+        // Step 2: Build constraints with ideal preferences (not exact requirements)
+        // Start with the user's selected quality as ideal constraints
+        let constraints = {
           video: {
-            facingMode: 'environment',
-            width: videoQuality === '1080p' ? { ideal: 1920 } : { ideal: 1280 },
-            height: videoQuality === '1080p' ? { ideal: 1080 } : { ideal: 720 }
+            width: { ideal: videoQuality === '1080p' ? 1920 : 1280 },
+            height: { ideal: videoQuality === '1080p' ? 1080 : 720 },
+            frameRate: { ideal: 30 }
           },
           audio: true
         };
         
-        videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+        // On desktop, prefer user-facing camera, but don't use facingMode as a hard constraint
+        // (facingMode 'environment' can cause NotFoundError on PCs without rear cameras)
+        const isDesktop = !/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+        if (isDesktop) {
+          console.log('[VIDEO] Desktop detected - using default camera without facingMode constraint');
+          // Don't add facingMode for desktop - let browser choose default
+        } else {
+          console.log('[VIDEO] Mobile detected - preferring environment camera');
+          constraints.video.facingMode = 'environment';
+        }
+        
+        console.log('[VIDEO] Initial constraints:', JSON.stringify(constraints));
+        
+        // Step 3: Try getUserMedia with progressive fallback
+        let stream = null;
+        
+        // Attempt 1: Try with ideal quality constraints
+        try {
+          console.log('[VIDEO] Attempt 1: Requesting stream with ideal quality constraints');
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          console.log('[VIDEO] ✓ Success with ideal constraints');
+        } catch (error) {
+          console.warn('[VIDEO] Attempt 1 failed:', error.name, error.message);
+          
+          // Attempt 2: Try with just resolution ideals, no frameRate or facingMode
+          try {
+            console.log('[VIDEO] Attempt 2: Trying with simplified constraints (resolution only)');
+            constraints = {
+              video: {
+                width: { ideal: videoQuality === '1080p' ? 1920 : 1280 },
+                height: { ideal: videoQuality === '1080p' ? 1080 : 720 }
+              },
+              audio: true
+            };
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            console.log('[VIDEO] ✓ Success with simplified constraints');
+          } catch (error2) {
+            console.warn('[VIDEO] Attempt 2 failed:', error2.name, error2.message);
+            
+            // Attempt 3: Try with generic video: true (no constraints at all)
+            try {
+              console.log('[VIDEO] Attempt 3: Trying with video: true (no constraints)');
+              stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+              console.log('[VIDEO] ✓ Success with generic constraints');
+            } catch (error3) {
+              console.error('[VIDEO] All attempts failed:', error3.name, error3.message);
+              
+              // All attempts failed - show detailed error
+              let errorMsg = 'Camera access failed';
+              if (error3.name === 'NotFoundError') {
+                errorMsg = 'No camera found - please connect a camera';
+              } else if (error3.name === 'NotAllowedError' || error3.name === 'PermissionDeniedError') {
+                errorMsg = 'Camera permission denied - please allow camera access';
+              } else if (error3.name === 'NotReadableError' || error3.name === 'TrackStartError') {
+                errorMsg = 'Camera is in use by another application';
+              } else {
+                errorMsg = `Camera error: ${error3.message || error3.name}`;
+              }
+              
+              showStatus(errorMsg, 'error');
+              closeCamera();
+              return;
+            }
+          }
+        }
+        
+        // Success - we have a stream
+        videoStream = stream;
         preview.srcObject = videoStream;
         preview.style.display = 'block';
         recordingUI.style.display = 'flex';
         controls.style.display = 'flex';
+        
+        // Log actual stream capabilities
+        const videoTrack = videoStream.getVideoTracks()[0];
+        if (videoTrack) {
+          const settings = videoTrack.getSettings();
+          console.log('[VIDEO] Actual stream settings:', {
+            width: settings.width,
+            height: settings.height,
+            frameRate: settings.frameRate,
+            facingMode: settings.facingMode,
+            deviceId: settings.deviceId
+          });
+        }
         
         // Change capture button to "Start Recording"
         captureBtn.textContent = 'Start Recording';
         captureBtn.onclick = beginVideoRecording;
         
       } catch (error) {
-        console.error('[VIDEO] Camera access error:', error);
-        showStatus('Camera access denied: ' + error.message, 'error');
+        console.error('[VIDEO] Unexpected error in startVideoRecording:', error);
+        showStatus('Camera access error: ' + error.message, 'error');
         closeCamera();
       }
     }
