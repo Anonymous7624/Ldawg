@@ -680,9 +680,13 @@ async function main() {
     console.log(`Kennedy Chat Server - Initializing`);
     console.log(`========================================`);
     
-    // Initialize database
+    // Initialize database - this will log DB path and count
     await initDb();
-    console.log(`[STARTUP] Database initialized successfully`);
+    
+    // Log message count after DB init
+    const messageCount = await getRecentMessages(MAX_MESSAGES);
+    console.log(`[STARTUP] ✓ Database ready with ${messageCount.length} messages in memory`);
+    console.log(`========================================`);
     
     const SERVER_START_TIME = new Date().toISOString();
     server.listen(PORT, () => {
@@ -705,7 +709,8 @@ async function main() {
       console.log(`========================================`);
     });
   } catch (error) {
-    console.error(`[STARTUP] Fatal error:`, error);
+    console.error(`[STARTUP] ❌ FATAL ERROR:`, error);
+    console.error(`[STARTUP] Server cannot start without database!`);
     process.exit(1);
   }
 }

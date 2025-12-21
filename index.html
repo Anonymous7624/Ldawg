@@ -1535,6 +1535,9 @@
     let previewURL = null;
     let pendingMessages = new Map(); // Map of client message ID to message data
     
+    // Message rendering deduplication: track all rendered message IDs to prevent duplicates
+    let renderedMessages = new Map(); // messageId -> DOM element
+    
     // Failed message handling configuration
     const DEFAULT_ACK_TIMEOUT_MS = 10000; // 10 seconds (increased from 5s)
     const RETRY_ACK_TIMEOUT_MS = 20000; // 20 seconds for retry attempts
@@ -2182,7 +2185,8 @@
             return;
           }
           
-          const msgElement = document.querySelector(`[data-msg-id="${ackId}"]`);
+          // Use the deduplication map to find the message element
+          const msgElement = renderedMessages.get(ackId);
           if (msgElement) {
             // Clear any pending ACK timeout
             if (pendingMsg && pendingMsg.timeout) {
@@ -2213,7 +2217,7 @@
               console.log('[ACK] ✓ Late ACK flipped message from failed to sent:', ackId);
             }
             
-            // BUG FIX #3: Add delete button when message transitions from 'sending' to 'sent'
+            // Add delete button when message transitions from 'sending' to 'sent'
             // Check if this is our own message and delete button doesn't exist yet
             const senderId = msgElement.getAttribute('data-sender-id');
             const isOwnMessage = senderId === myClientId;
@@ -2237,29 +2241,19 @@
           pendingMessages.delete(ackId);
           messageRetryData.delete(ackId);
         } else if (data.type === 'text' || data.type === 'image' || data.type === 'audio' || data.type === 'file' || data.type === 'video') {
-          if (pendingMessages.has(data.id)) {
-            console.log('[WS] Received broadcast of our own message id=' + data.id);
-            const msgElement = document.querySelector(`[data-msg-id="${data.id}"]`);
-            if (msgElement && data.type === 'image') {
-              const img = msgElement.querySelector('.message-image');
-              if (img && data.url) {
-                img.src = data.url;
-                img.onclick = () => openImagePreview(data.url);
-              }
-            } else if (msgElement && data.type === 'video') {
-              const videoContainer = msgElement.querySelector('.message-video');
-              if (videoContainer && data.url) {
-                const video = videoContainer.querySelector('video source');
-                if (video) {
-                  video.src = data.url;
-                }
-                videoContainer.setAttribute('data-url', data.url);
-                videoContainer.onclick = () => openVideoPreview(data.url, data.filename);
-              }
+          // Check if this message already exists (deduplication by message ID)
+          if (renderedMessages.has(data.id)) {
+            console.log('[WS] 🔄 Broadcast of existing message id=' + data.id + ', reconciling instead of adding');
+            // Reconcile the existing message (updates senderId, URLs, etc.)
+            addMessage(data, false);
+            
+            // Clean up pending if this was our own message
+            if (pendingMessages.has(data.id)) {
+              pendingMessages.delete(data.id);
             }
-            pendingMessages.delete(data.id);
           } else {
-            console.log('[WS] New message from another client');
+            // New message from another client (or our own if optimistic UI wasn't created yet)
+            console.log('[WS] New message from another client or late arrival');
             addMessage(data);
           }
         } else if (data.type === 'banned') {
@@ -2358,6 +2352,9 @@
     function displayHistory(items) {
       const messagesDiv = document.getElementById('messages');
       messagesDiv.innerHTML = '';
+      // Clear the deduplication map when clearing history
+      renderedMessages.clear();
+      
       const displayItems = items.slice(-100);
       displayItems.forEach(item => addMessage(item, false));
       scrollToBottom();
@@ -2365,6 +2362,88 @@
 
     function addMessage(data, scroll = true, messageId = null, status = 'sent') {
       const messagesDiv = document.getElementById('messages');
+      const msgId = messageId || data.id;
+      
+      // DEDUPLICATION: Check if this message is already rendered
+      if (renderedMessages.has(msgId)) {
+        console.log('[RENDER] 🔄 Message already exists, reconciling:', msgId);
+        const existingElement = renderedMessages.get(msgId);
+        
+        // Reconcile/update the existing bubble instead of creating a new one
+        // Update status if transitioning from pending to sent
+        if (status === 'sent') {
+          existingElement.classList.remove('message-sending', 'message-error', 'message-failed');
+          existingElement.classList.add('message-sent');
+          
+          const statusSpan = existingElement.querySelector('.message-status');
+          if (statusSpan) {
+            statusSpan.remove();
+          }
+        }
+        
+        // Update senderId if it wasn't set before (optimistic message gets server senderId)
+        if (data.senderId && !existingElement.getAttribute('data-sender-id')) {
+          existingElement.setAttribute('data-sender-id', data.senderId);
+          
+          // Re-evaluate ownership colors
+          const isOwnMessage = data.senderId === myClientId;
+          existingElement.classList.remove('own-message', 'other-message');
+          if (isOwnMessage) {
+            existingElement.classList.add('own-message');
+          } else {
+            existingElement.classList.add('other-message');
+          }
+          
+          console.log('[RENDER] 🔄 Updated senderId and ownership for:', msgId);
+        }
+        
+        // Update media URLs if they changed (e.g., blob URL -> server URL)
+        if (data.url) {
+          if (data.type === 'image') {
+            const img = existingElement.querySelector('.message-image');
+            if (img && img.src !== data.url) {
+              img.src = data.url;
+              img.setAttribute('data-url', data.url);
+              img.onclick = () => openImagePreview(data.url);
+            }
+          } else if (data.type === 'video') {
+            const videoContainer = existingElement.querySelector('.message-video');
+            if (videoContainer) {
+              const video = videoContainer.querySelector('video source');
+              if (video && video.src !== data.url) {
+                video.src = data.url;
+              }
+              videoContainer.setAttribute('data-url', data.url);
+              videoContainer.onclick = () => openVideoPreview(data.url, data.filename);
+            }
+          } else if (data.type === 'audio') {
+            const audio = existingElement.querySelector('audio');
+            if (audio && audio.src !== data.url) {
+              audio.src = data.url;
+            }
+          }
+        }
+        
+        // Add delete button if this is our message and it doesn't have one yet
+        const isOwnMessage = data.senderId && myClientId && data.senderId === myClientId;
+        const existingDeleteBtn = existingElement.querySelector('.deleteBtn');
+        if (isOwnMessage && status === 'sent' && !existingDeleteBtn) {
+          const deleteBtn = document.createElement('button');
+          deleteBtn.className = 'deleteBtn';
+          deleteBtn.textContent = 'Delete';
+          deleteBtn.title = 'Delete this message';
+          deleteBtn.onclick = () => deleteMessage(msgId);
+          existingElement.appendChild(deleteBtn);
+          
+          if (DEBUG_DELETE) {
+            console.log('[RENDER] 🔄 Added delete button during reconciliation:', msgId);
+          }
+        }
+        
+        return existingElement;
+      }
+      
+      // Message doesn't exist yet - create it
       const messageDiv = document.createElement('div');
       messageDiv.className = 'message';
       
@@ -2376,8 +2455,10 @@
         messageDiv.classList.add('message-failed');
       }
       
-      if (messageId || data.id) {
-        messageDiv.setAttribute('data-msg-id', messageId || data.id);
+      if (msgId) {
+        messageDiv.setAttribute('data-msg-id', msgId);
+        // Track this message in our rendered map
+        renderedMessages.set(msgId, messageDiv);
       }
       
       if (data.senderId) {
@@ -2386,14 +2467,16 @@
 
       const timestamp = new Date(data.timestamp).toLocaleString();
       
-      // Check if this is our own message (can delete + color green)
-      const isOwnMessage = data.senderId && myClientId && data.senderId === myClientId;
+      // OWNERSHIP LOGIC: A message is green ONLY when senderId strictly equals myClientId
+      // Never use nickname or cached flags
+      // If senderId is missing/unknown, default to blue
+      const isOwnMessage = !!(data.senderId && myClientId && data.senderId === myClientId);
       
-      // Apply color classes based on ownership
+      // Apply color classes based on strict ownership
       if (isOwnMessage) {
         messageDiv.classList.add('own-message');
-      } else if (data.senderId) {
-        // Only add 'other-message' if there's a senderId (not system messages)
+      } else {
+        // Default to blue for all non-own messages (including those without senderId)
         messageDiv.classList.add('other-message');
       }
       
@@ -2414,7 +2497,7 @@
         content = `<div class="message-content">${displayContent}</div>`;
       } else if (data.type === 'image') {
         const caption = data.caption ? `<div class="message-content">${escapeHtml(data.caption)}</div>` : '';
-        const imgId = 'img-' + (messageId || data.id || Math.random().toString(36).substr(2, 9));
+        const imgId = 'img-' + (msgId || Math.random().toString(36).substr(2, 9));
         content = `
           ${caption}
           <img id="${imgId}" src="${data.url}" class="message-image" data-url="${data.url}" alt="${escapeHtml(data.filename || 'Image')}">
@@ -2429,7 +2512,7 @@
       } else if (data.type === 'video') {
         const caption = data.caption ? `<div class="message-content">${escapeHtml(data.caption)}</div>` : '';
         const label = caption ? '' : '<div class="message-content">Video message</div>';
-        const videoId = 'video-' + (messageId || data.id || Math.random().toString(36).substr(2, 9));
+        const videoId = 'video-' + (msgId || Math.random().toString(36).substr(2, 9));
         content = `
           ${caption || label}
           <div class="message-video" id="${videoId}" data-url="${data.url}" data-filename="${escapeHtml(data.filename || 'video')}">
@@ -2488,7 +2571,7 @@
       messagesDiv.appendChild(messageDiv);
       
       if (data.type === 'image') {
-        const imgId = 'img-' + (messageId || data.id || Math.random().toString(36).substr(2, 9));
+        const imgId = 'img-' + (msgId || Math.random().toString(36).substr(2, 9));
         const imgElement = document.getElementById(imgId);
         if (imgElement) {
           imgElement.addEventListener('click', function() {
@@ -2498,7 +2581,7 @@
       }
       
       if (data.type === 'video') {
-        const videoId = 'video-' + (messageId || data.id || Math.random().toString(36).substr(2, 9));
+        const videoId = 'video-' + (msgId || Math.random().toString(36).substr(2, 9));
         const videoElement = document.getElementById(videoId);
         if (videoElement) {
           videoElement.addEventListener('click', function() {
@@ -2587,8 +2670,11 @@
         msgElement.style.animation = 'slideOut 0.3s ease';
         setTimeout(() => {
           msgElement.remove();
+          // Clean up from deduplication map
+          renderedMessages.delete(msgId);
+          
           if (DEBUG_DELETE) {
-            console.log('[DELETE] ✓ Message removed from DOM');
+            console.log('[DELETE] ✓ Message removed from DOM and dedup map');
             console.log('========================================');
           }
           
@@ -2616,30 +2702,29 @@
       
       console.log('[REFRESH] 🔄 Refreshing ownership UI with myClientId:', myClientId);
       
-      const allMessages = document.querySelectorAll('[data-msg-id]');
+      // Use the deduplication map to iterate over all rendered messages
       let buttonCount = 0;
       let colorCount = 0;
       let ownMessageCount = 0;
       
-      allMessages.forEach(msgElement => {
-        const msgId = msgElement.getAttribute('data-msg-id');
+      renderedMessages.forEach((msgElement, msgId) => {
         const senderId = msgElement.getAttribute('data-sender-id');
         
         if (!senderId) return; // Skip messages without senderId
         
+        // STRICT ownership check: green ONLY if senderId === myClientId
         const isOwnMessage = senderId === myClientId;
         
         if (isOwnMessage) ownMessageCount++;
         
-        // Apply color classes if not already applied
-        if (isOwnMessage && !msgElement.classList.contains('own-message')) {
-          msgElement.classList.remove('other-message');
+        // Apply color classes based on strict ownership (never use cached classes)
+        // Always re-evaluate from data
+        msgElement.classList.remove('own-message', 'other-message');
+        if (isOwnMessage) {
           msgElement.classList.add('own-message');
           colorCount++;
-        } else if (!isOwnMessage && !msgElement.classList.contains('other-message')) {
-          msgElement.classList.remove('own-message');
+        } else {
           msgElement.classList.add('other-message');
-          colorCount++;
         }
         
         // Add delete button if this is our message and button doesn't exist
@@ -2664,7 +2749,7 @@
       });
       
       console.log('[REFRESH] ✓ Found', ownMessageCount, 'own messages');
-      console.log('[REFRESH] ✓ Applied colors to', colorCount, 'messages');
+      console.log('[REFRESH] ✓ Re-evaluated colors for', colorCount, 'own messages');
       console.log('[REFRESH] ✓ Added', buttonCount, 'delete buttons');
     }
 
