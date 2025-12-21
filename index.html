@@ -3124,132 +3124,148 @@
         
         console.log('[VIDEO] Starting video recording flow...');
         
-        // Step 1: Enumerate devices to check for camera availability
+        // Step 1: Check if we already have an active stream from photo mode
+        if (cameraStream && cameraStream.active) {
+          const existingVideoTrack = cameraStream.getVideoTracks()[0];
+          if (existingVideoTrack && existingVideoTrack.readyState === 'live') {
+            console.log('[VIDEO] Reusing existing camera stream from photo mode');
+            videoStream = cameraStream;
+            
+            // Try to apply resolution constraints to the existing track
+            try {
+              const idealWidth = videoQuality === '1080p' ? 1920 : 1280;
+              const idealHeight = videoQuality === '1080p' ? 1080 : 720;
+              
+              await existingVideoTrack.applyConstraints({
+                width: { ideal: idealWidth },
+                height: { ideal: idealHeight },
+                frameRate: { ideal: 30 }
+              });
+              
+              const settings = existingVideoTrack.getSettings();
+              console.log('[VIDEO] Applied resolution constraints. New settings:', {
+                width: settings.width,
+                height: settings.height,
+                frameRate: settings.frameRate
+              });
+            } catch (constraintError) {
+              console.warn('[VIDEO] Could not apply resolution constraints, using existing resolution:', constraintError.message);
+              // Continue anyway - we have a working stream
+            }
+            
+            preview.srcObject = videoStream;
+            preview.style.display = 'block';
+            recordingUI.style.display = 'flex';
+            controls.style.display = 'flex';
+            
+            captureBtn.textContent = 'Start Recording';
+            captureBtn.onclick = beginVideoRecording;
+            return;
+          }
+        }
+        
+        // Step 2: No existing stream, need to acquire a new one
+        // First enumerate devices to check camera availability
         let devices = [];
+        let videoInputs = [];
         try {
           devices = await navigator.mediaDevices.enumerateDevices();
-          console.log('[VIDEO] Enumerated devices:', devices.map(d => ({ kind: d.kind, label: d.label, deviceId: d.deviceId })));
+          videoInputs = devices.filter(d => d.kind === 'videoinput');
+          console.log('[VIDEO] Enumerated devices - found', videoInputs.length, 'videoinput device(s)');
         } catch (enumError) {
-          console.error('[VIDEO] Device enumeration failed:', enumError);
+          console.warn('[VIDEO] Device enumeration failed:', enumError);
           // Continue anyway - getUserMedia might still work
         }
         
-        const videoInputs = devices.filter(d => d.kind === 'videoinput');
-        console.log('[VIDEO] Found', videoInputs.length, 'video input device(s)');
-        
-        // If labels are empty, we may need permission first
-        if (videoInputs.length > 0 && !videoInputs[0].label) {
-          console.log('[VIDEO] Device labels empty - requesting permission to enumerate properly');
-          try {
-            // Request permission with minimal constraints
-            const permStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-            permStream.getTracks().forEach(track => track.stop());
-            
-            // Re-enumerate after permission granted
-            devices = await navigator.mediaDevices.enumerateDevices();
-            const updatedVideoInputs = devices.filter(d => d.kind === 'videoinput');
-            console.log('[VIDEO] After permission, found', updatedVideoInputs.length, 'video input device(s) with labels');
-          } catch (permError) {
-            console.warn('[VIDEO] Permission request failed:', permError);
-          }
-        }
-        
-        // Step 2: Build constraints with ideal preferences (not exact requirements)
-        // Start with the user's selected quality as ideal constraints
-        let constraints = {
-          video: {
-            width: { ideal: videoQuality === '1080p' ? 1920 : 1280 },
-            height: { ideal: videoQuality === '1080p' ? 1080 : 720 },
-            frameRate: { ideal: 30 }
-          },
-          audio: true
-        };
-        
-        // On desktop, prefer user-facing camera, but don't use facingMode as a hard constraint
-        // (facingMode 'environment' can cause NotFoundError on PCs without rear cameras)
-        const isDesktop = !/iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-        if (isDesktop) {
-          console.log('[VIDEO] Desktop detected - using default camera without facingMode constraint');
-          // Don't add facingMode for desktop - let browser choose default
-        } else {
-          console.log('[VIDEO] Mobile detected - preferring environment camera');
-          constraints.video.facingMode = 'environment';
-        }
-        
-        console.log('[VIDEO] Initial constraints:', JSON.stringify(constraints));
-        
         // Step 3: Try getUserMedia with progressive fallback
+        // Attempt A: video + audio
         let stream = null;
+        let lastError = null;
         
-        // Attempt 1: Try with ideal quality constraints
         try {
-          console.log('[VIDEO] Attempt 1: Requesting stream with ideal quality constraints');
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          console.log('[VIDEO] ✓ Success with ideal constraints');
+          console.log('[VIDEO] Attempt A: getUserMedia({ video: true, audio: true })');
+          stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+          console.log('[VIDEO] ✓ Success with video + audio');
         } catch (error) {
-          console.warn('[VIDEO] Attempt 1 failed:', error.name, error.message);
+          console.warn('[VIDEO] Attempt A failed:', error.name, '-', error.message);
+          console.log('[VIDEO] Full error object:', error);
+          lastError = error;
           
-          // Attempt 2: Try with just resolution ideals, no frameRate or facingMode
+          // Attempt B: video only (microphone issues must not block video)
           try {
-            console.log('[VIDEO] Attempt 2: Trying with simplified constraints (resolution only)');
-            constraints = {
-              video: {
-                width: { ideal: videoQuality === '1080p' ? 1920 : 1280 },
-                height: { ideal: videoQuality === '1080p' ? 1080 : 720 }
-              },
-              audio: true
-            };
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
-            console.log('[VIDEO] ✓ Success with simplified constraints');
+            console.log('[VIDEO] Attempt B: getUserMedia({ video: true, audio: false })');
+            stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+            console.log('[VIDEO] ✓ Success with video only (no audio)');
           } catch (error2) {
-            console.warn('[VIDEO] Attempt 2 failed:', error2.name, error2.message);
-            
-            // Attempt 3: Try with generic video: true (no constraints at all)
-            try {
-              console.log('[VIDEO] Attempt 3: Trying with video: true (no constraints)');
-              stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-              console.log('[VIDEO] ✓ Success with generic constraints');
-            } catch (error3) {
-              console.error('[VIDEO] All attempts failed:', error3.name, error3.message);
-              
-              // All attempts failed - show detailed error
-              let errorMsg = 'Camera access failed';
-              if (error3.name === 'NotFoundError') {
-                errorMsg = 'No camera found - please connect a camera';
-              } else if (error3.name === 'NotAllowedError' || error3.name === 'PermissionDeniedError') {
-                errorMsg = 'Camera permission denied - please allow camera access';
-              } else if (error3.name === 'NotReadableError' || error3.name === 'TrackStartError') {
-                errorMsg = 'Camera is in use by another application';
-              } else {
-                errorMsg = `Camera error: ${error3.message || error3.name}`;
-              }
-              
-              showStatus(errorMsg, 'error');
-              closeCamera();
-              return;
-            }
+            console.error('[VIDEO] Attempt B failed:', error2.name, '-', error2.message);
+            console.log('[VIDEO] Full error object:', error2);
+            lastError = error2;
           }
+        }
+        
+        // If all attempts failed, show appropriate error message
+        if (!stream) {
+          console.error('[VIDEO] All getUserMedia attempts failed');
+          
+          // Classify error properly
+          let errorMsg = 'Camera access failed';
+          
+          if (lastError.name === 'NotAllowedError' || lastError.name === 'PermissionDeniedError') {
+            errorMsg = 'Camera permission denied';
+          } else if (lastError.name === 'NotReadableError' || lastError.name === 'TrackStartError') {
+            errorMsg = 'Camera is busy in another app';
+          } else if (lastError.name === 'NotFoundError') {
+            // Only show "No camera found" if we confirmed zero videoinput devices
+            if (videoInputs.length === 0) {
+              errorMsg = 'No camera found - please connect a camera';
+            } else {
+              errorMsg = 'Camera not available';
+            }
+          } else {
+            errorMsg = `Camera error: ${lastError.name}`;
+          }
+          
+          showStatus(errorMsg, 'error');
+          closeCamera();
+          return;
         }
         
         // Success - we have a stream
         videoStream = stream;
+        
+        // Step 4: Apply resolution constraints using track.applyConstraints with ideal (not exact)
+        const videoTrack = videoStream.getVideoTracks()[0];
+        if (videoTrack) {
+          try {
+            const idealWidth = videoQuality === '1080p' ? 1920 : 1280;
+            const idealHeight = videoQuality === '1080p' ? 1080 : 720;
+            
+            console.log('[VIDEO] Applying resolution constraints:', { width: idealWidth, height: idealHeight });
+            
+            await videoTrack.applyConstraints({
+              width: { ideal: idealWidth },
+              height: { ideal: idealHeight },
+              frameRate: { ideal: 30 }
+            });
+            
+            const settings = videoTrack.getSettings();
+            console.log('[VIDEO] Applied constraints. Stream settings:', {
+              width: settings.width,
+              height: settings.height,
+              frameRate: settings.frameRate,
+              deviceId: settings.deviceId
+            });
+          } catch (constraintError) {
+            console.warn('[VIDEO] Could not apply resolution constraints:', constraintError.message);
+            console.log('[VIDEO] Keeping recording at default resolution');
+            // Continue anyway - we have a working stream
+          }
+        }
+        
         preview.srcObject = videoStream;
         preview.style.display = 'block';
         recordingUI.style.display = 'flex';
         controls.style.display = 'flex';
-        
-        // Log actual stream capabilities
-        const videoTrack = videoStream.getVideoTracks()[0];
-        if (videoTrack) {
-          const settings = videoTrack.getSettings();
-          console.log('[VIDEO] Actual stream settings:', {
-            width: settings.width,
-            height: settings.height,
-            frameRate: settings.frameRate,
-            facingMode: settings.facingMode,
-            deviceId: settings.deviceId
-          });
-        }
         
         // Change capture button to "Start Recording"
         captureBtn.textContent = 'Start Recording';
@@ -3266,10 +3282,25 @@
       try {
         videoChunks = [];
         
-        // Check MediaRecorder support
-        if (!MediaRecorder.isTypeSupported('video/webm')) {
-          console.warn('[VIDEO] video/webm not supported, trying fallback');
-          showStatus('Video recording not supported on this browser', 'error');
+        // Check MediaRecorder support with proper fallback chain
+        const mimeTypes = [
+          'video/webm;codecs=vp9,opus',
+          'video/webm;codecs=vp8,opus',
+          'video/webm'
+        ];
+        
+        let selectedMimeType = null;
+        for (const mimeType of mimeTypes) {
+          if (MediaRecorder.isTypeSupported(mimeType)) {
+            selectedMimeType = mimeType;
+            console.log('[VIDEO] Selected mimeType:', selectedMimeType);
+            break;
+          }
+        }
+        
+        if (!selectedMimeType) {
+          console.error('[VIDEO] No supported video mimeType found');
+          showStatus('Video recording not supported on this browser. Please use a different browser or the native file picker.', 'error');
           closeCamera();
           // Fallback to native input
           document.getElementById('videoInput').click();
@@ -3277,7 +3308,7 @@
         }
         
         videoRecorder = new MediaRecorder(videoStream, {
-          mimeType: 'video/webm',
+          mimeType: selectedMimeType,
           videoBitsPerSecond: videoQuality === '1080p' ? 5000000 : 2500000
         });
         
