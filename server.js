@@ -19,9 +19,9 @@ const MAX_MESSAGES = parseInt(process.env.MAX_MESSAGES || '600', 10);
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
 
 // Two-layer spam control configuration
-const RATE_LIMIT_MESSAGES = 5; // Max messages in sliding window
+const RATE_LIMIT_MESSAGES = 4; // Max messages in sliding window (5th triggers strike)
 const RATE_LIMIT_WINDOW = 10000; // 10 seconds (rolling window)
-const RATE_LIMIT_COOLDOWN = 750; // Minimum 750ms between sends
+const RATE_LIMIT_COOLDOWN = 650; // Minimum 650ms between sends (0.65s)
 
 // Helper to generate client IDs
 function makeId() { 
@@ -182,42 +182,43 @@ function banFor(info, ms) {
 }
 
 function violationBanMs(info) {
-  // stage meanings:
-  // stage 0: pre-escalation (15s bans, strikes accumulate)
-  // stage 1: did the 1-minute ban already
-  // stage >=2: 5m, 10m, 15m, ... (increasing by 5m each violation)
-  if (info.stage >= 2) {
-    const minutes = 5 * (info.stage - 1); // stage2=5m, stage3=10m...
-    return minutes * 60 * 1000;
+  // New ban schedule:
+  // Strikes 1-3: 15 seconds each
+  // Strike 4: 60 seconds (1 minute)
+  // Strike 5: 300 seconds (5 minutes)
+  // Strike 6+: doubles each time (10m, 20m, 40m, etc.)
+  
+  if (info.strikes === 4) {
+    return 60 * 1000; // 1 minute
+  } else if (info.strikes === 5) {
+    return 300 * 1000; // 5 minutes
+  } else if (info.strikes >= 6) {
+    // Strike 6 = 10 minutes, then doubles each time
+    const doublings = info.strikes - 6;
+    return 10 * 60 * 1000 * Math.pow(2, doublings);
+  } else {
+    // Strikes 1-3: 15 seconds
+    return 15 * 1000;
   }
-  if (info.stage === 1) return 5 * 60 * 1000; // next after 1-min is 5m
-  return 15 * 1000;
 }
 
 function registerViolation(info, reason, details) {
-  // reason: 'WINDOW' or 'COOLDOWN'
-  // details: for debugging (messageCount, windowMs, or cooldownDelta)
+  // Only WINDOW violations trigger strikes, not COOLDOWN
+  // The cooldown should be enforced client-side primarily, and if it hits server,
+  // we reject without issuing a strike
   
-  // if we already hit stage>=1, escalate stage each violation
-  if (info.stage >= 1) {
-    info.stage += 1; // stage1->2 gives 5m, then grows
-    const banDurationMs = violationBanMs(info);
-    banFor(info, banDurationMs);
-    console.log(`[RATE-LIMIT-BAN] Violation: ${reason} | ${details} | Stage: ${info.stage} | Ban: ${Math.ceil(banDurationMs / 1000)}s`);
+  if (reason === 'COOLDOWN') {
+    // Cooldown violation: just reject, no strike
+    console.log(`[RATE-LIMIT-COOLDOWN] Rejected: ${reason} | ${details} | No strike issued`);
     return;
   }
-
-  // stage 0: strikes
+  
+  // WINDOW violation: increment strikes and apply ban
   info.strikes += 1;
-  if (info.strikes >= 3) {
-    info.stage = 1;           // mark that we hit the 1-min level
-    info.strikes = 0;         // reset strikes after escalation
-    banFor(info, 60 * 1000);  // 1 minute
-    console.log(`[RATE-LIMIT-BAN] Violation: ${reason} | ${details} | Strikes reached 3, escalating to stage 1 | Ban: 60s`);
-  } else {
-    banFor(info, 15 * 1000);
-    console.log(`[RATE-LIMIT-BAN] Violation: ${reason} | ${details} | Strike ${info.strikes}/3 | Ban: 15s`);
-  }
+  const banDurationMs = violationBanMs(info);
+  banFor(info, banDurationMs);
+  
+  console.log(`[RATE-LIMIT-BAN] Violation: ${reason} | ${details} | Strike ${info.strikes} | Ban: ${Math.ceil(banDurationMs / 1000)}s`);
 }
 
 function checkRateLimit(state) {
@@ -236,16 +237,16 @@ function checkRateLimit(state) {
   }
 
   // LAYER 1: Cooldown check (minimum time between sends)
-  // Only update lastSendAt when message is allowed through (stricter option)
+  // This is a safety net - client should enforce this primarily
+  // If violated, reject WITHOUT issuing a strike
   if (state.lastSendAt) {
     const timeSinceLastSend = currentTime - state.lastSendAt;
     if (timeSinceLastSend < RATE_LIMIT_COOLDOWN) {
-      registerViolation(state, 'COOLDOWN', `delta=${timeSinceLastSend}ms (min=${RATE_LIMIT_COOLDOWN}ms)`);
+      console.log(`[RATE-LIMIT-COOLDOWN] Rejected: delta=${timeSinceLastSend}ms (min=${RATE_LIMIT_COOLDOWN}ms) | No strike issued`);
       return {
         allowed: false,
-        muted: true,
-        seconds: Math.ceil((state.bannedUntil - currentTime) / 1000),
-        strikes: state.strikes
+        cooldown: true, // Signal this is a cooldown rejection, not a ban
+        remainingMs: RATE_LIMIT_COOLDOWN - timeSinceLastSend
       };
     }
   }
@@ -283,7 +284,6 @@ function getClientState(token) {
   if (!clientState.has(token)) {
     clientState.set(token, {
       strikes: 0,
-      stage: 0,
       bannedUntil: 0,
       msgTimes: [],
       lastSendAt: 0 // Track last send time for cooldown
@@ -486,14 +486,24 @@ wss.on('connection', async (ws, req) => {
 
         const rateLimitResult = checkRateLimit(state);
         if (!rateLimitResult.allowed) {
-          console.log(`[RATE-LIMIT] Client ${connectionId} (token ${info.token.substring(0, 8)}...) banned for ${rateLimitResult.seconds}s (strikes: ${rateLimitResult.strikes})`);
-          ws.send(JSON.stringify({
-            type: 'banned',
-            until: state.bannedUntil,
-            seconds: rateLimitResult.seconds,
-            strikes: rateLimitResult.strikes,
-            reason: 'rate'
-          }));
+          if (rateLimitResult.cooldown) {
+            // Cooldown violation - just reject silently or with a lightweight message
+            console.log(`[RATE-LIMIT] Client ${connectionId} (token ${info.token.substring(0, 8)}...) cooldown rejection (no strike)`);
+            ws.send(JSON.stringify({
+              type: 'cooldown',
+              remainingMs: rateLimitResult.remainingMs
+            }));
+          } else {
+            // Ban from window violation
+            console.log(`[RATE-LIMIT] Client ${connectionId} (token ${info.token.substring(0, 8)}...) banned for ${rateLimitResult.seconds}s (strikes: ${rateLimitResult.strikes})`);
+            ws.send(JSON.stringify({
+              type: 'banned',
+              until: state.bannedUntil,
+              seconds: rateLimitResult.seconds,
+              strikes: rateLimitResult.strikes,
+              reason: 'rate'
+            }));
+          }
           return;
         }
       }

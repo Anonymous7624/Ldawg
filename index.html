@@ -1421,7 +1421,7 @@
     <div class="sidebar">
       <h2 style="font-size: 22px; font-weight: 700;">Rules</h2>
       <div class="sidebar-content" style="margin-bottom: 25px;">
-        <p>No spamming (max 2 messages per 10s). Violators face escalating bans: 15s → 1m → 5m → +5m each time.</p>
+        <p>More than 4 messages per 10 seconds triggers a strike.</p>
       </div>
       
       <h2 style="font-size: 22px; font-weight: 700;">Features</h2>
@@ -1561,6 +1561,11 @@
     const TYPING_THROTTLE = 800; // ms
     const TYPING_EXPIRE = 12000; // 12 seconds
 
+    // Rate limiting / cooldown state
+    const SEND_COOLDOWN_MS = 650; // 0.65 seconds
+    let lastSendTime = 0; // Timestamp of last send attempt
+    let cooldownTimer = null; // Timer for re-enabling send button
+
     // Apply saved theme
     if (isDarkMode) {
       document.body.className = 'dark-mode';
@@ -1594,7 +1599,7 @@
     }
 
     // Initialize token on page load
-    clientToken = getOrCreateToken();
+    let clientToken = getOrCreateToken();
     console.log('[TOKEN] Using client token:', clientToken);
 
     // WebSocket configuration
@@ -2909,12 +2914,34 @@
         return;
       }
 
+      // CLIENT-SIDE COOLDOWN CHECK
+      const now = Date.now();
+      const timeSinceLastSend = now - lastSendTime;
+      if (timeSinceLastSend < SEND_COOLDOWN_MS) {
+        console.log('[COOLDOWN] Send blocked by client-side cooldown:', timeSinceLastSend, 'ms since last send');
+        // Don't send anything, don't show error - just silently prevent
+        return;
+      }
+
+      // Update last send time
+      lastSendTime = now;
+
       const nickname = (nicknameInput.value.trim() || 'Anonymous').substring(0, 100);
       const messageId = generateUUID();
       const timestamp = Date.now();
 
       const sendBtn = document.getElementById('sendBtn');
       sendBtn.disabled = true;
+
+      // Start cooldown timer to re-enable send button after cooldown period
+      if (cooldownTimer) {
+        clearTimeout(cooldownTimer);
+      }
+      cooldownTimer = setTimeout(() => {
+        if (!sendBtn.disabled) {
+          // Button already re-enabled by finally block, nothing to do
+        }
+      }, SEND_COOLDOWN_MS);
 
       // Stop typing indicator
       sendTypingStatus(false);
@@ -3098,7 +3125,14 @@
         markMessageAsFailed(messageId);
         pendingMessages.delete(messageId);
       } finally {
-        sendBtn.disabled = false;
+        // Re-enable send button after cooldown period
+        // Use a timeout to ensure button stays disabled for the full cooldown
+        const elapsed = Date.now() - lastSendTime;
+        const remaining = Math.max(0, SEND_COOLDOWN_MS - elapsed);
+        
+        setTimeout(() => {
+          sendBtn.disabled = false;
+        }, remaining);
       }
     }
 
