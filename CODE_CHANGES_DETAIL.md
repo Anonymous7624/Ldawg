@@ -1,410 +1,510 @@
-# Code Changes Summary
+# Code Changes - Media Composer Unification
 
-## Overview
+## Summary of Changes
 
-This document lists **ONLY the code that changed** during the audit. All changes are backward-compatible and production-ready.
-
----
-
-## File 1: `db.js`
-
-### Change 1: Environment variable for DB_PATH (Line 14)
-
-**Before:**
-```javascript
-const dbPath = path.join(__dirname, 'chat.db');
-```
-
-**After:**
-```javascript
-// Use DB_PATH environment variable or default to ./chat.db
-const dbPath = process.env.DB_PATH || path.join(__dirname, 'chat.db');
-```
-
-### Change 2: Fix getRecentMessages query (Lines 113-116)
-
-**Before:**
-```javascript
-const stmt = db.prepare(`
-  SELECT * FROM messages 
-  ORDER BY timestamp ASC
-  LIMIT ?
-`);
-
-const rows = stmt.all(limit);
-```
-
-**After:**
-```javascript
-// Get the most recent N messages by selecting from the end
-const stmt = db.prepare(`
-  SELECT * FROM messages 
-  ORDER BY timestamp DESC
-  LIMIT ?
-`);
-
-const rows = stmt.all(limit);
-
-// Reverse to return in chronological order (oldest first)
-rows.reverse();
-```
-
-### Change 3: Environment variable for UPLOAD_DIR (Line 233)
-
-**Before:**
-```javascript
-const uploadsDir = path.join(__dirname, 'uploads');
-```
-
-**After:**
-```javascript
-const uploadsDir = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
-```
+This document provides a detailed breakdown of all code changes made to fix the 3 media composer UX bugs.
 
 ---
 
-## File 2: `server.js`
+## 1. HTML Structure Changes (index.html)
 
-### Change 1: Add environment variables and remove multer (Lines 1-19)
+### Removed: Separate Audio Draft UI (Line ~1243)
+```html
+<!-- BEFORE -->
+<div id="audioDraft" class="audio-draft">
+  <div class="audio-draft-header">Voice Message Draft</div>
+  <audio id="audioDraftPlayer" controls></audio>
+  <textarea id="audioCaptionInput" ...></textarea>
+  <div class="audio-draft-controls">
+    <button onclick="sendAudioDraft()">Send</button>
+    <button onclick="discardAudioDraft()">Discard</button>
+  </div>
+</div>
 
-**Before:**
-```javascript
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
-const url = require('url');
-const { initDb, saveMessage, getRecentMessages, deleteMessageById, pruneToLimit } = require('./db');
-
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
-const PORT = 8080;
-const MAX_MESSAGES = 600; // History limit: 600 messages
-const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
-const RATE_LIMIT_MESSAGES = 2; // 2 messages per window
-const RATE_LIMIT_WINDOW = 10000; // 10 seconds
-const UPLOAD_CLEANUP_AGE = 60 * 60 * 1000; // 1 hour
+<!-- AFTER -->
+<!-- Removed entirely - now uses unified composer below -->
 ```
 
-**After:**
-```javascript
-const express = require('express');
-const http = require('http');
-const WebSocket = require('ws');
-const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
-const url = require('url');
-const { initDb, saveMessage, getRecentMessages, deleteMessageById, pruneToLimit } = require('./db');
+### Updated: Unified Media Composer (Lines 1258-1280)
+```html
+<!-- BEFORE -->
+<div id="photoComposer" class="photo-composer">
+  <div class="composer-header">
+    <span>Photo Attached</span>
+    <button onclick="removePhotoAttachment()">Remove</button>
+  </div>
+  <div class="composer-preview">
+    <img id="previewImage" src="" alt="Preview">
+    <div class="preview-details">
+      <div id="previewFilename"></div>
+      <div id="previewSize"></div>
+    </div>
+  </div>
+</div>
 
-const app = express();
-const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
-
-// Environment-driven configuration
-const PORT = parseInt(process.env.WS_PORT || '8080', 10);
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'chat.db');
-const MAX_MESSAGES = parseInt(process.env.MAX_MESSAGES || '600', 10);
-const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
-const RATE_LIMIT_MESSAGES = 2; // 2 messages per window
-const RATE_LIMIT_WINDOW = 10000; // 10 seconds
-```
-
-### Change 2: Simplify in-memory state (Lines 73-82)
-
-**Before:**
-```javascript
-// In-memory state
-// chatHistory removed - DB is now the source of truth
-const uploadFiles = new Map(); // Map of upload ID to {filename, timestamp, path}
-const clients = new Map(); // ws -> { clientId, token, presenceOnline }
-const clientState = new Map(); // token -> { strikes, stage, bannedUntil, msgTimes }
-
-// Ensure uploads directory exists
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
-
-// Multer configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, UPLOADS_DIR);
-  },
-  filename: (req, file, cb) => {
-    const uniqueName = crypto.randomBytes(16).toString('hex') + path.extname(file.originalname);
-    cb(null, uniqueName);
-  }
-});
-
-// Blocked file extensions for security
-const BLOCKED_EXTENSIONS = [
-  '.exe', '.msi', '.bat', '.cmd', '.com', '.scr', '.ps1', 
-  '.vbs', '.js', '.jar', '.app', '.dmg', '.sh', '.deb', 
-  '.rpm', '.apk', '.ipa', '.html', '.svg'
-];
-
-const upload = multer({
-  storage,
-  limits: { fileSize: MAX_UPLOAD_SIZE },
-  fileFilter: (req, file, cb) => {
-    const ext = path.extname(file.originalname).toLowerCase();
+<!-- AFTER -->
+<div id="photoComposer" class="photo-composer">
+  <div class="composer-header">
+    <span id="mediaTypeLabel">Media Attached</span>  <!-- Dynamic label -->
+    <button onclick="removePhotoAttachment()">Remove</button>
+  </div>
+  <div class="composer-preview">
+    <!-- Image preview -->
+    <img id="previewImage" src="" style="display: none;">
     
-    // Reject dangerous files
-    if (BLOCKED_EXTENSIONS.includes(ext)) {
-      return cb(new Error(`File type not allowed for security reasons: ${ext}`));
-    }
+    <!-- Video preview (NEW) -->
+    <video id="previewVideo" controls style="display: none; max-width: 200px;"></video>
     
-    cb(null, true);
+    <!-- Audio preview (NEW) -->
+    <audio id="previewAudio" controls style="display: none; width: 100%;"></audio>
+    
+    <div class="preview-details">
+      <div id="previewFilename"></div>
+      <div id="previewSize"></div>
+    </div>
+  </div>
+</div>
+```
+
+---
+
+## 2. JavaScript Changes (index.html)
+
+### Updated: capturePhoto() - Show Preview Before Send (Lines 3620-3673)
+```javascript
+// BEFORE
+function capturePhoto() {
+  // ... canvas drawing code ...
+  canvas.toBlob((blob) => {
+    selectedFile = file;
+    previewURL = URL.createObjectURL(file);
+    
+    previewImg.src = previewURL;
+    previewFilename.textContent = file.name;
+    previewSize.textContent = formatFileSize(file.size);
+    
+    composer.classList.add('active');
+    closeCamera();
+    document.getElementById('composer').focus();
+  }, 'image/jpeg', 0.8);
+}
+
+// AFTER
+function capturePhoto() {
+  // ... canvas drawing code ...
+  canvas.toBlob((blob) => {
+    selectedFile = file;
+    previewURL = URL.createObjectURL(file);
+    
+    // Get all preview elements
+    const previewImg = document.getElementById('previewImage');
+    const previewVideo = document.getElementById('previewVideo');
+    const previewAudio = document.getElementById('previewAudio');
+    const mediaTypeLabel = document.getElementById('mediaTypeLabel');
+    
+    // Hide other media types
+    previewVideo.style.display = 'none';
+    previewAudio.style.display = 'none';
+    
+    // Show image preview
+    previewImg.style.display = 'block';
+    previewImg.src = previewURL;
+    previewFilename.textContent = file.name;
+    previewSize.textContent = formatFileSize(file.size);
+    mediaTypeLabel.textContent = 'Photo Attached';
+    
+    composer.classList.add('active');
+    closeCamera();
+    document.getElementById('composer').focus();
+  }, 'image/jpeg', 0.8);
+}
+```
+
+### Updated: handleVideoRecordingComplete() - Show Video Preview (Lines 3326-3377)
+```javascript
+// BEFORE
+function handleVideoRecordingComplete() {
+  const blob = new Blob(videoChunks, { type: 'video/webm' });
+  const file = new File([blob], `video-${Date.now()}.webm`, { type: 'video/webm' });
+  selectedFile = file;
+  previewURL = URL.createObjectURL(file);
+  
+  // Show in composer
+  previewImg.style.display = 'none'; // Don't show video thumbnail
+  previewFilename.textContent = file.name;
+  previewSize.textContent = formatFileSize(file.size);
+  
+  composer.classList.add('active');
+  closeCamera();
+}
+
+// AFTER
+async function handleVideoRecordingComplete() {
+  const blob = new Blob(videoChunks, { type: 'video/webm' });
+  const file = new File([blob], `video-${Date.now()}.webm`, { type: 'video/webm' });
+  selectedFile = file;
+  previewURL = URL.createObjectURL(file);
+  
+  // Get all preview elements
+  const previewImg = document.getElementById('previewImage');
+  const previewVideo = document.getElementById('previewVideo');
+  const previewAudio = document.getElementById('previewAudio');
+  const mediaTypeLabel = document.getElementById('mediaTypeLabel');
+  
+  // Hide other media types
+  previewImg.style.display = 'none';
+  previewAudio.style.display = 'none';
+  
+  // Show video preview
+  previewVideo.style.display = 'block';
+  previewVideo.src = previewURL;
+  previewFilename.textContent = file.name;
+  previewSize.textContent = formatFileSize(file.size);
+  mediaTypeLabel.textContent = 'Video Attached';
+  
+  // Add click handler for full preview
+  previewVideo.onclick = () => openVideoPreview(previewURL);
+  
+  composer.classList.add('active');
+  closeCamera();
+}
+```
+
+### Updated: handleVideoSelect() - Show Video Preview for Uploads (Lines 3378-3429)
+```javascript
+// BEFORE
+function handleVideoSelect() {
+  const file = videoInput.files[0];
+  if (!file) return;
+  
+  selectedFile = file;
+  previewURL = URL.createObjectURL(file);
+  
+  previewImg.style.display = 'none';
+  previewFilename.textContent = file.name;
+  previewSize.textContent = formatFileSize(file.size);
+  
+  composer.classList.add('active');
+}
+
+// AFTER
+async function handleVideoSelect() {
+  const file = videoInput.files[0];
+  if (!file) return;
+  
+  selectedFile = file;
+  previewURL = URL.createObjectURL(file);
+  
+  // Get all preview elements
+  const previewImg = document.getElementById('previewImage');
+  const previewVideo = document.getElementById('previewVideo');
+  const previewAudio = document.getElementById('previewAudio');
+  const mediaTypeLabel = document.getElementById('mediaTypeLabel');
+  
+  // Hide other media types
+  previewImg.style.display = 'none';
+  previewAudio.style.display = 'none';
+  
+  // Show video preview
+  previewVideo.style.display = 'block';
+  previewVideo.src = previewURL;
+  previewFilename.textContent = file.name;
+  previewSize.textContent = formatFileSize(file.size);
+  mediaTypeLabel.textContent = 'Video Attached';
+  
+  // Add click handler for full preview
+  previewVideo.onclick = () => openVideoPreview(previewURL);
+  
+  composer.classList.add('active');
+}
+```
+
+### Updated: handleFileSelect() - Detect All Media Types (Lines 3430-3528)
+```javascript
+// BEFORE
+function handleFileSelect() {
+  const file = fileInput.files[0];
+  // ... validation ...
+  
+  selectedFile = file;
+  previewURL = URL.createObjectURL(file);
+  
+  if (isImageFile(file.name, file.type)) {
+    previewImg.src = previewURL;
+    previewImg.style.display = 'block';
+  } else {
+    previewImg.style.display = 'none';
   }
-});
-```
+  
+  previewFilename.textContent = file.name;
+  previewSize.textContent = formatFileSize(file.size);
+  composer.classList.add('active');
+}
 
-**After:**
-```javascript
-// In-memory state
-const clients = new Map(); // ws -> { clientId, token, presenceOnline }
-const clientState = new Map(); // token -> { strikes, stage, bannedUntil, msgTimes }
-
-// Ensure uploads directory exists (for serving files)
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  console.log(`[STARTUP] Created upload directory: ${UPLOAD_DIR}`);
+// AFTER
+async function handleFileSelect() {
+  const file = fileInput.files[0];
+  // ... validation ...
+  
+  selectedFile = file;
+  previewURL = URL.createObjectURL(file);
+  
+  // Get all preview elements
+  const previewImg = document.getElementById('previewImage');
+  const previewVideo = document.getElementById('previewVideo');
+  const previewAudio = document.getElementById('previewAudio');
+  const mediaTypeLabel = document.getElementById('mediaTypeLabel');
+  
+  // Determine file type
+  const isImage = isImageFile(file.name, file.type);
+  const isVideo = isVideoFile(file.name, file.type);
+  const isAudio = isAudioFile(file.name, file.type);
+  
+  // Hide all preview types first
+  previewImg.style.display = 'none';
+  previewVideo.style.display = 'none';
+  previewAudio.style.display = 'none';
+  
+  if (isImage) {
+    previewImg.style.display = 'block';
+    previewImg.src = previewURL;
+    previewImg.onclick = () => openImagePreview(previewURL);
+    mediaTypeLabel.textContent = 'Photo Attached';
+  } else if (isVideo) {
+    previewVideo.style.display = 'block';
+    previewVideo.src = previewURL;
+    previewVideo.onclick = () => openVideoPreview(previewURL);
+    mediaTypeLabel.textContent = 'Video Attached';
+  } else if (isAudio) {
+    previewAudio.style.display = 'block';
+    previewAudio.src = previewURL;
+    mediaTypeLabel.textContent = 'Audio Attached';
+  } else {
+    mediaTypeLabel.textContent = 'File Attached';
+  }
+  
+  previewFilename.textContent = file.name;
+  previewSize.textContent = formatFileSize(file.size);
+  composer.classList.add('active');
 }
 ```
 
-### Change 3: Remove duplicate /upload endpoint (Lines 126-210)
-
-**ENTIRE SECTION DELETED** - Upload handled by upload-server.js only
-
-### Change 4: Update upload directory reference (Line 215)
-
-**Before:**
+### Updated: createAudioDraft() - Use Unified Composer (Lines 2911-2957)
 ```javascript
-const filePath = path.join(UPLOADS_DIR, filename);
-```
-
-**After:**
-```javascript
-const filePath = path.join(UPLOAD_DIR, filename);
-```
-
-### Change 5: Remove old cleanup timer (Lines 740-753)
-
-**Before:**
-```javascript
-// Cleanup old uploads every 5 minutes
-setInterval(() => {
-  const now = Date.now();
+// BEFORE
+function createAudioDraft(blob) {
+  audioDraftBlob = blob;
+  audioDraftURL = URL.createObjectURL(blob);
   
-  uploadFiles.forEach((metadata, uploadId) => {
-    if (now - metadata.timestamp > UPLOAD_CLEANUP_AGE) {
-      if (fs.existsSync(metadata.path)) {
-        fs.unlinkSync(metadata.path);
-      }
-      uploadFiles.delete(uploadId);
-      console.log(`Cleaned up old upload: ${metadata.filename}`);
-    }
-  });
-}, 5 * 60 * 1000);
+  const draftDiv = document.getElementById('audioDraft');
+  const player = document.getElementById('audioDraftPlayer');
+  const captionInput = document.getElementById('audioCaptionInput');
+  
+  player.src = audioDraftURL;
+  captionInput.value = '';
+  
+  draftDiv.classList.add('active');
+  resetAudioButton();
+}
+
+// AFTER
+function createAudioDraft(blob) {
+  audioDraftBlob = blob;
+  audioDraftURL = URL.createObjectURL(blob);
+  
+  // Create file attachment
+  const ext = blob.type.includes('ogg') ? 'ogg' : 'webm';
+  const file = new File([blob], `audio-${Date.now()}.${ext}`, { type: blob.type });
+  selectedFile = file;
+  
+  if (previewURL) {
+    URL.revokeObjectURL(previewURL);
+  }
+  previewURL = audioDraftURL;
+  
+  // Show in unified media composer
+  const composer = document.getElementById('photoComposer');
+  const previewImg = document.getElementById('previewImage');
+  const previewVideo = document.getElementById('previewVideo');
+  const previewAudio = document.getElementById('previewAudio');
+  const previewFilename = document.getElementById('previewFilename');
+  const previewSize = document.getElementById('previewSize');
+  const mediaTypeLabel = document.getElementById('mediaTypeLabel');
+  
+  // Hide other media types
+  previewImg.style.display = 'none';
+  previewVideo.style.display = 'none';
+  
+  // Show audio preview
+  previewAudio.style.display = 'block';
+  previewAudio.src = audioDraftURL;
+  previewFilename.textContent = file.name;
+  previewSize.textContent = formatFileSize(blob.size);
+  mediaTypeLabel.textContent = 'Voice Message';
+  
+  composer.classList.add('active');
+  document.getElementById('composer').focus();
+  
+  resetAudioButton();
+}
 ```
 
-**After:**
+### Removed: sendAudioDraft() - Now Uses Unified sendMessage() (Lines 2970+)
 ```javascript
-// Note: File cleanup is handled by db.js pruneToLimit() which deletes
-// files that are no longer referenced by any message in the database.
+// BEFORE
+async function sendAudioDraft() {
+  // ... separate upload logic ...
+  // ... separate message sending ...
+}
+
+// AFTER
+// REMOVED: sendAudioDraft() - Audio now uses unified sendMessage() flow
+// Audio attachments are created in createAudioDraft() and sent via the main sendMessage() function
 ```
 
-### Change 6: Enhanced startup logging (Lines 646-657)
-
-**Before:**
+### Updated: discardAudioDraft() - Use Unified Removal (Lines 2959-2968)
 ```javascript
-server.listen(PORT, () => {
-  console.log(`========================================`);
-  console.log(`Kennedy Chat Server`);
-  console.log(`========================================`);
-  console.log(`Server Instance ID: ${SERVER_INSTANCE_ID}`);
-  console.log(`Started: ${SERVER_START_TIME}`);
-  console.log(`Port: ${PORT}`);
-  console.log(`WebSocket: ws://localhost:${PORT}`);
-  console.log(`HTTP API: http://localhost:${PORT}`);
-  console.log(`Uploads dir: ${UPLOADS_DIR}`);
-  console.log(`History limit: ${MAX_MESSAGES} messages`);
-  console.log(`========================================`);
-});
+// BEFORE
+function discardAudioDraft() {
+  if (audioDraftURL) {
+    URL.revokeObjectURL(audioDraftURL);
+    audioDraftURL = null;
+  }
+  audioDraftBlob = null;
+  
+  const draftDiv = document.getElementById('audioDraft');
+  draftDiv.classList.remove('active');
+  document.getElementById('audioCaptionInput').value = '';
+}
+
+// AFTER
+function discardAudioDraft() {
+  // Just use the unified removal function
+  removePhotoAttachment();
+  
+  if (audioDraftURL) {
+    URL.revokeObjectURL(audioDraftURL);
+    audioDraftURL = null;
+  }
+  audioDraftBlob = null;
+}
 ```
 
-**After:**
+### Updated: removePhotoAttachment() - Clear All Media Types (Lines 3530-3554)
 ```javascript
-server.listen(PORT, () => {
-  console.log(`========================================`);
-  console.log(`Kennedy Chat WebSocket Server`);
-  console.log(`========================================`);
-  console.log(`Server Instance ID: ${SERVER_INSTANCE_ID}`);
-  console.log(`Started: ${SERVER_START_TIME}`);
-  console.log(`Port: ${PORT}`);
-  console.log(`WebSocket: ws://localhost:${PORT}`);
-  console.log(`HTTP API: http://localhost:${PORT}`);
-  console.log(`Database: ${DB_PATH}`);
-  console.log(`Upload dir: ${UPLOAD_DIR}`);
-  console.log(`History limit: ${MAX_MESSAGES} messages`);
-  console.log(`========================================`);
-  console.log(`[CONFIG] Environment variables:`);
-  console.log(`  DB_PATH=${process.env.DB_PATH || '(default)'}`);
-  console.log(`  UPLOAD_DIR=${process.env.UPLOAD_DIR || '(default)'}`);
-  console.log(`  MAX_MESSAGES=${process.env.MAX_MESSAGES || '(default)'}`);
-  console.log(`========================================`);
-});
+// BEFORE
+function removePhotoAttachment() {
+  if (previewURL) {
+    URL.revokeObjectURL(previewURL);
+    previewURL = null;
+  }
+  selectedFile = null;
+  document.getElementById('fileInput').value = '';
+  
+  const composer = document.getElementById('photoComposer');
+  composer.classList.remove('active');
+}
+
+// AFTER
+function removePhotoAttachment() {
+  if (previewURL) {
+    URL.revokeObjectURL(previewURL);
+    previewURL = null;
+  }
+  
+  selectedFile = null;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('videoInput').value = '';
+  
+  // Clear all preview elements
+  const previewImg = document.getElementById('previewImage');
+  const previewVideo = document.getElementById('previewVideo');
+  const previewAudio = document.getElementById('previewAudio');
+  
+  previewImg.src = '';
+  previewImg.style.display = 'none';
+  previewVideo.src = '';
+  previewVideo.style.display = 'none';
+  previewAudio.src = '';
+  previewAudio.style.display = 'none';
+  
+  const composer = document.getElementById('photoComposer');
+  composer.classList.remove('active');
+}
 ```
 
 ---
 
-## File 3: `upload-server.js`
+## 3. Server Changes (server.js)
 
-### Change 1: Add environment variables (Lines 8-13)
-
-**Before:**
+### Updated: Audio Message Handler - Add Caption Support (Lines 547-580)
 ```javascript
-const app = express();
-const PORT = 8082;
-const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
-```
+// BEFORE
+} else if (message.type === 'audio') {
+  const nickname = (message.nickname || 'Anonymous').substring(0, 100);
 
-**After:**
-```javascript
-const app = express();
+  const chatMessage = {
+    type: 'audio',
+    id: msgId,
+    senderId: info.clientId,
+    nickname,
+    timestamp: message.timestamp || Date.now(),
+    url: message.url
+  };
 
-// Environment-driven configuration
-const PORT = parseInt(process.env.UPLOAD_PORT || '8082', 10);
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
-const UPLOAD_BASE_URL = process.env.UPLOAD_BASE_URL || 'https://upload.ldawg7624.com';
-const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
-```
-
-### Change 2: Update directory references (Lines 21-24, 50, 163)
-
-**Before:**
-```javascript
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-}
-```
-
-**After:**
-```javascript
-if (!fs.existsSync(UPLOAD_DIR)) {
-  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-  console.log(`[STARTUP] Created upload directory: ${UPLOAD_DIR}`);
-}
-```
-
-**Apply similar changes to:**
-- Line 50: `cb(null, UPLOAD_DIR);`
-- Line 163: `const mp3Path = path.join(UPLOAD_DIR, mp3Filename);`
-- Line 213: `app.use('/uploads', express.static(UPLOAD_DIR, {...}))`
-- Line 231: `fs.readdir(UPLOAD_DIR, (err, files) => {...})`
-
-### Change 3: Use environment variable for URL (Line 186)
-
-**Before:**
-```javascript
-const uploadUrl = `https://upload.ldawg7624.com/uploads/${finalFilename}`;
-```
-
-**After:**
-```javascript
-const uploadUrl = `${UPLOAD_BASE_URL}/uploads/${finalFilename}`;
-```
-
-### Change 4: Update cleanup timer (Line 229)
-
-**Before:**
-```javascript
-// Cleanup old uploads (older than 1 hour)
-setInterval(() => {
-  const now = Date.now();
-  const MAX_AGE = 60 * 60 * 1000; // 1 hour
+  // ... ACK and save logic ...
   
-  // ... cleanup code ...
-}, 5 * 60 * 1000); // Run every 5 minutes
-```
+  broadcast(chatMessage);
+  console.log(`[MESSAGE] Audio from ${nickname}: ${message.url}`);
+}
 
-**After:**
-```javascript
-// Cleanup old uploads (older than 7 days) - files managed by messages in DB
-// This is a safety cleanup for orphaned files
-setInterval(() => {
-  const now = Date.now();
-  const MAX_AGE = 7 * 24 * 60 * 60 * 1000; // 7 days
+// AFTER
+} else if (message.type === 'audio') {
+  const nickname = (message.nickname || 'Anonymous').substring(0, 100);
+  const caption = message.caption || '';  // NEW: Extract caption
+
+  const chatMessage = {
+    type: 'audio',
+    id: msgId,
+    senderId: info.clientId,
+    nickname,
+    timestamp: message.timestamp || Date.now(),
+    url: message.url,
+    caption: caption  // NEW: Include caption in message
+  };
+
+  // ... ACK and save logic ...
   
-  // ... cleanup code ...
-}, 24 * 60 * 60 * 1000); // Run once per day
-```
-
-### Change 5: Enhanced startup logging (Lines 254-263)
-
-**Before:**
-```javascript
-app.listen(PORT, () => {
-  console.log('========================================');
-  console.log('Kennedy Chat Upload Service');
-  console.log('========================================');
-  console.log(`Port: ${PORT}`);
-  console.log(`Uploads dir: ${UPLOADS_DIR}`);
-  console.log(`Max file size: ${MAX_UPLOAD_SIZE / 1024 / 1024}MB`);
-  console.log('========================================');
-});
-```
-
-**After:**
-```javascript
-app.listen(PORT, () => {
-  console.log('========================================');
-  console.log('Kennedy Chat Upload Service');
-  console.log('========================================');
-  console.log(`Port: ${PORT}`);
-  console.log(`Upload dir: ${UPLOAD_DIR}`);
-  console.log(`Base URL: ${UPLOAD_BASE_URL}`);
-  console.log(`Max file size: ${MAX_UPLOAD_SIZE / 1024 / 1024}MB`);
-  console.log('========================================');
-  console.log('[CONFIG] Environment variables:');
-  console.log(`  UPLOAD_DIR=${process.env.UPLOAD_DIR || '(default)'}`);
-  console.log(`  UPLOAD_BASE_URL=${process.env.UPLOAD_BASE_URL || '(default)'}`);
-  console.log(`  UPLOAD_PORT=${process.env.UPLOAD_PORT || '(default)'}`);
-  console.log('========================================');
-});
+  broadcast(chatMessage);
+  console.log(`[MESSAGE] Audio from ${nickname}: ${message.url} (caption: "${caption.substring(0, 50)}")`);
+}
 ```
 
 ---
 
-## File 4: `index.html`
+## Key Points
 
-**NO CHANGES** - Frontend was already correct and compatible.
+1. **Unified Composer**: All media types now use the same preview card with dynamic content
+2. **Single Send Flow**: All media types go through `sendMessage()` via `selectedFile`
+3. **Caption Support**: Audio captions are extracted from the normal message box, stored server-side, and broadcast to all users
+4. **Preview Elements**: Photo, video, and audio each have their own preview element, hidden/shown as needed
+5. **Backward Compatibility**: All existing features (chat, ACKs, uploads, playback, delete, etc.) remain intact
 
 ---
 
-## Summary
+## Testing
 
-### Lines Changed by File:
-- `db.js`: 3 changes (lines 14, 113-116, 233)
-- `server.js`: ~200 lines removed (duplicate upload), 20 lines modified
-- `upload-server.js`: 10 changes (various lines)
-- `index.html`: 0 changes
+Run automated tests:
+```bash
+node test-media-composer.js
+```
 
-### Impact:
-- ✅ All paths now configurable via environment variables
-- ✅ No breaking changes to existing functionality
-- ✅ Improved logging and visibility
-- ✅ Fixed history query bug
-- ✅ Improved file cleanup logic
-- ✅ Ready for production deployment
-
-### Testing Status:
-✅ All changes tested and verified working
+All 31 tests should pass, validating:
+- Unified composer structure
+- Photo capture preview
+- Video preview (upload + capture)
+- Audio unified flow
+- Caption persistence
+- Single send button
+- Cleanup functions
+- File type detection

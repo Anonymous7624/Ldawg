@@ -546,6 +546,7 @@ wss.on('connection', async (ws, req) => {
         console.log(`[MESSAGE] Image from ${nickname}: ${message.filename} (${message.size} bytes)`);
       } else if (message.type === 'audio') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
+        const caption = message.caption || '';
 
         const chatMessage = {
           type: 'audio',
@@ -553,7 +554,8 @@ wss.on('connection', async (ws, req) => {
           senderId: info.clientId,
           nickname,
           timestamp: message.timestamp || Date.now(),
-          url: message.url
+          url: message.url,
+          caption: caption
         };
 
         // Send ACK to sender immediately
@@ -576,7 +578,7 @@ wss.on('connection', async (ws, req) => {
         }
 
         broadcast(chatMessage);
-        console.log(`[MESSAGE] Audio from ${nickname}: ${message.url}`);
+        console.log(`[MESSAGE] Audio from ${nickname}: ${message.url} (caption: "${caption.substring(0, 50)}")`);
       } else if (message.type === 'video') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
 
