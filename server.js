@@ -103,16 +103,27 @@ app.get('/uploads/:filename', (req, res) => {
 
   const ext = path.extname(filename).toLowerCase();
   const imageExts = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+  const videoExts = ['.mp4', '.webm', '.ogg', '.mov'];
   const isImage = imageExts.includes(ext);
+  const isVideo = videoExts.includes(ext);
 
   // Set security headers
   res.setHeader('X-Content-Type-Options', 'nosniff');
   
-  if (!isImage) {
+  // Don't force download for images and videos
+  if (!isImage && !isVideo) {
     res.setHeader('Content-Disposition', 'attachment');
   }
+  
+  // Set proper MIME type for videos
+  if (isVideo) {
+    if (ext === '.webm') res.setHeader('Content-Type', 'video/webm');
+    else if (ext === '.mp4') res.setHeader('Content-Type', 'video/mp4');
+    else if (ext === '.ogg') res.setHeader('Content-Type', 'video/ogg');
+    else if (ext === '.mov') res.setHeader('Content-Type', 'video/quicktime');
+  }
 
-  console.log(`[UPLOADS] Serving file: ${filename} (${isImage ? 'image' : 'file'})`);
+  console.log(`[UPLOADS] Serving file: ${filename} (${isImage ? 'image' : isVideo ? 'video' : 'file'})`);
   res.sendFile(filePath);
 });
 
@@ -427,8 +438,8 @@ wss.on('connection', async (ws, req) => {
         return;
       }
 
-      // Rate limit check for user messages (text, image, audio) - USE STATE BY TOKEN
-      const sendTypes = new Set(["text", "image", "audio", "file"]);
+      // Rate limit check for user messages (text, image, audio, video, file) - USE STATE BY TOKEN
+      const sendTypes = new Set(["text", "image", "audio", "video", "file"]);
       if (sendTypes.has(message.type)) {
         if (isBanned(state)) {
           ws.send(JSON.stringify({ 
@@ -566,6 +577,43 @@ wss.on('connection', async (ws, req) => {
 
         broadcast(chatMessage);
         console.log(`[MESSAGE] Audio from ${nickname}: ${message.url}`);
+      } else if (message.type === 'video') {
+        const nickname = (message.nickname || 'Anonymous').substring(0, 100);
+
+        const chatMessage = {
+          type: 'video',
+          id: msgId,
+          senderId: info.clientId,
+          nickname,
+          timestamp: message.timestamp || Date.now(),
+          url: message.url,
+          filename: message.filename,
+          mime: message.mime,
+          size: message.size,
+          caption: message.caption || ''
+        };
+
+        // Send ACK to sender immediately
+        const ackPayload = {
+          type: 'ack',
+          id: msgId,
+          messageId: msgId,
+          serverTime: new Date().toISOString(),
+          instanceId: SERVER_INSTANCE_ID
+        };
+        ws.send(JSON.stringify(ackPayload));
+        console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for video id=${msgId} messageId=${msgId}`);
+
+        // Save to database and prune
+        try {
+          await saveMessage(chatMessage);
+          await pruneToLimit(MAX_MESSAGES);
+        } catch (dbError) {
+          console.error(`[DB] Error saving video message:`, dbError);
+        }
+
+        broadcast(chatMessage);
+        console.log(`[MESSAGE] Video from ${nickname}: ${message.filename} (${message.size} bytes)`);
       } else if (message.type === 'file') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
 
