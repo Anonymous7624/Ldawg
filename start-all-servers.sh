@@ -14,7 +14,7 @@ sleep 1
 
 # Start upload server (port 8082)
 echo "Starting upload server on port 8082..."
-cd /workspace
+cd /workspace/apps/pi-global
 nohup node upload-server.js > /tmp/upload-server.log 2>&1 &
 UPLOAD_PID=$!
 echo "Upload server started (PID: $UPLOAD_PID)"

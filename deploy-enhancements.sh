@@ -30,6 +30,9 @@ sleep 2
 echo ""
 echo "Starting services..."
 
+# Navigate to the correct directory
+cd /workspace/apps/pi-global
+
 # Start upload server first
 nohup node upload-server.js > upload-server.log 2>&1 &
 UPLOAD_PID=$!
