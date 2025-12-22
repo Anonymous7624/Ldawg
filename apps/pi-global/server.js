@@ -420,7 +420,18 @@ function parseCookies(cookieHeader) {
 
 // WebSocket connection handler
 wss.on('connection', async (ws, req) => {
-  const clientId = makeId();
+  // Parse query parameters first
+  const queryParams = url.parse(req.url, true).query;
+  
+  // Use provided clientId if available (for ownership continuity across reloads)
+  // Otherwise generate a new one
+  let clientId = queryParams.clientId;
+  if (!clientId) {
+    clientId = makeId();
+    console.log(`[CONNECT] No clientId provided, generated: ${clientId}`);
+  } else {
+    console.log(`[CONNECT] Client provided clientId: ${clientId} (preserving identity)`);
+  }
   const connectionId = clientId;
   
   // Parse cookies from WebSocket upgrade request
@@ -436,7 +447,6 @@ wss.on('connection', async (ws, req) => {
   }
   
   // Parse token from query string
-  const queryParams = url.parse(req.url, true).query;
   let token = queryParams.token;
   
   // If no token provided, generate one
@@ -449,16 +459,21 @@ wss.on('connection', async (ws, req) => {
   
   // Load profanity state from cookies if present
   let profState = getProfanityState(gcSid);
+  
+  // BUG FIX #1: Use MAXIMUM of cookie value and in-memory value to prevent resets
+  // This ensures strike count never decreases across reloads
   if (cookies.gc_strikes) {
-    const strikes = parseInt(cookies.gc_strikes, 10);
-    if (!isNaN(strikes) && strikes >= 0 && strikes <= 10000) {
-      profState.strikes = strikes;
+    const cookieStrikes = parseInt(cookies.gc_strikes, 10);
+    if (!isNaN(cookieStrikes) && cookieStrikes >= 0 && cookieStrikes <= 10000) {
+      profState.strikes = Math.max(profState.strikes, cookieStrikes);
+      console.log(`[CONNECT] Loaded strikes from cookie: ${cookieStrikes}, using: ${profState.strikes}`);
     }
   }
   if (cookies.gc_muteUntil) {
     const muteUntil = parseInt(cookies.gc_muteUntil, 10);
     if (!isNaN(muteUntil) && muteUntil > now()) {
-      profState.muteUntil = muteUntil;
+      profState.muteUntil = Math.max(profState.muteUntil, muteUntil);
+      console.log(`[CONNECT] Loaded muteUntil from cookie: ${muteUntil}, using: ${profState.muteUntil}`);
     }
   }
   
