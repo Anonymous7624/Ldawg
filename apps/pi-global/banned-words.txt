@@ -1,0 +1,33 @@
+# Banned words list for global chat profanity filter
+# One term per line. Case-insensitive matching.
+# Lines starting with # are ignored.
+# Expand this list with actual profanity, slurs, and offensive terms.
+
+# Test words (basic profanity for initial testing)
+damn
+hell
+crap
+stupid
+idiot
+dumb
+
+# IMPORTANT: Add real profanity, slurs, and hate speech terms here
+# This starter list is minimal - you should expand it significantly
+# Include variations, plurals, and common misspellings
+# Consider adding:
+# - Strong profanity
+# - Racial slurs
+# - Homophobic slurs
+# - Sexual content
+# - Hate speech
+# - Targeted harassment terms
+
+# You can organize by category for easier management:
+# [PROFANITY]
+# ...
+
+# [SLURS]
+# ...
+
+# [HATE_SPEECH]
+# ...

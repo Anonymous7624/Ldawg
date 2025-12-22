@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const url = require('url');
+const cookieParser = require('cookie-parser');
 const { initDb, saveMessage, getRecentMessages, deleteMessageById, pruneToLimit } = require('./db');
 
 const app = express();
@@ -23,6 +24,11 @@ const RATE_LIMIT_MESSAGES = 4; // Max messages in sliding window (5th triggers s
 const RATE_LIMIT_WINDOW = 10000; // 10 seconds (rolling window)
 const RATE_LIMIT_COOLDOWN = 650; // Minimum 650ms between sends (0.65s)
 
+// Profanity filter configuration
+const BANNED_WORDS_FILE = path.join(__dirname, 'banned-words.txt');
+const bannedWords = new Set();
+const MAX_MUTE_DURATION = 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
+
 // Helper to generate client IDs
 function makeId() { 
   return crypto.randomBytes(4).toString('hex'); 
@@ -32,6 +38,59 @@ function makeId() {
 function makeUUID() {
   return crypto.randomBytes(16).toString('hex');
 }
+
+// Load banned words from file
+function loadBannedWords() {
+  try {
+    if (!fs.existsSync(BANNED_WORDS_FILE)) {
+      console.log('[PROFANITY] No banned-words.txt found, filter disabled');
+      return;
+    }
+    
+    const content = fs.readFileSync(BANNED_WORDS_FILE, 'utf-8');
+    const lines = content.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      // Skip empty lines and comments
+      if (trimmed && !trimmed.startsWith('#')) {
+        bannedWords.add(trimmed.toLowerCase());
+      }
+    }
+    
+    console.log(`[PROFANITY] Loaded ${bannedWords.size} banned words from ${BANNED_WORDS_FILE}`);
+  } catch (error) {
+    console.error('[PROFANITY] Error loading banned words:', error.message);
+  }
+}
+
+// Filter profanity from text - replaces banned words with dashes
+function filterProfanity(text) {
+  if (bannedWords.size === 0) return { filtered: text, found: [] };
+  
+  const foundWords = [];
+  let filtered = text;
+  
+  // Create regex pattern that matches whole words with optional punctuation
+  for (const word of bannedWords) {
+    // Escape special regex characters in the word
+    const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Match word with optional punctuation before/after, case-insensitive
+    const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
+    
+    const matches = filtered.match(regex);
+    if (matches) {
+      foundWords.push(...matches);
+      // Replace with dashes matching original length (preserve case)
+      filtered = filtered.replace(regex, (match) => '-'.repeat(match.length));
+    }
+  }
+  
+  return { filtered, found: foundWords };
+}
+
+// Cookie parser middleware
+app.use(cookieParser());
 
 // Log all HTTP requests
 app.use((req, res, next) => {
@@ -74,8 +133,9 @@ app.use((req, res, next) => {
 });
 
 // In-memory state
-const clients = new Map(); // ws -> { clientId, token, presenceOnline }
+const clients = new Map(); // ws -> { clientId, token, presenceOnline, gcSid }
 const clientState = new Map(); // token -> { strikes, stage, bannedUntil, msgTimes }
+const profanityState = new Map(); // gcSid -> { strikes, muteUntil, lastMuteSeconds }
 
 // Ensure uploads directory exists (for serving files)
 if (!fs.existsSync(UPLOAD_DIR)) {
@@ -292,13 +352,88 @@ function getClientState(token) {
   return clientState.get(token);
 }
 
+// Get or create profanity state by gcSid
+function getProfanityState(gcSid) {
+  if (!profanityState.has(gcSid)) {
+    profanityState.set(gcSid, {
+      strikes: 0,
+      muteUntil: 0,
+      lastMuteSeconds: 0
+    });
+  }
+  return profanityState.get(gcSid);
+}
+
+// Check if user is muted for profanity
+function isProfanityMuted(state) {
+  return now() < state.muteUntil;
+}
+
+// Calculate mute duration based on strikes
+function calculateMuteDuration(strikes) {
+  if (strikes < 5) {
+    return 0; // No mute for less than 5 strikes
+  } else if (strikes === 5) {
+    return 15 * 1000; // 15 seconds
+  } else if (strikes < 8) {
+    return 15 * 1000; // 15 seconds for strikes 6-7
+  } else if (strikes === 8) {
+    return 60 * 1000; // 60 seconds (1 minute)
+  } else {
+    // After strike 8, double the previous mute duration
+    const previousDuration = strikes === 9 ? 60 * 1000 : Math.pow(2, strikes - 9) * 60 * 1000;
+    const newDuration = Math.min(previousDuration * 2, MAX_MUTE_DURATION);
+    return newDuration;
+  }
+}
+
+// Apply profanity strike and mute
+function applyProfanityStrike(state) {
+  state.strikes += 1;
+  const muteDurationMs = calculateMuteDuration(state.strikes);
+  
+  if (muteDurationMs > 0) {
+    state.muteUntil = now() + muteDurationMs;
+    state.lastMuteSeconds = Math.ceil(muteDurationMs / 1000);
+    console.log(`[PROFANITY] Strike ${state.strikes} issued, muted for ${state.lastMuteSeconds}s`);
+  } else {
+    console.log(`[PROFANITY] Strike ${state.strikes} issued (no mute yet)`);
+  }
+}
+
 // Generate unique server instance ID
 const SERVER_INSTANCE_ID = crypto.randomBytes(6).toString('hex');
+
+// Helper to parse cookies from WebSocket request
+function parseCookies(cookieHeader) {
+  const cookies = {};
+  if (cookieHeader) {
+    cookieHeader.split(';').forEach(cookie => {
+      const parts = cookie.split('=');
+      const name = parts[0].trim();
+      const value = parts.slice(1).join('=').trim();
+      cookies[name] = value;
+    });
+  }
+  return cookies;
+}
 
 // WebSocket connection handler
 wss.on('connection', async (ws, req) => {
   const clientId = makeId();
   const connectionId = clientId;
+  
+  // Parse cookies from WebSocket upgrade request
+  const cookies = parseCookies(req.headers.cookie);
+  let gcSid = cookies.gc_sid;
+  
+  // If no gc_sid cookie, generate one
+  if (!gcSid) {
+    gcSid = makeUUID();
+    console.log(`[CONNECT] No gc_sid cookie, generated: ${gcSid.substring(0, 8)}...`);
+  } else {
+    console.log(`[CONNECT] Client has gc_sid: ${gcSid.substring(0, 8)}...`);
+  }
   
   // Parse token from query string
   const queryParams = url.parse(req.url, true).query;
@@ -312,25 +447,46 @@ wss.on('connection', async (ws, req) => {
     console.log(`[CONNECT] Client provided token: ${token}`);
   }
   
+  // Load profanity state from cookies if present
+  let profState = getProfanityState(gcSid);
+  if (cookies.gc_strikes) {
+    const strikes = parseInt(cookies.gc_strikes, 10);
+    if (!isNaN(strikes) && strikes >= 0 && strikes <= 1000) {
+      profState.strikes = strikes;
+    }
+  }
+  if (cookies.gc_muteUntil) {
+    const muteUntil = parseInt(cookies.gc_muteUntil, 10);
+    if (!isNaN(muteUntil) && muteUntil > now()) {
+      profState.muteUntil = muteUntil;
+    }
+  }
+  
   console.log(`[CONNECT] *** SERVER INSTANCE: ${SERVER_INSTANCE_ID} ***`);
-  console.log(`[CONNECT] Client connected: ${clientId} (token: ${token.substring(0, 8)}...)`);
+  console.log(`[CONNECT] Client connected: ${clientId} (token: ${token.substring(0, 8)}..., gcSid: ${gcSid.substring(0, 8)}...)`);
+  console.log(`[CONNECT] Profanity state: strikes=${profState.strikes}, muted=${isProfanityMuted(profState)}`);
   console.log(`[CONNECT] Total clients: ${wss.clients.size}`);
 
   // Initialize client info (connection-specific)
   clients.set(ws, {
     clientId,
     token,
+    gcSid,
     presenceOnline: true   // default true until told otherwise
   });
 
   // Get or create client state (persistent by token)
   const state = getClientState(token);
 
-  // Send welcome with clientId and token
+  // Send welcome with clientId, token, and gc_sid (for cookie setting)
   ws.send(JSON.stringify({ 
     type: 'welcome', 
     clientId,
-    token // Send token back so client can store it if needed
+    token, // Send token back so client can store it if needed
+    gcSid, // Send gc_sid so client can set cookie
+    profanityStrikes: profState.strikes,
+    profanityMuted: isProfanityMuted(profState),
+    muteUntil: profState.muteUntil > now() ? profState.muteUntil : undefined
   }));
 
   // Send chat history from database
@@ -509,14 +665,65 @@ wss.on('connection', async (ws, req) => {
       }
       
       if (message.type === 'text') {
+        // Get profanity state for this user
+        const profState = getProfanityState(info.gcSid);
+        
+        // Check if user is muted for profanity
+        if (isProfanityMuted(profState)) {
+          const secondsRemaining = Math.ceil((profState.muteUntil - now()) / 1000);
+          console.log(`[PROFANITY] Client ${connectionId} is muted (${secondsRemaining}s remaining, ${profState.strikes} strikes)`);
+          ws.send(JSON.stringify({
+            type: 'profanity_muted',
+            strikes: profState.strikes,
+            muteUntil: profState.muteUntil,
+            seconds: secondsRemaining,
+            message: `You are muted for ${secondsRemaining}s (Strike ${profState.strikes})`
+          }));
+          return;
+        }
+        
         // Validate input
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
-        const text = (message.text || '').substring(0, 1000);
-        const html = (message.html || '').substring(0, 5000); // Allow HTML but limit size
+        const originalText = (message.text || '').substring(0, 1000);
+        const originalHtml = (message.html || '').substring(0, 5000);
 
-        if (!text.trim()) {
+        if (!originalText.trim()) {
           console.log(`[MESSAGE] Ignored empty text from ${connectionId}`);
           return;
+        }
+
+        // Filter profanity from text
+        const { filtered: filteredText, found: foundProfanity } = filterProfanity(originalText);
+        
+        // If profanity was found, apply strike
+        if (foundProfanity.length > 0) {
+          applyProfanityStrike(profState);
+          console.log(`[PROFANITY] Found ${foundProfanity.length} banned term(s) in message from ${nickname}: ${foundProfanity.join(', ')}`);
+          
+          // Send profanity strike notification to sender
+          const muteSeconds = isProfanityMuted(profState) ? Math.ceil((profState.muteUntil - now()) / 1000) : 0;
+          ws.send(JSON.stringify({
+            type: 'profanity_strike',
+            strikes: profState.strikes,
+            muted: isProfanityMuted(profState),
+            muteUntil: profState.muteUntil > now() ? profState.muteUntil : undefined,
+            seconds: muteSeconds,
+            foundWords: foundProfanity,
+            message: muteSeconds > 0 
+              ? `Strike ${profState.strikes}: Muted for ${muteSeconds}s`
+              : `Strike ${profState.strikes}: Warning issued`
+          }));
+        }
+        
+        // Filter HTML if present (basic approach: filter text in HTML)
+        let filteredHtml = originalHtml;
+        if (originalHtml && foundProfanity.length > 0) {
+          // Simple approach: replace profanity in HTML as well
+          for (const word of foundProfanity) {
+            const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(escapedWord, 'gi');
+            filteredHtml = filteredHtml.replace(regex, (match) => '-'.repeat(match.length));
+          }
         }
 
         const chatMessage = {
@@ -525,8 +732,8 @@ wss.on('connection', async (ws, req) => {
           senderId: info.clientId,
           nickname,
           timestamp: message.timestamp || Date.now(),
-          text,
-          html: html || undefined // Include HTML if present
+          text: filteredText, // Use filtered text
+          html: filteredHtml || undefined // Use filtered HTML if present
         };
 
         // Send ACK to sender immediately
@@ -549,7 +756,7 @@ wss.on('connection', async (ws, req) => {
         }
 
         broadcast(chatMessage);
-        console.log(`[MESSAGE] Text message from ${nickname}: "${text.substring(0, 50)}${text.length > 50 ? '...' : ''}"`);
+        console.log(`[MESSAGE] Text message from ${nickname}: "${filteredText.substring(0, 50)}${filteredText.length > 50 ? '...' : ''}"`);
       } else if (message.type === 'image') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
 
@@ -722,6 +929,9 @@ async function main() {
     console.log(`========================================`);
     console.log(`Kennedy Chat Server - Initializing`);
     console.log(`========================================`);
+    
+    // Load banned words for profanity filter
+    loadBannedWords();
     
     // Initialize database - this will log DB path and count
     await initDb();
