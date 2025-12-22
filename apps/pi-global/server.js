@@ -371,17 +371,17 @@ function isProfanityMuted(state) {
 
 // Calculate mute duration based on strikes
 function calculateMuteDuration(strikes) {
-  if (strikes < 5) {
-    return 0; // No mute for less than 5 strikes
-  } else if (strikes === 5) {
-    return 15 * 1000; // 15 seconds
-  } else if (strikes < 8) {
-    return 15 * 1000; // 15 seconds for strikes 6-7
-  } else if (strikes === 8) {
+  if (strikes < 3) {
+    return 0; // No mute for less than 3 strikes
+  } else if (strikes === 3) {
+    return 15 * 1000; // 15 seconds (first mute)
+  } else if (strikes < 6) {
+    return 15 * 1000; // 15 seconds for strikes 4-5
+  } else if (strikes === 6) {
     return 60 * 1000; // 60 seconds (1 minute)
   } else {
-    // After strike 8, double the previous mute duration
-    const previousDuration = strikes === 9 ? 60 * 1000 : Math.pow(2, strikes - 9) * 60 * 1000;
+    // After strike 6, double the previous mute duration
+    const previousDuration = strikes === 7 ? 60 * 1000 : Math.pow(2, strikes - 7) * 60 * 1000;
     const newDuration = Math.min(previousDuration * 2, MAX_MUTE_DURATION);
     return newDuration;
   }
@@ -451,7 +451,7 @@ wss.on('connection', async (ws, req) => {
   let profState = getProfanityState(gcSid);
   if (cookies.gc_strikes) {
     const strikes = parseInt(cookies.gc_strikes, 10);
-    if (!isNaN(strikes) && strikes >= 0 && strikes <= 1000) {
+    if (!isNaN(strikes) && strikes >= 0 && strikes <= 10000) {
       profState.strikes = strikes;
     }
   }
