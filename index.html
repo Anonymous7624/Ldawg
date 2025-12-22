@@ -1421,7 +1421,10 @@
     <div class="sidebar">
       <h2 style="font-size: 22px; font-weight: 700;">Rules</h2>
       <div class="sidebar-content" style="margin-bottom: 25px;">
-        <p>NO spamming. More than 4 messages per 10 seconds triggers a strike for a mute. exess spamming may put your account at risk of being BANNED.</p>
+        <p><strong>No profanity, slurs, or hate speech.</strong></p>
+        <p><strong>No impersonation.</strong></p>
+        <p><strong>No spamming.</strong> More than 4 messages per 10 seconds triggers a strike for a mute.</p>
+        <p style="margin-top: 10px;"><em>Violations result in strikes and timed mutes.</em></p>
       </div>
       
       <h2 style="font-size: 22px; font-weight: 700;">Features</h2>
@@ -1619,6 +1622,44 @@
     function setCookie(name, value, maxAgeSeconds) {
       document.cookie = `${name}=${value}; path=/; max-age=${maxAgeSeconds}; SameSite=Lax; Secure`;
     }
+    
+    // Profanity state management
+    function getProfanityState() {
+      const strikes = getCookie('gc_strikes');
+      const muteUntil = getCookie('gc_muteUntil');
+      
+      return {
+        strikes: strikes ? parseInt(strikes, 10) : 0,
+        muteUntil: muteUntil ? parseInt(muteUntil, 10) : 0
+      };
+    }
+    
+    // Profanity state tracking (load from cookies on page load)
+    const initialProfanityState = getProfanityState();
+    let profanityStrikes = initialProfanityState.strikes;
+    let profanityMuteUntil = initialProfanityState.muteUntil;
+    
+    // Log initial profanity state
+    console.log('[PROFANITY] Initial state: strikes=' + profanityStrikes + ', muteUntil=' + profanityMuteUntil);
+    
+    function setProfanityState(strikes, muteUntil) {
+      profanityStrikes = strikes;
+      profanityMuteUntil = muteUntil;
+      
+      // Store in cookies (1 year)
+      setCookie('gc_strikes', strikes.toString(), 31536000);
+      
+      if (muteUntil > Date.now()) {
+        const secondsRemaining = Math.ceil((muteUntil - Date.now()) / 1000);
+        setCookie('gc_muteUntil', muteUntil.toString(), secondsRemaining + 10);
+      } else {
+        setCookie('gc_muteUntil', '0', 31536000);
+      }
+    }
+    
+    function isProfanityMuted() {
+      return profanityMuteUntil > Date.now();
+    }
 
     function getBanState() {
       // Check both localStorage and cookie
@@ -1689,6 +1730,80 @@
       
       statusDiv.classList.remove('hidden');
       updateCountdown();
+    }
+    
+    function showProfanityMuteMessage(untilEpochMs, strikes) {
+      const statusDiv = document.getElementById('statusMessage');
+      statusDiv.className = 'status-message status-error';
+      
+      function updateCountdown() {
+        const remaining = Math.ceil((untilEpochMs - Date.now()) / 1000);
+        if (remaining > 0) {
+          const hours = Math.floor(remaining / 3600);
+          const minutes = Math.floor((remaining % 3600) / 60);
+          const seconds = remaining % 60;
+          const timeStr = hours > 0 
+            ? `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+            : minutes > 0
+            ? `${minutes}:${seconds.toString().padStart(2, '0')}`
+            : `${seconds}s`;
+          statusDiv.textContent = `Muted for profanity (Strike ${strikes}) - ${timeStr} remaining`;
+          setTimeout(updateCountdown, 1000);
+        } else {
+          statusDiv.classList.add('hidden');
+          disableInputs(false);
+          profanityMuteUntil = 0;
+        }
+      }
+      
+      statusDiv.classList.remove('hidden');
+      updateCountdown();
+    }
+    
+    function handleProfanityStrike(data) {
+      // Update profanity state
+      setProfanityState(data.strikes, data.muteUntil || 0);
+      
+      // Show toast notification
+      const toast = document.getElementById('toast');
+      toast.textContent = data.message || `Strike ${data.strikes}: Profanity detected`;
+      toast.className = 'toast show';
+      
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 3000);
+      
+      // If muted, show mute message and disable inputs
+      if (data.muted && data.muteUntil && data.muteUntil > Date.now()) {
+        showProfanityMuteMessage(data.muteUntil, data.strikes);
+        disableInputs(true);
+        
+        // Re-enable after mute expires
+        const secondsRemaining = Math.ceil((data.muteUntil - Date.now()) / 1000);
+        setTimeout(() => {
+          disableInputs(false);
+          const statusDiv = document.getElementById('statusMessage');
+          statusDiv.classList.add('hidden');
+          showStatus('Mute expired. You can chat again.', 'success');
+        }, secondsRemaining * 1000);
+      }
+    }
+    
+    function handleProfanityMuted(data) {
+      // Update profanity state
+      setProfanityState(data.strikes, data.muteUntil);
+      
+      // Show mute message
+      showProfanityMuteMessage(data.muteUntil, data.strikes);
+      
+      // Show toast
+      const toast = document.getElementById('toast');
+      toast.textContent = data.message || `You are muted (${data.seconds}s remaining)`;
+      toast.className = 'toast show';
+      
+      setTimeout(() => {
+        toast.classList.remove('show');
+      }, 2500);
     }
 
     // Check ban state on page load
@@ -2145,6 +2260,25 @@
             console.log('[TOKEN] Received token from server:', clientToken);
           }
           
+          // If server sent us a gc_sid, store it as cookie
+          if (data.gcSid) {
+            setCookie('gc_sid', data.gcSid, 31536000); // 1 year
+            console.log('[GC_SID] Received gc_sid from server:', data.gcSid.substring(0, 8) + '...');
+          }
+          
+          // Update profanity state from server
+          if (data.profanityStrikes !== undefined) {
+            const muteUntil = data.muteUntil || 0;
+            setProfanityState(data.profanityStrikes, muteUntil);
+            console.log('[PROFANITY] Current state: strikes=' + data.profanityStrikes + ', muted=' + data.profanityMuted);
+            
+            // If muted on connect, show message and disable input
+            if (data.profanityMuted && muteUntil > Date.now()) {
+              showProfanityMuteMessage(muteUntil, data.profanityStrikes);
+              disableInputs(true);
+            }
+          }
+          
           refreshDeleteButtons();
         } else if (data.type === 'online') {
           setOnlineCount(data.count);
@@ -2270,6 +2404,10 @@
             seconds: data.seconds,
             reason: 'rate'
           });
+        } else if (data.type === 'profanity_strike') {
+          handleProfanityStrike(data);
+        } else if (data.type === 'profanity_muted') {
+          handleProfanityMuted(data);
         }
       };
 
@@ -2911,6 +3049,13 @@
       const banUntil = getBanState();
       if (banUntil && banUntil > Date.now()) {
         showStatus('You are temporarily blocked from sending messages', 'error');
+        return;
+      }
+      
+      // Check profanity mute
+      if (isProfanityMuted()) {
+        const secondsRemaining = Math.ceil((profanityMuteUntil - Date.now()) / 1000);
+        showStatus(`You are muted for ${secondsRemaining}s (Strike ${profanityStrikes})`, 'error');
         return;
       }
 
