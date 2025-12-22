@@ -139,11 +139,15 @@ pi-global/
 ├── server.js           # WebSocket server
 ├── upload-server.js    # File upload server
 ├── db.js              # SQLite database operations
-├── index.html         # Frontend (if serving)
 ├── package.json       # Dependencies and scripts
 ├── .env              # Environment config (not committed)
 └── .env.example      # Example environment config
 ```
+
+**Note:** The `index.html` frontend file is located at the repository root (`/workspace/index.html`), not in this folder. If you need to serve it from the Pi, either:
+- Copy it to this directory during deployment, or
+- Serve it separately via nginx/Apache, or
+- Access it via your frontend hosting (GitHub Pages, etc.)
 
 ## Notes
 

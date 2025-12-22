@@ -14,7 +14,6 @@ This repository contains two separate backend services:
 │   │   ├── server.js       # WebSocket server
 │   │   ├── upload-server.js # File upload server
 │   │   ├── db.js           # SQLite database
-│   │   ├── index.html      # Frontend (if serving)
 │   │   ├── package.json    # Dependencies
 │   │   ├── .env.example    # Environment template
 │   │   └── README.md       # Pi Global documentation
@@ -25,6 +24,7 @@ This repository contains two separate backend services:
 │       ├── .env.example    # Environment template
 │       └── README.md       # Private API documentation
 │
+├── index.html              # Frontend (at repository root)
 ├── .gitignore              # Git ignore rules
 └── MONOREPO_README.md      # This file
 ```
