@@ -1,298 +1,58 @@
-╔════════════════════════════════════════════════════════════════╗
-║     CRITICAL BUGFIX - DEPLOYMENT CHECKLIST                     ║
-║     All bugs fixed - Ready for production                      ║
-╚════════════════════════════════════════════════════════════════╝
+DEPLOYMENT CHECKLIST
+=====================
+
+BEFORE DEPLOYING - VERIFY:
+☐ All TODOs completed
+☐ Code syntax validated
+☐ Dependencies install successfully
+☐ Documentation complete
+
+PI GLOBAL CHAT (RASPBERRY PI):
+☐ SSH access to Raspberry Pi
+☐ Git pull latest code
+☐ cd apps/pi-global && npm install
+☐ Create .env from .env.example
+☐ Configure WS_PORT, UPLOAD_PORT, DB_PATH, UPLOAD_DIR
+☐ mkdir -p ~/chat-data/uploads
+☐ npm run pm2:start
+☐ pm2 save
+☐ pm2 startup (follow instructions)
+☐ Test: curl http://localhost:8080/healthz
+☐ Test: curl http://localhost:8082/healthz
+☐ Verify global chat works in browser
+
+PRIVATE API (UBUNTU SERVER):
+☐ SSH access to Ubuntu server
+☐ MongoDB running: docker ps | grep mongo
+☐ Git pull latest code
+☐ cd apps/private-api && npm install
+☐ Create .env from .env.example
+☐ Generate JWT_SECRET: openssl rand -hex 64
+☐ Configure MONGO_URI with real password
+☐ Configure PORT, CORS_ORIGINS
+☐ npm run pm2:start
+☐ pm2 save
+☐ pm2 startup (follow instructions)
+☐ Test: curl http://localhost:3001/health
+☐ Test signup: curl -X POST http://localhost:3001/auth/signup ...
+☐ Test login: curl -X POST http://localhost:3001/auth/login ...
+☐ Test /me with Bearer token
+
+SECURITY:
+☐ .env files NOT committed to git
+☐ Strong JWT_SECRET generated (64+ chars)
+☐ MongoDB password is secure
+☐ MongoDB only bound to 127.0.0.1
+☐ Firewall configured on both servers
+
+MONITORING:
+☐ pm2 status shows all services running
+☐ pm2 logs shows no errors
+☐ Both services accessible from frontend
+
+DOCUMENTATION READ:
+☐ QUICK_START.md
+☐ MONOREPO_README.md
+☐ apps/pi-global/README.md
+☐ apps/private-api/README.md
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PRE-DEPLOYMENT VERIFICATION
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-☑ All code changes complete
-  ├─ ✓ server.js modified (2 sections)
-  ├─ ✓ index.html modified (4 sections)
-  └─ ✓ No syntax errors (verified with node -c)
-
-☑ Documentation created
-  ├─ ✓ CRITICAL_BUGFIX_COMPLETE.md
-  ├─ ✓ CODE_SNIPPETS_SUMMARY.md
-  ├─ ✓ VALIDATION_PROOF.md
-  ├─ ✓ EXECUTIVE_SUMMARY.md
-  ├─ ✓ CHANGES_SUMMARY.txt
-  └─ ✓ test-fixes.sh
-
-☑ Bugs fixed (5/5)
-  ├─ ✓ CORS on /upload endpoint
-  ├─ ✓ Text messages stuck on "Sending..."
-  ├─ ✓ Photo upload flow
-  ├─ ✓ Blob URL ERR_FILE_NOT_FOUND
-  └─ ✓ Images 20% smaller
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DEPLOYMENT STEPS
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-STEP 1: Deploy Backend (server.js)
-─────────────────────────────────────────────────────────────────
-□ SSH to production server
-□ cd /workspace
-□ git pull origin main
-□ Verify changes: git diff HEAD~1 server.js
-□ Restart: pm2 restart chat-server
-  OR: systemctl restart chat-server
-□ Check status: pm2 status chat-server
-  OR: systemctl status chat-server
-□ Watch logs: pm2 logs chat-server --lines 50
-
-EXPECTED OUTPUT:
-  Kennedy Chat Server
-  Port: 8080
-  WebSocket: ws://localhost:8080
-  [No errors]
-
-
-STEP 2: Deploy Frontend (index.html)
-─────────────────────────────────────────────────────────────────
-□ Frontend on GitHub Pages (auto-deploys)
-□ Verify changes staged: git status
-□ Commit if needed: git commit -m "Fix critical bugs"
-□ Push: git push origin main
-□ Wait 1-2 minutes for GitHub Pages deploy
-□ Clear browser cache: Ctrl+Shift+R
-
-
-STEP 3: Verify CORS Headers
-─────────────────────────────────────────────────────────────────
-□ Test OPTIONS preflight:
-  
-  curl -I -X OPTIONS https://ws.ldawg7624.com/upload \
-    -H "Origin: https://ldawg7624.com" \
-    -H "Access-Control-Request-Method: POST"
-
-□ Expected response:
-  HTTP/1.1 204 No Content
-  Access-Control-Allow-Origin: https://ldawg7624.com
-  Access-Control-Allow-Methods: GET, POST, OPTIONS
-  Access-Control-Allow-Headers: Content-Type
-
-□ If missing ACAO header: Server not running new code
-
-
-STEP 4: Verify Server Logs
-─────────────────────────────────────────────────────────────────
-□ Check for new log tags:
-  
-  pm2 logs chat-server | grep -E "\[UPLOAD\]|\[ACK\]|\[BROADCAST\]"
-
-□ Expected to see:
-  [UPLOAD] POST /upload - Origin: ... - Status: starting
-  [UPLOAD] Success: filename.jpg (12345 bytes, image/jpeg)
-  [UPLOAD] POST /upload - Status: 200 (success)
-  [MESSAGE] Received: type=text, id=abc123
-  [ACK] Sent ack for message id=abc123
-  [BROADCAST] Sent message type=text to 2 clients
-
-□ If no logs: Server not restarted or old code still running
-
-
-STEP 5: Browser Testing - Text Messages
-─────────────────────────────────────────────────────────────────
-□ Open https://ldawg7624.com in Chrome/Firefox
-□ Open DevTools Console (F12)
-□ Type text message and click Send
-
-□ Expected console output:
-  [SEND] Sending text message: ...
-  [SEND] Text message sent via WebSocket, id=...
-  [WS] Received message: ack id=...
-  [WS] ACK received for message id=...
-
-□ Expected UI behavior:
-  Message appears with "Sending..." (opacity 0.6)
-  Within 1 second: status changes to "Sent"
-  After 1 second: status disappears
-  Message fully visible
-
-□ If stuck on "Sending...": ACK protocol not working
-
-
-STEP 6: Browser Testing - Photo Upload
-─────────────────────────────────────────────────────────────────
-□ Click "File" button
-□ Select a photo
-□ Add caption
-□ Click Send
-
-□ Expected console output:
-  [SEND] Uploading photo with caption: ...
-  [UPLOAD] Response status: 200
-  [UPLOAD] Response headers ACAO: https://ldawg7624.com
-  [UPLOAD] Response content-type: application/json
-  [UPLOAD] Result: {success: true, url: '/uploads/...', ...}
-  [SEND] Photo message sent via WebSocket, id=...
-  [WS] ACK received for message id=...
-
-□ Expected UI behavior:
-  Photo preview shown while uploading
-  Status: "Sending..." → "Sent"
-  Photo appears in chat (smaller than before)
-
-□ If CORS error: Server CORS not working
-□ If upload fails: Check server logs
-
-
-STEP 7: Browser Testing - Photo Preview
-─────────────────────────────────────────────────────────────────
-□ After photo uploaded and appears in chat
-□ Click on the photo
-
-□ Expected behavior:
-  Preview modal opens
-  Image displayed at full size
-  No errors in console
-  
-□ Expected console output:
-  (nothing - no errors)
-
-□ If ERR_FILE_NOT_FOUND: Blob URL fix not working
-□ If no preview: JavaScript error (check console)
-
-
-STEP 8: Multi-Tab Testing
-─────────────────────────────────────────────────────────────────
-□ Open https://ldawg7624.com in Tab 1
-□ Open https://ldawg7624.com in Tab 2
-□ Send message in Tab 1
-
-□ Expected behavior:
-  Tab 1: Message appears with "Sending..." → "Sent"
-  Tab 2: Message appears immediately
-  Both tabs show same message content
-
-□ If message doesn't appear in Tab 2: WebSocket broadcast broken
-
-
-STEP 9: Error Handling Testing
-─────────────────────────────────────────────────────────────────
-□ Disconnect network (Airplane mode or DevTools → Network → Offline)
-□ Try to send message
-
-□ Expected behavior:
-  Message shows "Sending..."
-  After 5 seconds: "Failed to send (timeout)"
-  Message has red border
-
-□ Reconnect network
-□ Send message again
-
-□ Expected behavior:
-  Message sends successfully
-  Status: "Sending..." → "Sent"
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-POST-DEPLOYMENT MONITORING
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-First Hour:
-─────────────────────────────────────────────────────────────────
-□ Monitor server logs continuously:
-  pm2 logs chat-server --lines 100
-  
-□ Watch for:
-  ✓ [UPLOAD] logs with Status: 200
-  ✓ [ACK] logs for each message
-  ✓ No error stack traces
-  ✓ No CORS errors mentioned
-
-□ Test in browser every 15 minutes
-□ Check with different devices (phone, tablet, desktop)
-
-
-First 24 Hours:
-─────────────────────────────────────────────────────────────────
-□ Monitor error rates:
-  grep -i error /var/log/chat-server.log | wc -l
-  
-□ Check upload success rate:
-  grep "\[UPLOAD\].*200" /var/log/chat-server.log | wc -l
-  grep "\[UPLOAD\].*400\|500" /var/log/chat-server.log | wc -l
-  
-□ Verify ACK protocol working:
-  grep "\[ACK\]" /var/log/chat-server.log | wc -l
-  (Should match number of messages sent)
-
-□ Collect user feedback
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-ROLLBACK PROCEDURE (if needed)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-If critical issues discovered:
-─────────────────────────────────────────────────────────────────
-□ Backend rollback:
-  cd /workspace
-  git checkout HEAD~1 server.js
-  pm2 restart chat-server
-  
-□ Frontend rollback:
-  git checkout HEAD~1 index.html
-  git push origin main --force
-  
-□ Verify rollback:
-  curl https://ldawg7624.com/index.html | head -20
-  
-□ Estimated rollback time: < 5 minutes
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SUCCESS CRITERIA
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-All must pass:
-─────────────────────────────────────────────────────────────────
-✓ Text messages show "Sending..." → "Sent" within 1 second
-✓ Photo uploads succeed without CORS errors
-✓ Clicking photos opens preview without blob URL errors
-✓ Images are visibly smaller (~20% reduction)
-✓ Messages appear in all open browser tabs
-✓ Server logs show [UPLOAD], [ACK], [BROADCAST] tags
-✓ No JavaScript errors in browser console
-✓ No CORS errors in browser console
-✓ Timeout shows "Failed to send" after 5 seconds if disconnected
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SIGN-OFF
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Pre-Deployment:
-  Name: ________________    Date: ________    Time: ________
-  
-Post-Deployment Verification:
-  Name: ________________    Date: ________    Time: ________
-
-Production Monitoring (24h):
-  Name: ________________    Date: ________    Time: ________
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-NOTES
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Status: ✅ READY FOR DEPLOYMENT
-
-For technical details, see:
-  - CRITICAL_BUGFIX_COMPLETE.md
-  - CODE_SNIPPETS_SUMMARY.md
-  - VALIDATION_PROOF.md
-  - EXECUTIVE_SUMMARY.md
-
-For automated tests, run:
-  ./test-fixes.sh
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

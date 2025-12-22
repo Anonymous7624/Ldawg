@@ -3,19 +3,10 @@ node_modules/
 package-lock.json
 yarn.lock
 
-# Uploads (sensitive user content)
-uploads/
-*.db
-*.db-shm
-*.db-wal
-
-# Environment variables - ALL apps
+# Environment variables
 .env
 .env.local
 .env.production
-apps/**/.env
-apps/**/.env.local
-apps/**/.env.production
 
 # Logs
 logs/
@@ -38,6 +29,3 @@ Thumbs.db
 *.swp
 *.swo
 *~
-
-# Cloudflare
-.cloudflared/
