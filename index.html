@@ -1605,8 +1605,8 @@
     let clientToken = getOrCreateToken();
     console.log('[TOKEN] Using client token:', clientToken);
 
-    // WebSocket configuration
-    const WS_URL = `wss://ws.ldawg7624.com?token=${encodeURIComponent(clientToken)}`;
+    // WebSocket configuration (base URL, will be constructed in connect())
+    const WS_BASE_URL = 'wss://ws.ldawg7624.com';
     
     // Upload configuration
     const UPLOAD_URL = 'https://upload.ldawg7624.com/upload';
@@ -1620,7 +1620,21 @@
     }
 
     function setCookie(name, value, maxAgeSeconds) {
-      document.cookie = `${name}=${value}; path=/; max-age=${maxAgeSeconds}; SameSite=Lax; Secure`;
+      // Set domain to ensure cookies are sent with WebSocket connections across subdomains
+      // Extract base domain (e.g., ldawg7624.com from www.ldawg7624.com or ws.ldawg7624.com)
+      const hostname = window.location.hostname;
+      let domain = '';
+      
+      // Only set domain if not localhost (for cross-subdomain cookie sharing)
+      if (hostname !== 'localhost' && hostname !== '127.0.0.1') {
+        // Extract base domain (last two parts of hostname)
+        const parts = hostname.split('.');
+        if (parts.length >= 2) {
+          domain = `; domain=.${parts.slice(-2).join('.')}`;
+        }
+      }
+      
+      document.cookie = `${name}=${value}; path=/; max-age=${maxAgeSeconds}; SameSite=Lax; Secure${domain}`;
     }
     
     // Profanity state management
@@ -2196,12 +2210,19 @@
     // ========================================
     
     function connect() {
+      // Construct WebSocket URL with token and preserved clientId if it exists
+      let wsUrl = `${WS_BASE_URL}?token=${encodeURIComponent(clientToken)}`;
+      if (myClientId) {
+        wsUrl += `&clientId=${encodeURIComponent(myClientId)}`;
+      }
+      
       console.log('========================================');
       console.log('[CONNECT] Attempting WebSocket connection');
-      console.log('[CONNECT] URL:', WS_URL);
+      console.log('[CONNECT] URL:', wsUrl);
       console.log('[CONNECT] Token:', clientToken);
+      console.log('[CONNECT] myClientId:', myClientId || '(none - will get new one)');
       console.log('========================================');
-      ws = new WebSocket(WS_URL);
+      ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
         console.log('========================================');
