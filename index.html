@@ -3238,7 +3238,10 @@
             senderId: myClientId
           };
           
-          addMessage(messageData, true, messageId, 'sending');
+          // REMOVED OPTIMISTIC ECHO: No longer show message locally before server confirms
+          // This ensures sender sees censored version (from server broadcast) immediately
+          // without seeing uncensored version flash first
+          
           pendingMessages.set(messageId, messageData);
           
           // Store retry data
@@ -3251,7 +3254,14 @@
           const ackTimeout = setTimeout(() => {
             if (pendingMessages.has(messageId)) {
               console.error('[SEND] ACK timeout for message:', messageId);
-              markMessageAsFailed(messageId);
+              // If message hasn't appeared yet, show error status
+              // (Message might have been added by broadcast but ACK was missed)
+              const msgElement = renderedMessages.get(messageId);
+              if (msgElement) {
+                markMessageAsFailed(messageId);
+              } else {
+                showStatus('Message may not have been sent', 'error');
+              }
               pendingMessages.delete(messageId);
             }
           }, DEFAULT_ACK_TIMEOUT_MS);

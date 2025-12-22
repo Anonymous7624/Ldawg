@@ -677,7 +677,12 @@ wss.on('connection', async (ws, req) => {
             strikes: profState.strikes,
             muteUntil: profState.muteUntil,
             seconds: secondsRemaining,
-            message: `You are muted for ${secondsRemaining}s (Strike ${profState.strikes})`
+            message: `You are muted for ${secondsRemaining}s (Strike ${profState.strikes})`,
+            // Cookie values for client-side persistence
+            cookies: {
+              gc_strikes: profState.strikes,
+              gc_muteUntil: profState.muteUntil
+            }
           }));
           return;
         }
@@ -700,7 +705,7 @@ wss.on('connection', async (ws, req) => {
           applyProfanityStrike(profState);
           console.log(`[PROFANITY] Found ${foundProfanity.length} banned term(s) in message from ${nickname}: ${foundProfanity.join(', ')}`);
           
-          // Send profanity strike notification to sender
+          // Send profanity strike notification to sender with cookie values for persistence
           const muteSeconds = isProfanityMuted(profState) ? Math.ceil((profState.muteUntil - now()) / 1000) : 0;
           ws.send(JSON.stringify({
             type: 'profanity_strike',
@@ -711,7 +716,12 @@ wss.on('connection', async (ws, req) => {
             foundWords: foundProfanity,
             message: muteSeconds > 0 
               ? `Strike ${profState.strikes}: Muted for ${muteSeconds}s`
-              : `Strike ${profState.strikes}: Warning issued`
+              : `Strike ${profState.strikes}: Warning issued`,
+            // Cookie values for client-side persistence
+            cookies: {
+              gc_strikes: profState.strikes,
+              gc_muteUntil: profState.muteUntil
+            }
           }));
         }
         
