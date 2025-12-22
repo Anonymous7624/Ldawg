@@ -1,24 +1,20 @@
 {
-  "name": "kennedy-chat",
+  "name": "kennedy-chat-monorepo",
   "version": "1.0.0",
-  "description": "Kennedy Chat - Real-time communication server with WebSocket support",
-  "main": "server.js",
+  "description": "Kennedy Chat Monorepo - Global chat + Private API",
+  "private": true,
   "scripts": {
-    "start": "node server.js"
+    "install:pi": "cd apps/pi-global && npm install",
+    "install:private": "cd apps/private-api && npm install",
+    "install:all": "npm run install:pi && npm run install:private",
+    "test:syntax": "node -c apps/pi-global/server.js && node -c apps/pi-global/upload-server.js && node -c apps/pi-global/db.js && node -c apps/private-api/server.js && echo '✓ All files have valid syntax'"
   },
   "keywords": [
     "chat",
+    "monorepo",
     "websocket",
-    "kennedy",
-    "real-time"
+    "api"
   ],
   "author": "",
-  "license": "MIT",
-  "dependencies": {
-    "better-sqlite3": "^12.5.0",
-    "express": "^4.18.2",
-    "form-data": "^4.0.5",
-    "multer": "^1.4.5-lts.1",
-    "ws": "^8.14.2"
-  }
+  "license": "MIT"
 }

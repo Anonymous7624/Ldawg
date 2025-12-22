@@ -1,164 +1,270 @@
-# Quick Start - Deploy the Fix
+# Quick Start Guide
 
-## What Was Changed
+This guide will help you get both services running quickly.
 
-### server.js (3 changes)
-1. **ACK Schema Fix** (lines ~370, ~397, ~423) - Changed ACK response from `{type:"ack", id:...}` to `{type:"ack", messageId:..., serverTime:..., instanceId:...}`
-2. **Ping Handler** (line ~352) - Added ping message type support for connection self-test
-3. **Enhanced Logging** - Added detailed logs for all message flows with instance ID and client IP
+## Prerequisites
 
-### index.html (3 changes)
-1. **ACK Handler Fix** (line ~695) - Changed to read `data.messageId` instead of `data.id`
-2. **Connection Self-Test** (line ~678) - Added ping on connect to verify ACK path works before showing "Connected ✓"
-3. **Enhanced Logging** - Added detailed WebSocket connection, close, and error logs
+- Node.js 16+ installed
+- MongoDB running (for private API only)
+- PM2 installed globally: `npm install -g pm2`
 
-## Deploy Now
-
-### On Raspberry Pi:
+## Option 1: Install All Dependencies at Once
 
 ```bash
-# 1. Navigate to your project directory
-cd /workspace  # (or wherever your server.js is)
+# From repository root
+npm run install:all
+```
 
-# 2. Stop the old server
-pkill -f "node server.js"
-# OR if using pm2:
-pm2 stop kennedy-chat
-# OR if using systemd:
-sudo systemctl stop kennedy-chat
+## Option 2: Install Per Service
 
-# 3. Start the new server
-node server.js
-# OR with pm2:
-pm2 start server.js --name kennedy-chat
+### Pi Global Chat
+
+```bash
+cd apps/pi-global
+npm install
+```
+
+### Private API
+
+```bash
+cd apps/private-api
+npm install
+```
+
+## Configuration
+
+### 1. Pi Global Chat
+
+```bash
+cd apps/pi-global
+cp .env.example .env
+```
+
+Edit `.env` with your settings:
+```env
+WS_PORT=8080
+UPLOAD_PORT=8082
+DB_PATH=./chat.db
+UPLOAD_DIR=./uploads
+UPLOAD_BASE_URL=https://upload.ldawg7624.com
+MAX_MESSAGES=600
+```
+
+### 2. Private API
+
+```bash
+cd apps/private-api
+cp .env.example .env
+```
+
+Edit `.env` with your settings:
+```env
+PORT=3001
+MONGO_URI=mongodb://appuser:password@127.0.0.1:27017/privatechat?authSource=privatechat
+JWT_SECRET=$(openssl rand -hex 64)
+JWT_EXPIRES_IN=7d
+NODE_ENV=production
+CORS_ORIGINS=https://ldawg7624.com,https://www.ldawg7624.com
+```
+
+**IMPORTANT:** Generate a secure JWT secret:
+```bash
+openssl rand -hex 64
+```
+
+## Running Locally
+
+### Pi Global Chat
+
+```bash
+cd apps/pi-global
+
+# Start WebSocket server
+npm start
+
+# In another terminal, start upload server
+npm run start:upload
+
+# Or start both at once
+npm run start:all
+```
+
+Test:
+```bash
+curl http://localhost:8080/healthz
+curl http://localhost:8082/healthz
+```
+
+### Private API
+
+```bash
+cd apps/private-api
+npm start
+```
+
+Test:
+```bash
+# Health check
+curl http://localhost:3001/health
+
+# Signup
+curl -X POST http://localhost:3001/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"username":"testuser","password":"testpass123"}'
+```
+
+## Production Deployment
+
+### Pi Global Chat (on Raspberry Pi)
+
+```bash
+cd apps/pi-global
+npm run pm2:start
 pm2 save
-# OR with systemd:
-sudo systemctl start kennedy-chat
-
-# 4. Verify it's running
-netstat -tlnp | grep 8080
-# Should show: tcp ... 0.0.0.0:8080 ... LISTEN ...
-
-# 5. Watch logs (optional)
-tail -f nohup.out
-# OR with pm2:
-pm2 logs kennedy-chat --lines 50
-# OR with systemd:
-sudo journalctl -u kennedy-chat -f
+pm2 startup  # Follow instructions
 ```
 
-### Deploy Frontend (GitHub Pages):
+### Private API (on Ubuntu Server)
 
 ```bash
-# From /workspace directory
-git add index.html
-git commit -m "Fix WebSocket ACK protocol: use messageId, serverTime, instanceId"
-git push origin main
-
-# Wait 1-2 minutes for GitHub Pages to rebuild
+cd apps/private-api
+npm run pm2:start
+pm2 save
+pm2 startup  # Follow instructions
 ```
 
-## Verify It Works
-
-### 1. Open Browser Console (F12)
-Navigate to: https://ldawg7624.com (or your GitHub Pages URL)
-
-**Look for these logs:**
-```
-[CONNECT] ✓ WebSocket connection OPEN
-[SELF-TEST] Sending ping with messageId=...
-[WS] ✓✓✓ ACK RECEIVED ✓✓✓
-[SELF-TEST] ✓ Ping ACK received - connection verified!
-```
-
-### 2. Send a Test Message
-Type a message and click Send.
-
-**Should see in console:**
-```
-[SEND] ✓ Message sent via WebSocket, id=...
-[WS] ✓✓✓ ACK RECEIVED ✓✓✓
-[WS] ACK messageId=...
-[WS] ACK serverTime=...
-[WS] ACK instanceId=...
-[WS] Message marked as SENT in UI
-```
-
-**Should see in UI:**
-- Message appears immediately with "Sending..."
-- Within 1 second changes to "Sent ✓"
-- Status disappears after 2 seconds
-
-### 3. Test Multi-Tab
-- Open 2 browser tabs
-- Send message from tab 1
-- Message should appear in BOTH tabs
-
-### 4. Check Server Logs
-
-**Should see:**
-```
-[MESSAGE] ========================================
-[MESSAGE] *** SERVER INSTANCE: abc123 ***
-[MESSAGE] Type: text
-[MESSAGE] ID: 12345678-...
-[ACK] *** SERVER abc123 *** Sent ACK for messageId=12345678-... to ...
-[BROADCAST] Sent message type=text, id=12345678-... to 2 clients
-```
-
-## Success = All These Pass ✓
-
-- [ ] No "ACK TIMEOUT" errors in browser console
-- [ ] Messages show "Sent ✓" within 1 second
-- [ ] Opening 2 tabs shows messages in both tabs
-- [ ] Server logs show ACK sent for each message
-- [ ] Page load shows "Connected ✓" after ping test
-- [ ] No WebSocket connection errors
-
-## If Something Goes Wrong
-
-### "No ACK received" error:
-```bash
-# Check server is running
-ps aux | grep "node server.js"
-netstat -tlnp | grep 8080
-
-# Check server logs for errors
-pm2 logs kennedy-chat --err
-
-# Restart server
-pm2 restart kennedy-chat
-```
-
-### WebSocket won't connect:
-```bash
-# Check Cloudflare tunnel
-sudo systemctl status cloudflared
-sudo journalctl -u cloudflared -n 50
-
-# Restart tunnel if needed
-sudo systemctl restart cloudflared
-```
-
-### Messages not broadcasting to other tabs:
-- This means ACK works but broadcast doesn't
-- Check server logs for: `[BROADCAST] Sent message type=text, id=... to N clients`
-- N should be > 1 if multiple tabs open
-
-## Rollback (if needed)
+## PM2 Management
 
 ```bash
-git log --oneline  # Find the commit hash before your changes
-git revert <commit-hash>
-git push origin main
+# View status
+pm2 status
+
+# View logs
+pm2 logs
+
+# Restart
+pm2 restart all
+
+# Stop
+pm2 stop all
+
+# Monitor
+pm2 monit
 ```
 
-On server:
+## Testing
+
+### Test Pi Global Chat
+
+1. Open browser to `http://localhost:8080` (or your Pi's IP)
+2. Send a message in the chat
+3. Upload an image/file
+4. Verify everything works
+
+### Test Private API
+
 ```bash
-git pull
-pm2 restart kennedy-chat
+# Signup
+TOKEN=$(curl -s -X POST http://localhost:3001/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"username":"test123","password":"pass123"}' | jq -r '.token')
+
+echo "Token: $TOKEN"
+
+# Get user info
+curl http://localhost:3001/me \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
----
+Expected output:
+```json
+{
+  "user": {
+    "id": "...",
+    "username": "test123",
+    "fakeNumber": "+15551234567",
+    "createdAt": "2024-01-15T10:30:00.000Z"
+  }
+}
+```
 
-**For full details, see WEBSOCKET_ACK_FIX.md**
+## Troubleshooting
+
+### "Cannot find module"
+Run `npm install` in the appropriate app directory.
+
+### "MONGO_URI is required"
+Make sure you've created `.env` file in `apps/private-api/` with valid MongoDB connection string.
+
+### "Port already in use"
+Change the port in `.env` file or stop the process using that port:
+```bash
+# Find process
+lsof -i :8080
+# Kill it
+kill -9 <PID>
+```
+
+### "Permission denied" on uploads
+Make sure the UPLOAD_DIR exists and is writable:
+```bash
+cd apps/pi-global
+mkdir -p uploads
+chmod 755 uploads
+```
+
+## Next Steps
+
+1. ✅ Both services installed and running
+2. 📝 Configure production `.env` files with real credentials
+3. 🚀 Deploy to production servers (Pi and Ubuntu)
+4. 🔒 Setup Cloudflare Tunnel or reverse proxy
+5. 📊 Setup monitoring and backups
+6. 🧪 Test from frontend applications
+
+## Documentation
+
+- **Main README:** `MONOREPO_README.md`
+- **Pi Global Chat:** `apps/pi-global/README.md`
+- **Private API:** `apps/private-api/README.md`
+
+## Example curl Commands
+
+### Pi Global Chat
+
+```bash
+# Health check
+curl http://localhost:8080/healthz
+
+# Upload a file
+curl -X POST http://localhost:8082/upload \
+  -F "file=@/path/to/image.jpg"
+```
+
+### Private API
+
+```bash
+# Health check
+curl http://localhost:3001/health
+
+# Signup
+curl -X POST http://localhost:3001/auth/signup \
+  -H "Content-Type: application/json" \
+  -d '{"username":"john","password":"secure123"}'
+
+# Login
+curl -X POST http://localhost:3001/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"john","password":"secure123"}'
+
+# Get current user (replace TOKEN)
+curl http://localhost:3001/me \
+  -H "Authorization: Bearer TOKEN"
+```
+
+## Support
+
+For detailed documentation, see:
+- Full documentation: `MONOREPO_README.md`
+- Pi Global: `apps/pi-global/README.md`
+- Private API: `apps/private-api/README.md`
