@@ -89,6 +89,32 @@ function filterProfanity(text) {
   return { filtered, found: foundWords };
 }
 
+// Check if display name contains banned words - used for username validation
+function checkDisplayName(name) {
+  if (bannedWords.size === 0) return { allowed: true, found: [] };
+  if (!name || !name.trim()) return { allowed: true, found: [] };
+  
+  const foundWords = [];
+  
+  // Check against all banned words using same logic as filterProfanity
+  for (const word of bannedWords) {
+    // Escape special regex characters in the word
+    const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Match word with optional punctuation before/after, case-insensitive
+    const regex = new RegExp(`\\b${escapedWord}\\b`, 'gi');
+    
+    const matches = name.match(regex);
+    if (matches) {
+      foundWords.push(...matches);
+    }
+  }
+  
+  return {
+    allowed: foundWords.length === 0,
+    found: foundWords
+  };
+}
+
 // Cookie parser middleware
 app.use(cookieParser());
 
@@ -676,6 +702,40 @@ wss.on('connection', async (ws, req) => {
             }));
           }
           return;
+        }
+
+        // Check display name (nickname) for banned words
+        const nickname = (message.nickname || 'Anonymous').substring(0, 100);
+        const nameCheck = checkDisplayName(nickname);
+        
+        if (!nameCheck.allowed) {
+          // Get profanity state for this user
+          const profState = getProfanityState(info.gcSid);
+          
+          // Apply profanity strike for name violation
+          applyProfanityStrike(profState);
+          console.log(`[NAME-VIOLATION] Blocked name "${nickname}" from ${connectionId} (gcSid: ${info.gcSid.substring(0, 8)}...)`);
+          console.log(`[NAME-VIOLATION] Found banned terms: ${nameCheck.found.join(', ')}`);
+          console.log(`[NAME-VIOLATION] Strike ${profState.strikes} issued`);
+          
+          // Send name violation error to user
+          const muteSeconds = isProfanityMuted(profState) ? Math.ceil((profState.muteUntil - now()) / 1000) : 0;
+          ws.send(JSON.stringify({
+            type: 'name_violation',
+            strikes: profState.strikes,
+            muted: isProfanityMuted(profState),
+            muteUntil: profState.muteUntil > now() ? profState.muteUntil : undefined,
+            seconds: muteSeconds,
+            foundWords: nameCheck.found,
+            message: 'Name not allowed. No profanity/slurs/hate. You received a strike. Choose a different name.',
+            // Cookie values for client-side persistence
+            cookies: {
+              gc_strikes: profState.strikes,
+              gc_muteUntil: profState.muteUntil
+            }
+          }));
+          
+          return; // Block the message from being sent
         }
       }
       
