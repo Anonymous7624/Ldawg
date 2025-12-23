@@ -6,7 +6,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const url = require('url');
 const cookieParser = require('cookie-parser');
-const { initDb, saveMessage, getRecentMessages, deleteMessageById, pruneToLimit, wipeAllMessages } = require('./db');
+const { initDb, saveMessage, getRecentMessages, deleteMessageById, pruneToLimit, wipeAllMessages, getDatabaseInfo } = require('./db');
 
 // Admin authentication
 const PRIVATE_API_URL = process.env.PRIVATE_API_URL || 'https://api.simplechatroom.com';
@@ -276,6 +276,24 @@ app.use(express.static(__dirname));
 // Health check endpoint
 app.get('/healthz', (req, res) => {
   res.json({ ok: true });
+});
+
+// Debug endpoint to check database state
+app.get('/debug/dbcount', async (req, res) => {
+  try {
+    const info = await getDatabaseInfo();
+    console.log('[DEBUG] Database info request:', JSON.stringify(info, null, 2));
+    res.json({
+      ok: true,
+      ...info
+    });
+  } catch (error) {
+    console.error('[DEBUG] Error getting database info:', error);
+    res.status(500).json({
+      ok: false,
+      error: error.message
+    });
+  }
 });
 
 // Serve uploads with security headers
@@ -1228,7 +1246,29 @@ wss.on('connection', async (ws, req) => {
           ...(adminStyleMeta ? { adminStyleMeta } : {})
         };
 
-        // Send ACK to sender immediately
+        // CRITICAL: Save to database FIRST - DO NOT broadcast if this fails!
+        try {
+          await saveMessage(chatMessage);
+          await pruneToLimit(MAX_MESSAGES);
+          console.log(`[MESSAGE] ✓ Text message saved to database successfully`);
+        } catch (dbError) {
+          console.error(`[MESSAGE] ❌ CRITICAL: Failed to save text message to database!`);
+          console.error(`[MESSAGE] ❌ Error:`, dbError);
+          console.error(`[MESSAGE] ❌ Message will NOT be broadcast (preventing data loss)`);
+          
+          // Send error to sender
+          ws.send(JSON.stringify({
+            type: 'send_error',
+            id: msgId,
+            error: 'Failed to save message to database',
+            details: dbError.message
+          }));
+          
+          // DO NOT BROADCAST - return early
+          return;
+        }
+
+        // Send ACK to sender after successful save
         const ackPayload = {
           type: 'ack',
           id: msgId,
@@ -1239,14 +1279,7 @@ wss.on('connection', async (ws, req) => {
         ws.send(JSON.stringify(ackPayload));
         console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for id=${msgId} messageId=${msgId}`);
 
-        // Save to database and prune
-        try {
-          await saveMessage(chatMessage);
-          await pruneToLimit(MAX_MESSAGES);
-        } catch (dbError) {
-          console.error(`[DB] Error saving text message:`, dbError);
-        }
-
+        // Broadcast after successful save
         broadcast(chatMessage);
         
         // Debug log for admin styled messages
@@ -1286,7 +1319,29 @@ wss.on('connection', async (ws, req) => {
           ...(adminStyleMeta ? { adminStyleMeta } : {})
         };
 
-        // Send ACK to sender immediately
+        // CRITICAL: Save to database FIRST - DO NOT broadcast if this fails!
+        try {
+          await saveMessage(chatMessage);
+          await pruneToLimit(MAX_MESSAGES);
+          console.log(`[MESSAGE] ✓ Image message saved to database successfully`);
+        } catch (dbError) {
+          console.error(`[MESSAGE] ❌ CRITICAL: Failed to save image message to database!`);
+          console.error(`[MESSAGE] ❌ Error:`, dbError);
+          console.error(`[MESSAGE] ❌ Message will NOT be broadcast (preventing data loss)`);
+          
+          // Send error to sender
+          ws.send(JSON.stringify({
+            type: 'send_error',
+            id: msgId,
+            error: 'Failed to save message to database',
+            details: dbError.message
+          }));
+          
+          // DO NOT BROADCAST - return early
+          return;
+        }
+
+        // Send ACK to sender after successful save
         const ackPayload = {
           type: 'ack',
           id: msgId,
@@ -1297,14 +1352,7 @@ wss.on('connection', async (ws, req) => {
         ws.send(JSON.stringify(ackPayload));
         console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for image id=${msgId} messageId=${msgId}`);
 
-        // Save to database and prune
-        try {
-          await saveMessage(chatMessage);
-          await pruneToLimit(MAX_MESSAGES);
-        } catch (dbError) {
-          console.error(`[DB] Error saving image message:`, dbError);
-        }
-
+        // Broadcast after successful save
         broadcast(chatMessage);
         
         // Debug log for admin styled messages
@@ -1342,7 +1390,29 @@ wss.on('connection', async (ws, req) => {
           ...(adminStyleMeta ? { adminStyleMeta } : {})
         };
 
-        // Send ACK to sender immediately
+        // CRITICAL: Save to database FIRST - DO NOT broadcast if this fails!
+        try {
+          await saveMessage(chatMessage);
+          await pruneToLimit(MAX_MESSAGES);
+          console.log(`[MESSAGE] ✓ Audio message saved to database successfully`);
+        } catch (dbError) {
+          console.error(`[MESSAGE] ❌ CRITICAL: Failed to save audio message to database!`);
+          console.error(`[MESSAGE] ❌ Error:`, dbError);
+          console.error(`[MESSAGE] ❌ Message will NOT be broadcast (preventing data loss)`);
+          
+          // Send error to sender
+          ws.send(JSON.stringify({
+            type: 'send_error',
+            id: msgId,
+            error: 'Failed to save message to database',
+            details: dbError.message
+          }));
+          
+          // DO NOT BROADCAST - return early
+          return;
+        }
+
+        // Send ACK to sender after successful save
         const ackPayload = {
           type: 'ack',
           id: msgId,
@@ -1353,14 +1423,7 @@ wss.on('connection', async (ws, req) => {
         ws.send(JSON.stringify(ackPayload));
         console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for audio id=${msgId} messageId=${msgId}`);
 
-        // Save to database and prune
-        try {
-          await saveMessage(chatMessage);
-          await pruneToLimit(MAX_MESSAGES);
-        } catch (dbError) {
-          console.error(`[DB] Error saving audio message:`, dbError);
-        }
-
+        // Broadcast after successful save
         broadcast(chatMessage);
         
         // Debug log for admin styled messages
@@ -1400,7 +1463,29 @@ wss.on('connection', async (ws, req) => {
           ...(adminStyleMeta ? { adminStyleMeta } : {})
         };
 
-        // Send ACK to sender immediately
+        // CRITICAL: Save to database FIRST - DO NOT broadcast if this fails!
+        try {
+          await saveMessage(chatMessage);
+          await pruneToLimit(MAX_MESSAGES);
+          console.log(`[MESSAGE] ✓ Video message saved to database successfully`);
+        } catch (dbError) {
+          console.error(`[MESSAGE] ❌ CRITICAL: Failed to save video message to database!`);
+          console.error(`[MESSAGE] ❌ Error:`, dbError);
+          console.error(`[MESSAGE] ❌ Message will NOT be broadcast (preventing data loss)`);
+          
+          // Send error to sender
+          ws.send(JSON.stringify({
+            type: 'send_error',
+            id: msgId,
+            error: 'Failed to save message to database',
+            details: dbError.message
+          }));
+          
+          // DO NOT BROADCAST - return early
+          return;
+        }
+
+        // Send ACK to sender after successful save
         const ackPayload = {
           type: 'ack',
           id: msgId,
@@ -1411,14 +1496,7 @@ wss.on('connection', async (ws, req) => {
         ws.send(JSON.stringify(ackPayload));
         console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for video id=${msgId} messageId=${msgId}`);
 
-        // Save to database and prune
-        try {
-          await saveMessage(chatMessage);
-          await pruneToLimit(MAX_MESSAGES);
-        } catch (dbError) {
-          console.error(`[DB] Error saving video message:`, dbError);
-        }
-
+        // Broadcast after successful save
         broadcast(chatMessage);
         
         // Debug log for admin styled messages
@@ -1457,7 +1535,29 @@ wss.on('connection', async (ws, req) => {
           ...(adminStyleMeta ? { adminStyleMeta } : {})
         };
 
-        // Send ACK to sender immediately
+        // CRITICAL: Save to database FIRST - DO NOT broadcast if this fails!
+        try {
+          await saveMessage(chatMessage);
+          await pruneToLimit(MAX_MESSAGES);
+          console.log(`[MESSAGE] ✓ File message saved to database successfully`);
+        } catch (dbError) {
+          console.error(`[MESSAGE] ❌ CRITICAL: Failed to save file message to database!`);
+          console.error(`[MESSAGE] ❌ Error:`, dbError);
+          console.error(`[MESSAGE] ❌ Message will NOT be broadcast (preventing data loss)`);
+          
+          // Send error to sender
+          ws.send(JSON.stringify({
+            type: 'send_error',
+            id: msgId,
+            error: 'Failed to save message to database',
+            details: dbError.message
+          }));
+          
+          // DO NOT BROADCAST - return early
+          return;
+        }
+
+        // Send ACK to sender after successful save
         const ackPayload = {
           type: 'ack',
           id: msgId,
@@ -1468,14 +1568,7 @@ wss.on('connection', async (ws, req) => {
         ws.send(JSON.stringify(ackPayload));
         console.log(`[ACK] *** SERVER ${SERVER_INSTANCE_ID} *** Sent ACK for file id=${msgId} messageId=${msgId}`);
 
-        // Save to database and prune
-        try {
-          await saveMessage(chatMessage);
-          await pruneToLimit(MAX_MESSAGES);
-        } catch (dbError) {
-          console.error(`[DB] Error saving file message:`, dbError);
-        }
-
+        // Broadcast after successful save
         broadcast(chatMessage);
         
         // Debug log for admin styled messages
