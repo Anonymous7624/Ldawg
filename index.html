@@ -3202,6 +3202,13 @@
         console.log('[WS] RX:', event.data);
         const data = JSON.parse(event.data);
         
+        // CRITICAL: Handle system messages FIRST (admin mute notifications, etc.)
+        // These must display even for muted users
+        if (data.type === 'system') {
+          addSystemMessage(data.text || 'System notification', 'warning');
+          // Continue processing other message types if needed
+        }
+        
         if (data.type === 'welcome') {
           // If we already have a session clientId, keep using it (for ownership persistence)
           // Otherwise, accept the new one from the server
@@ -3487,9 +3494,6 @@
           const messagesDiv = document.getElementById('messages');
           messagesDiv.innerHTML = '';
           showToast('All messages have been deleted by ' + data.wipedBy, 'error');
-        } else if (data.type === 'system') {
-          // System message (e.g., admin mute notification)
-          addSystemMessage(data.text || 'System notification', 'warning');
         } else if (data.type === 'admin_delete_success') {
           showToast('Message deleted', 'success');
         } else if (data.type === 'admin_ban_success') {
