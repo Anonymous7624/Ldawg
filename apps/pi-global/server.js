@@ -227,6 +227,29 @@ function extractFilename(urlString) {
   }
 }
 
+// Send moderation notice to a specific client
+function sendModerationNotice(ws, profState, action, reason, foundWords = []) {
+  const muteRemainingMs = isProfanityMuted(profState) ? profState.muteUntil - now() : 0;
+  const notice = {
+    type: 'moderation_notice',
+    strikes: profState.strikes,
+    muted: isProfanityMuted(profState),
+    muteRemainingMs: muteRemainingMs > 0 ? muteRemainingMs : undefined,
+    muteUntil: profState.muteUntil > now() ? profState.muteUntil : undefined,
+    seconds: muteRemainingMs > 0 ? Math.ceil(muteRemainingMs / 1000) : 0,
+    reason: reason,
+    action: action, // 'sanitized_message', 'blocked_message', 'blocked_name', 'muted_attempt'
+    foundWords: foundWords.length > 0 ? foundWords : undefined,
+    cookies: {
+      gc_strikes: profState.strikes,
+      gc_muteUntil: profState.muteUntil
+    }
+  };
+  
+  ws.send(JSON.stringify(notice));
+  console.log(`[MODERATION] Sent immediate notice to client: action=${action}, strikes=${profState.strikes}, muted=${notice.muted}`);
+}
+
 // Broadcast message to all connected clients
 function broadcast(message) {
   const data = JSON.stringify(message);
@@ -671,6 +694,16 @@ wss.on('connection', async (ws, req) => {
       // Rate limit check for user messages (text, image, audio, video, file) - USE STATE BY TOKEN
       const sendTypes = new Set(["text", "image", "audio", "video", "file"]);
       if (sendTypes.has(message.type)) {
+        // CRITICAL: Check mute status FIRST before any other processing
+        const profState = getProfanityState(info.gcSid);
+        if (isProfanityMuted(profState)) {
+          const muteRemainingMs = profState.muteUntil - now();
+          console.log(`[MUTE-ENFORCED] Client ${connectionId} is muted (${Math.ceil(muteRemainingMs / 1000)}s remaining, ${profState.strikes} strikes)`);
+          sendModerationNotice(ws, profState, 'muted_attempt', 'You are currently muted');
+          return;
+        }
+
+        // Check if rate-limited (banned)
         if (isBanned(state)) {
           ws.send(JSON.stringify({ 
             type: 'banned', 
@@ -709,58 +742,22 @@ wss.on('connection', async (ws, req) => {
         const nameCheck = checkDisplayName(nickname);
         
         if (!nameCheck.allowed) {
-          // Get profanity state for this user
-          const profState = getProfanityState(info.gcSid);
-          
           // Apply profanity strike for name violation
           applyProfanityStrike(profState);
           console.log(`[NAME-VIOLATION] Blocked name "${nickname}" from ${connectionId} (gcSid: ${info.gcSid.substring(0, 8)}...)`);
           console.log(`[NAME-VIOLATION] Found banned terms: ${nameCheck.found.join(', ')}`);
           console.log(`[NAME-VIOLATION] Strike ${profState.strikes} issued`);
           
-          // Send name violation error to user
-          const muteSeconds = isProfanityMuted(profState) ? Math.ceil((profState.muteUntil - now()) / 1000) : 0;
-          ws.send(JSON.stringify({
-            type: 'name_violation',
-            strikes: profState.strikes,
-            muted: isProfanityMuted(profState),
-            muteUntil: profState.muteUntil > now() ? profState.muteUntil : undefined,
-            seconds: muteSeconds,
-            foundWords: nameCheck.found,
-            message: 'Name not allowed. No profanity/slurs/hate. You received a strike. Choose a different name.',
-            // Cookie values for client-side persistence
-            cookies: {
-              gc_strikes: profState.strikes,
-              gc_muteUntil: profState.muteUntil
-            }
-          }));
+          // Send immediate moderation notice
+          sendModerationNotice(ws, profState, 'blocked_name', 'Name contains banned words', nameCheck.found);
           
           return; // Block the message from being sent
         }
       }
       
       if (message.type === 'text') {
-        // Get profanity state for this user
+        // Get profanity state for this user (already fetched above, but get again for clarity)
         const profState = getProfanityState(info.gcSid);
-        
-        // Check if user is muted for profanity
-        if (isProfanityMuted(profState)) {
-          const secondsRemaining = Math.ceil((profState.muteUntil - now()) / 1000);
-          console.log(`[PROFANITY] Client ${connectionId} is muted (${secondsRemaining}s remaining, ${profState.strikes} strikes)`);
-          ws.send(JSON.stringify({
-            type: 'profanity_muted',
-            strikes: profState.strikes,
-            muteUntil: profState.muteUntil,
-            seconds: secondsRemaining,
-            message: `You are muted for ${secondsRemaining}s (Strike ${profState.strikes})`,
-            // Cookie values for client-side persistence
-            cookies: {
-              gc_strikes: profState.strikes,
-              gc_muteUntil: profState.muteUntil
-            }
-          }));
-          return;
-        }
         
         // Validate input
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
@@ -775,29 +772,13 @@ wss.on('connection', async (ws, req) => {
         // Filter profanity from text
         const { filtered: filteredText, found: foundProfanity } = filterProfanity(originalText);
         
-        // If profanity was found, apply strike
+        // If profanity was found, apply strike and send immediate notice
         if (foundProfanity.length > 0) {
           applyProfanityStrike(profState);
           console.log(`[PROFANITY] Found ${foundProfanity.length} banned term(s) in message from ${nickname}: ${foundProfanity.join(', ')}`);
           
-          // Send profanity strike notification to sender with cookie values for persistence
-          const muteSeconds = isProfanityMuted(profState) ? Math.ceil((profState.muteUntil - now()) / 1000) : 0;
-          ws.send(JSON.stringify({
-            type: 'profanity_strike',
-            strikes: profState.strikes,
-            muted: isProfanityMuted(profState),
-            muteUntil: profState.muteUntil > now() ? profState.muteUntil : undefined,
-            seconds: muteSeconds,
-            foundWords: foundProfanity,
-            message: muteSeconds > 0 
-              ? `Strike ${profState.strikes}: Muted for ${muteSeconds}s`
-              : `Strike ${profState.strikes}: Warning issued`,
-            // Cookie values for client-side persistence
-            cookies: {
-              gc_strikes: profState.strikes,
-              gc_muteUntil: profState.muteUntil
-            }
-          }));
+          // Send immediate moderation notice
+          sendModerationNotice(ws, profState, 'sanitized_message', 'Message contains banned words', foundProfanity);
         }
         
         // Filter HTML if present (basic approach: filter text in HTML)

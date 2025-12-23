@@ -1568,6 +1568,11 @@
     const SEND_COOLDOWN_MS = 650; // 0.65 seconds
     let lastSendTime = 0; // Timestamp of last send attempt
     let cooldownTimer = null; // Timer for re-enabling send button
+    
+    // Send lock to prevent spam while waiting for server response
+    window.isSendLocked = false;
+    window.sendLockTimeout = null;
+    const SEND_LOCK_DURATION = 500; // 500ms lock after send
 
     // Apply saved theme
     if (isDarkMode) {
@@ -1818,6 +1823,93 @@
       setTimeout(() => {
         toast.classList.remove('show');
       }, 2500);
+    }
+
+    // Add a system message to the chat
+    function addSystemMessage(text, type = 'warning') {
+      const messagesDiv = document.getElementById('messages');
+      const msgDiv = document.createElement('div');
+      msgDiv.className = `message-bubble system-notice ${type}`;
+      msgDiv.style.cssText = 'background: #ffe6e6; border-left: 4px solid #ff4444; padding: 10px 15px; margin: 10px 0; border-radius: 8px; font-size: 14px; color: #333; text-align: center;';
+      msgDiv.textContent = text;
+      messagesDiv.appendChild(msgDiv);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    // Handle moderation notice from server
+    function handleModerationNotice(data) {
+      console.log('[MODERATION] Received notice:', data);
+      
+      // Update profanity state with cookies
+      if (data.cookies) {
+        setProfanityState(data.cookies.gc_strikes || data.strikes, data.cookies.gc_muteUntil || data.muteUntil || 0);
+      } else {
+        setProfanityState(data.strikes, data.muteUntil || 0);
+      }
+      
+      // Clear any pending send lock
+      if (window.sendLockTimeout) {
+        clearTimeout(window.sendLockTimeout);
+        window.sendLockTimeout = null;
+      }
+      window.isSendLocked = false;
+      
+      // Build appropriate message based on action
+      let systemMsg = '';
+      let toastMsg = '';
+      
+      if (data.action === 'muted_attempt') {
+        systemMsg = `🚫 You are currently muted (Strike ${data.strikes}) - ${data.seconds}s remaining`;
+        toastMsg = systemMsg;
+      } else if (data.action === 'blocked_name') {
+        systemMsg = `⚠️ Strike ${data.strikes}: Name blocked (contains banned words)`;
+        toastMsg = `Name not allowed - Strike ${data.strikes}`;
+        if (data.muted) {
+          systemMsg += ` - Muted for ${data.seconds}s`;
+          toastMsg += ` - Muted ${data.seconds}s`;
+        }
+      } else if (data.action === 'blocked_message') {
+        systemMsg = `⚠️ Strike ${data.strikes}: Message blocked (contains banned words)`;
+        toastMsg = `Message blocked - Strike ${data.strikes}`;
+        if (data.muted) {
+          systemMsg += ` - Muted for ${data.seconds}s`;
+          toastMsg += ` - Muted ${data.seconds}s`;
+        }
+      } else if (data.action === 'sanitized_message') {
+        systemMsg = `⚠️ Strike ${data.strikes}: Profanity filtered from your message`;
+        toastMsg = `Profanity detected - Strike ${data.strikes}`;
+        if (data.muted) {
+          systemMsg += ` - Muted for ${data.seconds}s`;
+          toastMsg += ` - Muted ${data.seconds}s`;
+        }
+      }
+      
+      // Display system message in chat
+      if (systemMsg) {
+        addSystemMessage(systemMsg, 'warning');
+      }
+      
+      // Show toast notification
+      if (toastMsg) {
+        showToast(toastMsg, 'error');
+      }
+      
+      // If muted, show mute message and disable inputs
+      if (data.muted && data.muteUntil && data.muteUntil > Date.now()) {
+        showProfanityMuteMessage(data.muteUntil, data.strikes);
+        disableInputs(true);
+        
+        // Re-enable after mute expires
+        const msRemaining = data.muteUntil - Date.now();
+        if (msRemaining > 0) {
+          setTimeout(() => {
+            disableInputs(false);
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.classList.add('hidden');
+            addSystemMessage('✓ Mute expired - you can chat again', 'success');
+          }, msRemaining);
+        }
+      }
     }
 
     // Check ban state on page load
@@ -2334,6 +2426,14 @@
           const ackId = data.messageId || data.id;
           console.log('[WS] ✓ ACK RECEIVED for id=' + ackId);
           
+          // Clear send lock on ACK
+          if (window.sendLockTimeout) {
+            clearTimeout(window.sendLockTimeout);
+            window.sendLockTimeout = null;
+          }
+          window.isSendLocked = false;
+          console.log('[SEND-LOCK] Lock released on ACK');
+          
           if (!ackId) return;
           
           const pendingMsg = pendingMessages.get(ackId);
@@ -2429,6 +2529,14 @@
           handleProfanityStrike(data);
         } else if (data.type === 'profanity_muted') {
           handleProfanityMuted(data);
+        } else if (data.type === 'moderation_notice') {
+          handleModerationNotice(data);
+        } else if (data.type === 'name_violation') {
+          // Legacy support - convert to moderation_notice format
+          handleModerationNotice({
+            ...data,
+            action: 'blocked_name'
+          });
         }
       };
 
@@ -3067,6 +3175,12 @@
         return;
       }
 
+      // SEND LOCK: Prevent spam while waiting for server response
+      if (window.isSendLocked) {
+        console.log('[SEND-LOCK] Send blocked - waiting for previous response');
+        return;
+      }
+
       const banUntil = getBanState();
       if (banUntil && banUntil > Date.now()) {
         showStatus('You are temporarily blocked from sending messages', 'error');
@@ -3091,6 +3205,19 @@
 
       // Update last send time
       lastSendTime = now;
+      
+      // Set send lock
+      window.isSendLocked = true;
+      console.log('[SEND-LOCK] Lock engaged');
+      
+      // Auto-release lock after SEND_LOCK_DURATION
+      if (window.sendLockTimeout) {
+        clearTimeout(window.sendLockTimeout);
+      }
+      window.sendLockTimeout = setTimeout(() => {
+        window.isSendLocked = false;
+        console.log('[SEND-LOCK] Lock auto-released');
+      }, SEND_LOCK_DURATION);
 
       const nickname = (nicknameInput.value.trim() || 'Anonymous').substring(0, 100);
       const messageId = generateUUID();
