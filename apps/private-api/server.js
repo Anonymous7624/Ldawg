@@ -9,6 +9,9 @@ require('dotenv').config();
 
 const app = express();
 
+// Trust proxy for Cloudflare
+app.set('trust proxy', 1);
+
 // Configuration
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const MONGO_URI = process.env.MONGO_URI;
@@ -381,8 +384,17 @@ app.post('/auth/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
+    // Get stored hash with backward-compatible fallback
+    const storedHash = user.passHash || user.passwordHash || user.password_hash || user.hash;
+    
+    // Validate hash exists and is a non-empty string
+    if (!storedHash || typeof storedHash !== 'string' || storedHash.trim() === '') {
+      console.error(`[LOGIN] Invalid password hash for user: ${user.email}`);
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
     // Verify password with argon2
-    const validPassword = await argon2.verify(user.passHash, password);
+    const validPassword = await argon2.verify(storedHash, password);
     if (!validPassword) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
@@ -518,16 +530,15 @@ app.post('/account/change-username', authenticateToken, async (req, res) => {
 // POST /account/change-password - Change password (requires authentication)
 app.post('/account/change-password', authenticateToken, async (req, res) => {
   try {
-    const { currentPassword, newPassword, confirmPassword } = req.body;
+    const { currentPassword, newPassword } = req.body;
 
-    // Validation
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      return res.status(400).json({ error: 'Current password, new password, and confirm password are required' });
+    // Strict validation: require currentPassword and newPassword as non-empty strings
+    if (!currentPassword || typeof currentPassword !== 'string' || currentPassword.trim() === '') {
+      return res.status(400).json({ error: 'Current password is required and must be a non-empty string' });
     }
 
-    // Check if newPassword matches confirmPassword
-    if (newPassword !== confirmPassword) {
-      return res.status(400).json({ error: 'New password and confirm password do not match' });
+    if (!newPassword || typeof newPassword !== 'string' || newPassword.trim() === '') {
+      return res.status(400).json({ error: 'New password is required and must be a non-empty string' });
     }
 
     if (newPassword.length < 6) {
@@ -540,14 +551,25 @@ app.post('/account/change-password', authenticateToken, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
+    // Get stored hash with backward-compatible fallback
+    const storedHash = userWithHash.passHash || userWithHash.passwordHash || userWithHash.password_hash || userWithHash.hash;
+    
+    // Validate hash exists and is a non-empty string before calling argon2.verify()
+    if (!storedHash || typeof storedHash !== 'string' || storedHash.trim() === '') {
+      console.error(`[ACCOUNT] Password hash not set for user: ${req.user.email} (${req.user.username})`);
+      return res.status(400).json({ error: 'ACCOUNT_PASSWORD_NOT_SET' });
+    }
+
     // Verify current password
-    const validPassword = await argon2.verify(userWithHash.passHash, currentPassword);
+    const validPassword = await argon2.verify(storedHash, currentPassword);
     if (!validPassword) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
-    // Hash new password
+    // Hash new password with argon2
     const hashedPassword = await argon2.hash(newPassword);
+    
+    // Always write to the canonical field (passHash)
     userWithHash.passHash = hashedPassword;
     await userWithHash.save();
 
