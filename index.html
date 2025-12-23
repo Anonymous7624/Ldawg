@@ -2069,6 +2069,14 @@
             >
           </div>
           
+          <!-- Moderator sender mode selector (shown when moderator, replaces nickname input) -->
+          <div id="moderatorSenderModeSection" style="display: none;">
+            <select id="moderatorSenderMode" style="width: 100%; padding: 10px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; font-size: 14px; background: white; margin-bottom: 8px;">
+              <option value="username">Username Mode (gold, normal size)</option>
+              <option value="announcement">Moderator Announcement (gold, 150% size)</option>
+            </select>
+          </div>
+          
           <!-- Media Composer Preview (unified for photos, videos, audio, files) -->
           <div id="photoComposer" class="photo-composer">
             <div class="composer-header">
@@ -3009,6 +3017,9 @@
         else if (senderMode === 'other') {
           nickname = document.getElementById('adminCustomNameInput').value.trim() || 'Admin';
         }
+      } else if (currentAdminUser && currentAdminUser.role === 'moderator') {
+        // Moderator: always use their username
+        nickname = currentAdminUser.username;
       } else {
         nickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
       }
@@ -3900,7 +3911,7 @@
 
       messagesDiv.appendChild(messageDiv);
       
-      // Add admin menu or report button
+      // Add admin/moderator menu or report button
       if (currentAdminUser && currentAdminUser.role === 'admin') {
         // Add admin message menu
         const menu = document.createElement('div');
@@ -3911,6 +3922,19 @@
           <button onclick="openBanModal('${senderClientId}', '${data.id}')">Ban</button>
         `;
         messageDiv.appendChild(menu);
+      } else if (currentAdminUser && currentAdminUser.role === 'moderator') {
+        // Add moderator message menu - only for client messages
+        const messageRole = (data.adminStyleMeta && data.adminStyleMeta.role) || (data.isAdmin ? 'admin' : 'client');
+        if (messageRole === 'client') {
+          const menu = document.createElement('div');
+          menu.className = 'admin-message-menu';
+          const senderClientId = data.senderClientId || data.senderId;
+          menu.innerHTML = `
+            <button onclick="moderatorDeleteMessage('${data.id}')">Delete</button>
+            <button onclick="openModeratorBanModal('${senderClientId}', '${data.id}')">Ban</button>
+          `;
+          messageDiv.appendChild(menu);
+        }
       } else if (!isOwnMessage) {
         // Add report button for non-admin users (but not on own messages)
         // Allow reporting any message type
@@ -4327,6 +4351,17 @@
           const customName = document.getElementById('adminCustomNameInput').value.trim();
           nickname = customName || 'Admin';
           adminStyleMeta = { displayName: nickname, color: 'inherit', scale: 1.0, fontWeight: 'normal' };
+        }
+      } else if (currentAdminUser && currentAdminUser.role === 'moderator') {
+        // Moderator: use moderator sender mode selector
+        const modSenderMode = document.getElementById('moderatorSenderMode').value;
+        nickname = currentAdminUser.username;
+        
+        if (modSenderMode === 'announcement') {
+          adminStyleMeta = { displayName: nickname, color: 'gold', scale: 1.5, fontWeight: 'bold', role: 'moderator' };
+        } else {
+          // username mode
+          adminStyleMeta = { displayName: nickname, color: 'gold', scale: 1.0, fontWeight: 'bold', role: 'moderator' };
         }
       } else {
         // Regular user: use nickname input
@@ -5616,31 +5651,44 @@
       document.getElementById('userDisplayName').textContent = `${user.username} (${user.role})`;
       
       // Show admin/mod UI elements if user is admin or moderator
-      const isAdminOrMod = user.role === 'admin' || user.role === 'moderator';
+      const isAdmin = user.role === 'admin';
+      const isModerator = user.role === 'moderator';
+      const isAdminOrMod = isAdmin || isModerator;
       
-      if (isAdminOrMod) {
+      if (isAdmin) {
         document.getElementById('adminSettingsBtn').style.display = 'block';
         // Show admin panel in right sidebar, hide rules
         document.getElementById('rulesBenefitsSection').style.display = 'none';
         document.getElementById('adminPanelSection').style.display = 'block';
         document.getElementById('adminPanelAuth').style.display = 'block';
         
-        // REPLACE nickname input with admin sender mode selector (admin only, not moderator)
-        if (user.role === 'admin') {
-          document.getElementById('nickname').style.display = 'none';
-          document.getElementById('adminSenderModeSection').style.display = 'block';
-          
-          // Fetch reports for admin
-          fetchAdminReports();
-          
-          // Auto-refresh reports every 10 seconds
-          if (window.reportsRefreshInterval) {
-            clearInterval(window.reportsRefreshInterval);
-          }
-          window.reportsRefreshInterval = setInterval(fetchAdminReports, 10000);
-        } else {
-          document.getElementById('nickname').style.display = 'block';
-          document.getElementById('adminSenderModeSection').style.display = 'none';
+        // Replace nickname input with admin sender mode selector
+        document.getElementById('nickname').style.display = 'none';
+        document.getElementById('adminSenderModeSection').style.display = 'block';
+        document.getElementById('moderatorSenderModeSection').style.display = 'none';
+        
+        // Fetch reports for admin
+        fetchAdminReports();
+        
+        // Auto-refresh reports every 10 seconds
+        if (window.reportsRefreshInterval) {
+          clearInterval(window.reportsRefreshInterval);
+        }
+        window.reportsRefreshInterval = setInterval(fetchAdminReports, 10000);
+      } else if (isModerator) {
+        document.getElementById('adminSettingsBtn').style.display = 'block';
+        // Hide admin panel for moderators, show rules
+        document.getElementById('rulesBenefitsSection').style.display = 'block';
+        document.getElementById('adminPanelSection').style.display = 'none';
+        
+        // Replace nickname input with moderator sender mode selector
+        document.getElementById('nickname').style.display = 'none';
+        document.getElementById('adminSenderModeSection').style.display = 'none';
+        document.getElementById('moderatorSenderModeSection').style.display = 'block';
+        
+        // Clear reports refresh interval (moderators don't see reports)
+        if (window.reportsRefreshInterval) {
+          clearInterval(window.reportsRefreshInterval);
         }
       } else {
         document.getElementById('adminSettingsBtn').style.display = 'none';
@@ -5651,6 +5699,7 @@
         // Show normal nickname input
         document.getElementById('nickname').style.display = 'block';
         document.getElementById('adminSenderModeSection').style.display = 'none';
+        document.getElementById('moderatorSenderModeSection').style.display = 'none';
         
         // Clear reports refresh interval if not admin
         if (window.reportsRefreshInterval) {
@@ -5672,9 +5721,10 @@
       document.getElementById('rulesBenefitsSection').style.display = 'block';
       document.getElementById('adminPanelSection').style.display = 'none';
       
-      // Show normal nickname input, hide admin sender mode
+      // Show normal nickname input, hide admin/moderator sender mode
       document.getElementById('nickname').style.display = 'block';
       document.getElementById('adminSenderModeSection').style.display = 'none';
+      document.getElementById('moderatorSenderModeSection').style.display = 'none';
       currentAdminUser = null;
       
       // Clear reports refresh interval
@@ -5939,8 +5989,10 @@
         return;
       }
       
+      const banType = (currentAdminUser && currentAdminUser.role === 'moderator') ? 'moderator_ban' : 'admin_ban';
+      
       ws.send(JSON.stringify({
-        type: 'admin_ban',
+        type: banType,
         gcSid: pendingBanData.gcSid,
         duration: duration,
         deleteMessage: true,
@@ -6187,6 +6239,21 @@
         type: 'admin_delete',
         messageId: messageId
       }));
+    }
+
+    function moderatorDeleteMessage(messageId) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      // One-click delete - no confirmation dialog
+      
+      ws.send(JSON.stringify({
+        type: 'moderator_delete',
+        messageId: messageId
+      }));
+    }
+
+    function openModeratorBanModal(gcSid, messageId) {
+      pendingBanData = { gcSid, messageId };
+      document.getElementById('banModal').classList.add('active');
     }
 
     // Update message mode dropdown (in admin panel - keep for backward compatibility)

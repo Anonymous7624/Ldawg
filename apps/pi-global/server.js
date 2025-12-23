@@ -930,6 +930,54 @@ wss.on('connection', async (ws, req) => {
         return;
       }
 
+      // Handle moderator delete message (delete only client messages)
+      if (message.type === "moderator_delete") {
+        if (!info.adminUser || info.adminUser.role !== 'moderator') {
+          console.log(`[MOD-DELETE] ❌ Unauthorized: not moderator`);
+          return;
+        }
+
+        const deleteId = message.messageId;
+        if (!deleteId) {
+          console.log(`[MOD-DELETE] ❌ No messageId provided`);
+          return;
+        }
+
+        try {
+          // Get message from DB to check permissions
+          const allMessages = await getRecentMessages(MAX_MESSAGES);
+          const messageToDelete = allMessages.find(m => m.id === deleteId);
+          
+          if (!messageToDelete) {
+            console.log(`[MOD-DELETE] ❌ Message not found`);
+            ws.send(JSON.stringify({ type: 'system', text: 'Message not found' }));
+            return;
+          }
+
+          // Check if message is from admin or moderator
+          const messageRole = (messageToDelete.adminStyleMeta && messageToDelete.adminStyleMeta.role) || (messageToDelete.isAdmin ? 'admin' : 'client');
+          if (messageRole === 'admin' || messageRole === 'moderator') {
+            console.log(`[MOD-DELETE] ❌ Moderator ${info.adminUser.username} tried to delete staff message`);
+            ws.send(JSON.stringify({ type: 'system', text: 'Not allowed to moderate staff messages' }));
+            return;
+          }
+
+          await deleteMessageById(deleteId);
+          console.log(`[MOD-DELETE] ✓ Moderator ${info.adminUser.username} deleted message ${deleteId}`);
+          
+          // Broadcast delete to all clients
+          broadcast({ type: "delete", id: deleteId });
+          
+          // Send confirmation to moderator
+          ws.send(JSON.stringify({ type: 'admin_delete_success', messageId: deleteId }));
+        } catch (error) {
+          console.error(`[MOD-DELETE] Error:`, error);
+          ws.send(JSON.stringify({ type: 'admin_delete_error', messageId: deleteId, error: error.message }));
+        }
+        
+        return;
+      }
+
       // Handle admin ban user
       if (message.type === "admin_ban") {
         if (!info.adminUser || info.adminUser.role !== 'admin') {
@@ -1009,6 +1057,123 @@ wss.on('connection', async (ws, req) => {
         console.log(`[ADMIN-BAN] Notification delivery: target=${gcSid.substring(0, 8)}... muteEvent=${muteEventSent} systemMsg=${systemMsgSent}`);
 
         // Send confirmation to admin
+        ws.send(JSON.stringify({ 
+          type: 'admin_ban_success',
+          ok: true,
+          gcSid: gcSid.substring(0, 8),
+          duration: Math.ceil(duration / 1000)
+        }));
+        
+        return;
+      }
+
+      // Handle moderator ban user (ban only client users)
+      if (message.type === "moderator_ban") {
+        if (!info.adminUser || info.adminUser.role !== 'moderator') {
+          console.log(`[MOD-BAN] ❌ Unauthorized: not moderator`);
+          ws.send(JSON.stringify({ 
+            type: 'admin_ban_error', 
+            error: 'Unauthorized: Moderator access required' 
+          }));
+          return;
+        }
+
+        const { gcSid, duration, deleteMessage } = message;
+        if (!gcSid || !duration) {
+          console.log(`[MOD-BAN] ❌ Missing gcSid or duration`);
+          ws.send(JSON.stringify({ 
+            type: 'admin_ban_error', 
+            error: 'Missing required parameters' 
+          }));
+          return;
+        }
+
+        // Prevent moderator from muting themselves
+        if (info.gcSid === gcSid) {
+          console.log(`[MOD-BAN] ❌ Moderator ${info.adminUser.username} tried to mute themselves`);
+          ws.send(JSON.stringify({ 
+            type: 'admin_ban_error', 
+            error: 'Cannot mute yourself' 
+          }));
+          return;
+        }
+
+        // Check if target is a staff member (admin or moderator)
+        // We need to check all connected clients to see if the target gcSid belongs to a staff member
+        let isTargetStaff = false;
+        for (const [, clientInfo] of clients) {
+          if (clientInfo.gcSid === gcSid && clientInfo.adminUser && (clientInfo.adminUser.role === 'admin' || clientInfo.adminUser.role === 'moderator')) {
+            isTargetStaff = true;
+            break;
+          }
+        }
+
+        if (isTargetStaff) {
+          console.log(`[MOD-BAN] ❌ Moderator ${info.adminUser.username} tried to ban staff member`);
+          ws.send(JSON.stringify({ type: 'system', text: 'Not allowed to moderate staff members' }));
+          return;
+        }
+
+        // Apply ban
+        const banUntil = now() + duration;
+        const banReason = `Muted by moderator for ${Math.ceil(duration / 1000)} seconds`;
+        adminBans.set(gcSid, { 
+          bannedUntil: banUntil, 
+          bannedBy: info.adminUser.username,
+          reason: banReason,
+          duration: duration,
+          isModerator: true
+        });
+        
+        // Save state to persist bans
+        saveServerState();
+        
+        // MOD_MUTE applied log
+        console.log(`[MOD_MUTE] applied to clientId=${gcSid.substring(0, 8)}... until=${new Date(banUntil).toISOString()} by=${info.adminUser.username}`);
+
+        // Delete message if requested
+        if (deleteMessage && message.messageId) {
+          try {
+            // Check message permissions before deleting
+            const allMessages = await getRecentMessages(MAX_MESSAGES);
+            const messageToDelete = allMessages.find(m => m.id === message.messageId);
+            
+            if (messageToDelete) {
+              const messageRole = (messageToDelete.adminStyleMeta && messageToDelete.adminStyleMeta.role) || (messageToDelete.isAdmin ? 'admin' : 'client');
+              if (messageRole === 'admin' || messageRole === 'moderator') {
+                console.log(`[MOD-BAN] ❌ Cannot delete staff message`);
+              } else {
+                await deleteMessageById(message.messageId);
+                broadcast({ type: "delete", id: message.messageId });
+                console.log(`[MOD-BAN] ✓ Deleted message ${message.messageId}`);
+              }
+            }
+          } catch (error) {
+            console.error(`[MOD-BAN] Error deleting message:`, error);
+          }
+        }
+
+        // Notify the banned user with admin_mute event and system message
+        const durationLabel = formatDurationLabel(duration);
+        
+        // Send admin_mute event (for status bar and input disabling)
+        const muteEventSent = sendToClientId(gcSid, {
+          type: 'admin_mute',
+          until: banUntil,
+          seconds: Math.ceil(duration / 1000),
+          reason: banReason
+        });
+        
+        // Send system message (for chat feed) - must arrive even if user is muted
+        const systemMsgSent = sendToClientId(gcSid, {
+          type: 'system',
+          text: `Moderator muted you for ${durationLabel}`,
+          timestamp: Date.now()
+        });
+        
+        console.log(`[MOD-BAN] Notification delivery: target=${gcSid.substring(0, 8)}... muteEvent=${muteEventSent} systemMsg=${systemMsgSent}`);
+
+        // Send confirmation to moderator
         ws.send(JSON.stringify({ 
           type: 'admin_ban_success',
           ok: true,
@@ -1103,7 +1268,7 @@ wss.on('connection', async (ws, req) => {
       // Rate limit check for user messages (text, image, audio, video, file) - USE STATE BY TOKEN
       const sendTypes = new Set(["text", "image", "audio", "video", "file"]);
       if (sendTypes.has(message.type)) {
-        // Check if chat is locked (only admin can send)
+        // Check if chat is locked (only admin can send, moderators are blocked)
         if (serverState.chatLocked) {
           if (!info.adminUser || info.adminUser.role !== 'admin') {
             console.log(`[CHAT-LOCKED] Message blocked: chat is locked by admin`);
@@ -1214,33 +1379,36 @@ wss.on('connection', async (ws, req) => {
           return;
         }
 
-        // Admin special styling support - validate and sanitize
+        // Admin/Moderator special styling support - validate and sanitize
         const isAdmin = info.adminUser && info.adminUser.role === 'admin';
+        const isModerator = info.adminUser && info.adminUser.role === 'moderator';
+        const isStaff = isAdmin || isModerator;
         let adminStyleMeta = null;
         
-        // SECURITY: Only allow admin style metadata from actual admin users
+        // SECURITY: Only allow admin style metadata from actual admin/moderator users
         if (message.adminStyleMeta) {
-          if (isAdmin) {
-            // Admin can send style metadata
+          if (isStaff) {
+            // Admin/Moderator can send style metadata
             adminStyleMeta = {
               displayName: (message.adminStyleMeta.displayName || nickname).substring(0, 100),
               color: message.adminStyleMeta.color || 'inherit',
               scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
-              fontWeight: message.adminStyleMeta.fontWeight || 'normal'
+              fontWeight: message.adminStyleMeta.fontWeight || 'normal',
+              role: message.adminStyleMeta.role || (isAdmin ? 'admin' : 'moderator')
             };
-            console.log(`[ADMIN-STYLE] Admin ${info.adminUser.username} using style: displayName="${adminStyleMeta.displayName}", color=${adminStyleMeta.color}, scale=${adminStyleMeta.scale}`);
+            console.log(`[STAFF-STYLE] ${isAdmin ? 'Admin' : 'Moderator'} ${info.adminUser.username} using style: displayName="${adminStyleMeta.displayName}", color=${adminStyleMeta.color}, scale=${adminStyleMeta.scale}`);
           } else {
-            // Non-admin tried to send style metadata - strip it
-            console.log(`[SECURITY] Non-admin user tried to send admin style metadata - stripped`);
+            // Non-staff tried to send style metadata - strip it
+            console.log(`[SECURITY] Non-staff user tried to send admin style metadata - stripped`);
           }
         }
 
-        // Filter profanity from text (skip for admins)
+        // Filter profanity from text (skip for admins and moderators)
         let filteredText = originalText;
         let filteredHtml = originalHtml;
         let foundProfanity = [];
 
-        if (!isAdmin) {
+        if (!isStaff) {
           const profanityCheck = filterProfanity(originalText);
           filteredText = profanityCheck.filtered;
           foundProfanity = profanityCheck.found;
@@ -1264,7 +1432,7 @@ wss.on('connection', async (ws, req) => {
             }
           }
         } else {
-          console.log(`[ADMIN-MESSAGE] Admin ${info.adminUser.username} sending message (profanity filter bypassed)`);
+          console.log(`[STAFF-MESSAGE] ${isAdmin ? 'Admin' : 'Moderator'} ${info.adminUser.username} sending message (profanity filter bypassed)`);
         }
 
         const chatMessage = {
@@ -1326,15 +1494,18 @@ wss.on('connection', async (ws, req) => {
       } else if (message.type === 'image') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
         const isAdmin = info.adminUser && info.adminUser.role === 'admin';
+        const isModerator = info.adminUser && info.adminUser.role === 'moderator';
+        const isStaff = isAdmin || isModerator;
         
         // Validate admin style metadata
         let adminStyleMeta = null;
-        if (message.adminStyleMeta && isAdmin) {
+        if (message.adminStyleMeta && isStaff) {
           adminStyleMeta = {
             displayName: (message.adminStyleMeta.displayName || nickname).substring(0, 100),
             color: message.adminStyleMeta.color || 'inherit',
             scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
-            fontWeight: message.adminStyleMeta.fontWeight || 'normal'
+            fontWeight: message.adminStyleMeta.fontWeight || 'normal',
+            role: message.adminStyleMeta.role || (isAdmin ? 'admin' : 'moderator')
           };
         }
 
@@ -1400,15 +1571,18 @@ wss.on('connection', async (ws, req) => {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
         const caption = message.caption || '';
         const isAdmin = info.adminUser && info.adminUser.role === 'admin';
+        const isModerator = info.adminUser && info.adminUser.role === 'moderator';
+        const isStaff = isAdmin || isModerator;
         
         // Validate admin style metadata
         let adminStyleMeta = null;
-        if (message.adminStyleMeta && isAdmin) {
+        if (message.adminStyleMeta && isStaff) {
           adminStyleMeta = {
             displayName: (message.adminStyleMeta.displayName || nickname).substring(0, 100),
             color: message.adminStyleMeta.color || 'inherit',
             scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
-            fontWeight: message.adminStyleMeta.fontWeight || 'normal'
+            fontWeight: message.adminStyleMeta.fontWeight || 'normal',
+            role: message.adminStyleMeta.role || (isAdmin ? 'admin' : 'moderator')
           };
         }
 
@@ -1470,15 +1644,18 @@ wss.on('connection', async (ws, req) => {
       } else if (message.type === 'video') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
         const isAdmin = info.adminUser && info.adminUser.role === 'admin';
+        const isModerator = info.adminUser && info.adminUser.role === 'moderator';
+        const isStaff = isAdmin || isModerator;
         
         // Validate admin style metadata
         let adminStyleMeta = null;
-        if (message.adminStyleMeta && isAdmin) {
+        if (message.adminStyleMeta && isStaff) {
           adminStyleMeta = {
             displayName: (message.adminStyleMeta.displayName || nickname).substring(0, 100),
             color: message.adminStyleMeta.color || 'inherit',
             scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
-            fontWeight: message.adminStyleMeta.fontWeight || 'normal'
+            fontWeight: message.adminStyleMeta.fontWeight || 'normal',
+            role: message.adminStyleMeta.role || (isAdmin ? 'admin' : 'moderator')
           };
         }
 
@@ -1543,15 +1720,18 @@ wss.on('connection', async (ws, req) => {
       } else if (message.type === 'file') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
         const isAdmin = info.adminUser && info.adminUser.role === 'admin';
+        const isModerator = info.adminUser && info.adminUser.role === 'moderator';
+        const isStaff = isAdmin || isModerator;
         
         // Validate admin style metadata
         let adminStyleMeta = null;
-        if (message.adminStyleMeta && isAdmin) {
+        if (message.adminStyleMeta && isStaff) {
           adminStyleMeta = {
             displayName: (message.adminStyleMeta.displayName || nickname).substring(0, 100),
             color: message.adminStyleMeta.color || 'inherit',
             scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
-            fontWeight: message.adminStyleMeta.fontWeight || 'normal'
+            fontWeight: message.adminStyleMeta.fontWeight || 'normal',
+            role: message.adminStyleMeta.role || (isAdmin ? 'admin' : 'moderator')
           };
         }
 
