@@ -8,6 +8,12 @@ const url = require('url');
 const cookieParser = require('cookie-parser');
 const { initDb, saveMessage, getRecentMessages, deleteMessageById, pruneToLimit } = require('./db');
 
+// Admin authentication
+const PRIVATE_API_URL = process.env.PRIVATE_API_URL || 'https://api.simplechatroom.com';
+
+// Check if fetch is available (Node 18+), otherwise require node-fetch
+const fetch = globalThis.fetch || require('node-fetch');
+
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
@@ -159,9 +165,67 @@ app.use((req, res, next) => {
 });
 
 // In-memory state
-const clients = new Map(); // ws -> { clientId, token, presenceOnline, gcSid }
+const clients = new Map(); // ws -> { clientId, token, presenceOnline, gcSid, adminUser }
 const clientState = new Map(); // token -> { strikes, stage, bannedUntil, msgTimes }
 const profanityState = new Map(); // gcSid -> { strikes, muteUntil, lastMuteSeconds }
+const adminBans = new Map(); // gcSid -> { bannedUntil, bannedBy }
+const adminSessions = new Map(); // token -> { username, role, email }
+
+// Admin state file
+const STATE_FILE = path.join(__dirname, 'state.json');
+let serverState = {
+  chatLocked: false,
+  reports: [] // { id, messageId, messageText, messageSender, messageTimestamp, reporterId, reporterNickname, reason, timestamp }
+};
+
+// Load server state from file
+function loadServerState() {
+  try {
+    if (fs.existsSync(STATE_FILE)) {
+      const data = fs.readFileSync(STATE_FILE, 'utf-8');
+      serverState = JSON.parse(data);
+      console.log(`[STATE] Loaded state from file: chatLocked=${serverState.chatLocked}, reports=${serverState.reports.length}`);
+    }
+  } catch (error) {
+    console.error('[STATE] Error loading state:', error.message);
+  }
+}
+
+// Save server state to file
+function saveServerState() {
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify(serverState, null, 2), 'utf-8');
+    console.log(`[STATE] Saved state to file: chatLocked=${serverState.chatLocked}, reports=${serverState.reports.length}`);
+  } catch (error) {
+    console.error('[STATE] Error saving state:', error.message);
+  }
+}
+
+// Verify admin token with Private API
+async function verifyAdminToken(token) {
+  try {
+    const response = await fetch(`${PRIVATE_API_URL}/verify-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ token })
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    if (data.valid && data.user) {
+      return data.user;
+    }
+    return null;
+  } catch (error) {
+    console.error('[ADMIN] Error verifying token:', error.message);
+    return null;
+  }
+}
 
 // Ensure uploads directory exists (for serving files)
 if (!fs.existsSync(UPLOAD_DIR)) {
@@ -498,6 +562,21 @@ wss.on('connection', async (ws, req) => {
   // Parse token from query string
   let token = queryParams.token;
   
+  // Check for admin token (private_token)
+  const adminToken = queryParams.adminToken;
+  let adminUser = null;
+  
+  if (adminToken) {
+    console.log(`[ADMIN] Verifying admin token: ${adminToken.substring(0, 8)}...`);
+    adminUser = await verifyAdminToken(adminToken);
+    if (adminUser) {
+      console.log(`[ADMIN] Admin authenticated: ${adminUser.username} (${adminUser.role})`);
+      adminSessions.set(adminToken, adminUser);
+    } else {
+      console.log(`[ADMIN] Failed to verify admin token`);
+    }
+  }
+  
   // If no token provided, generate one
   if (!token) {
     token = makeUUID();
@@ -536,7 +615,9 @@ wss.on('connection', async (ws, req) => {
     clientId,
     token,
     gcSid,
-    presenceOnline: true   // default true until told otherwise
+    presenceOnline: true,   // default true until told otherwise
+    adminUser: adminUser,   // admin user info if authenticated
+    adminToken: adminToken  // admin token for subsequent requests
   });
 
   // Get or create client state (persistent by token)
@@ -550,7 +631,10 @@ wss.on('connection', async (ws, req) => {
     gcSid, // Send gc_sid so client can set cookie
     profanityStrikes: profState.strikes,
     profanityMuted: isProfanityMuted(profState),
-    muteUntil: profState.muteUntil > now() ? profState.muteUntil : undefined
+    muteUntil: profState.muteUntil > now() ? profState.muteUntil : undefined,
+    adminUser: adminUser, // Send admin user info if authenticated
+    chatLocked: serverState.chatLocked, // Send chat lock status
+    reports: adminUser && adminUser.role === 'admin' ? serverState.reports : undefined // Send reports to admins
   }));
 
   // Send chat history from database
@@ -691,9 +775,272 @@ wss.on('connection', async (ws, req) => {
         return;
       }
 
+      // Handle admin delete message (delete any message)
+      if (message.type === "admin_delete") {
+        if (!info.adminUser || info.adminUser.role !== 'admin') {
+          console.log(`[ADMIN-DELETE] ❌ Unauthorized: not admin`);
+          return;
+        }
+
+        const deleteId = message.messageId;
+        if (!deleteId) {
+          console.log(`[ADMIN-DELETE] ❌ No messageId provided`);
+          return;
+        }
+
+        try {
+          await deleteMessageById(deleteId);
+          console.log(`[ADMIN-DELETE] ✓ Admin ${info.adminUser.username} deleted message ${deleteId}`);
+          
+          // Broadcast delete to all clients
+          broadcast({ type: "delete", id: deleteId });
+          
+          // Send confirmation to admin
+          ws.send(JSON.stringify({ type: 'admin_delete_success', messageId: deleteId }));
+        } catch (error) {
+          console.error(`[ADMIN-DELETE] Error:`, error);
+          ws.send(JSON.stringify({ type: 'admin_delete_error', messageId: deleteId, error: error.message }));
+        }
+        
+        return;
+      }
+
+      // Handle admin ban user
+      if (message.type === "admin_ban") {
+        if (!info.adminUser || info.adminUser.role !== 'admin') {
+          console.log(`[ADMIN-BAN] ❌ Unauthorized: not admin`);
+          return;
+        }
+
+        const { gcSid, duration, deleteMessage } = message;
+        if (!gcSid || !duration) {
+          console.log(`[ADMIN-BAN] ❌ Missing gcSid or duration`);
+          return;
+        }
+
+        // Apply ban
+        const banUntil = now() + duration;
+        adminBans.set(gcSid, { bannedUntil: banUntil, bannedBy: info.adminUser.username });
+        console.log(`[ADMIN-BAN] Admin ${info.adminUser.username} banned gcSid ${gcSid.substring(0, 8)}... for ${Math.ceil(duration / 1000)}s`);
+
+        // Delete message if requested
+        if (deleteMessage && message.messageId) {
+          try {
+            await deleteMessageById(message.messageId);
+            broadcast({ type: "delete", id: message.messageId });
+            console.log(`[ADMIN-BAN] ✓ Deleted message ${message.messageId}`);
+          } catch (error) {
+            console.error(`[ADMIN-BAN] Error deleting message:`, error);
+          }
+        }
+
+        // Notify the banned user
+        wss.clients.forEach(client => {
+          const clientInfo = clients.get(client);
+          if (clientInfo && clientInfo.gcSid === gcSid && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+              type: 'admin_banned',
+              bannedUntil: banUntil,
+              seconds: Math.ceil(duration / 1000),
+              reason: 'Banned by admin'
+            }));
+          }
+        });
+
+        // Send confirmation to admin
+        ws.send(JSON.stringify({ type: 'admin_ban_success', gcSid: gcSid.substring(0, 8) }));
+        
+        return;
+      }
+
+      // Handle admin lock chat
+      if (message.type === "admin_lock_chat") {
+        if (!info.adminUser || info.adminUser.role !== 'admin') {
+          console.log(`[ADMIN-LOCK] ❌ Unauthorized: not admin`);
+          return;
+        }
+
+        serverState.chatLocked = message.locked;
+        saveServerState();
+        console.log(`[ADMIN-LOCK] Admin ${info.adminUser.username} ${serverState.chatLocked ? 'locked' : 'unlocked'} chat`);
+
+        // Broadcast lock state to all clients
+        broadcast({
+          type: 'chat_lock_changed',
+          locked: serverState.chatLocked,
+          lockedBy: info.adminUser.username
+        });
+
+        return;
+      }
+
+      // Handle admin wipe data
+      if (message.type === "admin_wipe_data") {
+        if (!info.adminUser || info.adminUser.role !== 'admin') {
+          console.log(`[ADMIN-WIPE] ❌ Unauthorized: not admin`);
+          return;
+        }
+
+        console.log(`[ADMIN-WIPE] Admin ${info.adminUser.username} is wiping all chat data`);
+
+        try {
+          // Delete all messages from database
+          const db = require('./db');
+          // We need to get the database instance and clear it
+          // For now, let's delete all recent messages
+          const allMessages = await getRecentMessages(999999);
+          for (const msg of allMessages) {
+            await deleteMessageById(msg.id);
+          }
+
+          // Delete all uploaded files
+          if (fs.existsSync(UPLOAD_DIR)) {
+            const files = fs.readdirSync(UPLOAD_DIR);
+            for (const file of files) {
+              try {
+                fs.unlinkSync(path.join(UPLOAD_DIR, file));
+              } catch (err) {
+                console.error(`[ADMIN-WIPE] Error deleting file ${file}:`, err.message);
+              }
+            }
+            console.log(`[ADMIN-WIPE] ✓ Deleted ${files.length} uploaded files`);
+          }
+
+          console.log(`[ADMIN-WIPE] ✓ Wiped all chat data`);
+
+          // Broadcast wipe event to all clients
+          broadcast({
+            type: 'chat_wiped',
+            wipedBy: info.adminUser.username
+          });
+
+          // Send confirmation to admin
+          ws.send(JSON.stringify({ type: 'admin_wipe_success' }));
+        } catch (error) {
+          console.error(`[ADMIN-WIPE] Error:`, error);
+          ws.send(JSON.stringify({ type: 'admin_wipe_error', error: error.message }));
+        }
+
+        return;
+      }
+
+      // Handle report message
+      if (message.type === "report_message") {
+        const { messageId, reason } = message;
+        if (!messageId) {
+          console.log(`[REPORT] ❌ No messageId provided`);
+          return;
+        }
+
+        try {
+          // Get the message from database
+          const allMessages = await getRecentMessages(MAX_MESSAGES);
+          const reportedMessage = allMessages.find(m => m.id === messageId);
+          
+          if (!reportedMessage) {
+            console.log(`[REPORT] ❌ Message not found`);
+            return;
+          }
+
+          // Create report
+          const report = {
+            id: crypto.randomBytes(8).toString('hex'),
+            messageId: reportedMessage.id,
+            messageText: reportedMessage.text || reportedMessage.caption || '(media)',
+            messageSender: reportedMessage.senderId,
+            messageNickname: reportedMessage.nickname,
+            messageTimestamp: reportedMessage.timestamp,
+            reporterId: info.gcSid,
+            reporterNickname: message.reporterNickname || 'Anonymous',
+            reason: reason || 'No reason provided',
+            timestamp: now()
+          };
+
+          serverState.reports.push(report);
+          saveServerState();
+          console.log(`[REPORT] Report created: ${report.id} for message ${messageId}`);
+
+          // Notify all admins
+          wss.clients.forEach(client => {
+            const clientInfo = clients.get(client);
+            if (clientInfo && clientInfo.adminUser && clientInfo.adminUser.role === 'admin' && client.readyState === WebSocket.OPEN) {
+              client.send(JSON.stringify({
+                type: 'new_report',
+                report: report
+              }));
+            }
+          });
+
+          // Send confirmation to reporter
+          ws.send(JSON.stringify({ type: 'report_success' }));
+        } catch (error) {
+          console.error(`[REPORT] Error:`, error);
+          ws.send(JSON.stringify({ type: 'report_error', error: error.message }));
+        }
+
+        return;
+      }
+
+      // Handle admin dismiss report
+      if (message.type === "admin_dismiss_report") {
+        if (!info.adminUser || info.adminUser.role !== 'admin') {
+          console.log(`[ADMIN-REPORT] ❌ Unauthorized: not admin`);
+          return;
+        }
+
+        const { reportId } = message;
+        if (!reportId) {
+          console.log(`[ADMIN-REPORT] ❌ No reportId provided`);
+          return;
+        }
+
+        serverState.reports = serverState.reports.filter(r => r.id !== reportId);
+        saveServerState();
+        console.log(`[ADMIN-REPORT] Admin ${info.adminUser.username} dismissed report ${reportId}`);
+
+        // Notify all admins
+        wss.clients.forEach(client => {
+          const clientInfo = clients.get(client);
+          if (clientInfo && clientInfo.adminUser && clientInfo.adminUser.role === 'admin' && client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+              type: 'report_dismissed',
+              reportId: reportId
+            }));
+          }
+        });
+
+        return;
+      }
+
       // Rate limit check for user messages (text, image, audio, video, file) - USE STATE BY TOKEN
       const sendTypes = new Set(["text", "image", "audio", "video", "file"]);
       if (sendTypes.has(message.type)) {
+        // Check if chat is locked (only admin can send)
+        if (serverState.chatLocked) {
+          if (!info.adminUser || info.adminUser.role !== 'admin') {
+            console.log(`[CHAT-LOCKED] Message blocked: chat is locked`);
+            ws.send(JSON.stringify({ 
+              type: 'chat_locked', 
+              message: 'Chat is currently locked by admin'
+            }));
+            return;
+          }
+        }
+
+        // Check admin ban
+        const adminBan = adminBans.get(info.gcSid);
+        if (adminBan && now() < adminBan.bannedUntil) {
+          const remainingSeconds = Math.ceil((adminBan.bannedUntil - now()) / 1000);
+          console.log(`[ADMIN-BAN] Message blocked: user is admin-banned for ${remainingSeconds}s`);
+          ws.send(JSON.stringify({ 
+            type: 'admin_banned', 
+            bannedUntil: adminBan.bannedUntil,
+            seconds: remainingSeconds,
+            reason: 'Banned by admin'
+          }));
+          return;
+        }
+
         // CRITICAL: Check mute status FIRST before any other processing
         const profState = getProfanityState(info.gcSid);
         if (isProfanityMuted(profState)) {
@@ -769,27 +1116,41 @@ wss.on('connection', async (ws, req) => {
           return;
         }
 
-        // Filter profanity from text
-        const { filtered: filteredText, found: foundProfanity } = filterProfanity(originalText);
-        
-        // If profanity was found, apply strike and send immediate notice
-        if (foundProfanity.length > 0) {
-          applyProfanityStrike(profState);
-          console.log(`[PROFANITY] Found ${foundProfanity.length} banned term(s) in message from ${nickname}: ${foundProfanity.join(', ')}`);
-          
-          // Send immediate moderation notice
-          sendModerationNotice(ws, profState, 'sanitized_message', 'Message contains banned words', foundProfanity);
-        }
-        
-        // Filter HTML if present (basic approach: filter text in HTML)
+        // Admin special styling support
+        const isAdmin = info.adminUser && info.adminUser.role === 'admin';
+        const displayMode = message.displayMode || null; // 'admin', 'server', 'custom', or null
+        const displayNameOverride = message.displayNameOverride || null;
+
+        // Filter profanity from text (skip for admins)
+        let filteredText = originalText;
         let filteredHtml = originalHtml;
-        if (originalHtml && foundProfanity.length > 0) {
-          // Simple approach: replace profanity in HTML as well
-          for (const word of foundProfanity) {
-            const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(escapedWord, 'gi');
-            filteredHtml = filteredHtml.replace(regex, (match) => '-'.repeat(match.length));
+        let foundProfanity = [];
+
+        if (!isAdmin) {
+          const profanityCheck = filterProfanity(originalText);
+          filteredText = profanityCheck.filtered;
+          foundProfanity = profanityCheck.found;
+          
+          // If profanity was found, apply strike and send immediate notice
+          if (foundProfanity.length > 0) {
+            applyProfanityStrike(profState);
+            console.log(`[PROFANITY] Found ${foundProfanity.length} banned term(s) in message from ${nickname}: ${foundProfanity.join(', ')}`);
+            
+            // Send immediate moderation notice
+            sendModerationNotice(ws, profState, 'sanitized_message', 'Message contains banned words', foundProfanity);
           }
+          
+          // Filter HTML if present (basic approach: filter text in HTML)
+          if (originalHtml && foundProfanity.length > 0) {
+            // Simple approach: replace profanity in HTML as well
+            for (const word of foundProfanity) {
+              const escapedWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const regex = new RegExp(escapedWord, 'gi');
+              filteredHtml = filteredHtml.replace(regex, (match) => '-'.repeat(match.length));
+            }
+          }
+        } else {
+          console.log(`[ADMIN-MESSAGE] Admin ${info.adminUser.username} sending message (profanity filter bypassed)`);
         }
 
         const chatMessage = {
@@ -799,7 +1160,10 @@ wss.on('connection', async (ws, req) => {
           nickname,
           timestamp: message.timestamp || Date.now(),
           text: filteredText, // Use filtered text
-          html: filteredHtml || undefined // Use filtered HTML if present
+          html: filteredHtml || undefined, // Use filtered HTML if present
+          displayMode: displayMode, // Admin styling mode
+          displayNameOverride: displayNameOverride, // Custom display name
+          isAdmin: isAdmin // Flag to identify admin messages
         };
 
         // Send ACK to sender immediately
@@ -995,6 +1359,9 @@ async function main() {
     console.log(`========================================`);
     console.log(`Kennedy Chat Server - Initializing`);
     console.log(`========================================`);
+    
+    // Load server state
+    loadServerState();
     
     // Load banned words for profanity filter
     loadBannedWords();
