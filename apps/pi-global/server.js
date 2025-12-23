@@ -1154,10 +1154,26 @@ wss.on('connection', async (ws, req) => {
           return;
         }
 
-        // Admin special styling support
+        // Admin special styling support - validate and sanitize
         const isAdmin = info.adminUser && info.adminUser.role === 'admin';
-        const displayMode = message.displayMode || null; // 'admin', 'server', 'custom', or null
-        const displayNameOverride = message.displayNameOverride || null;
+        let adminStyleMeta = null;
+        
+        // SECURITY: Only allow admin style metadata from actual admin users
+        if (message.adminStyleMeta) {
+          if (isAdmin) {
+            // Admin can send style metadata
+            adminStyleMeta = {
+              displayName: (message.adminStyleMeta.displayName || nickname).substring(0, 100),
+              color: message.adminStyleMeta.color || 'inherit',
+              scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
+              fontWeight: message.adminStyleMeta.fontWeight || 'normal'
+            };
+            console.log(`[ADMIN-STYLE] Admin ${info.adminUser.username} using style:`, adminStyleMeta);
+          } else {
+            // Non-admin tried to send style metadata - strip it
+            console.log(`[SECURITY] Non-admin user tried to send admin style metadata - stripped`);
+          }
+        }
 
         // Filter profanity from text (skip for admins)
         let filteredText = originalText;
@@ -1199,9 +1215,9 @@ wss.on('connection', async (ws, req) => {
           timestamp: message.timestamp || Date.now(),
           text: filteredText, // Use filtered text
           html: filteredHtml || undefined, // Use filtered HTML if present
-          displayMode: displayMode, // Admin styling mode
-          displayNameOverride: displayNameOverride, // Custom display name
-          isAdmin: isAdmin // Flag to identify admin messages
+          isAdmin: isAdmin, // Flag to identify admin messages
+          // Include admin style metadata if present (validated above)
+          ...(adminStyleMeta ? { adminStyleMeta } : {})
         };
 
         // Send ACK to sender immediately
@@ -1227,6 +1243,18 @@ wss.on('connection', async (ws, req) => {
         console.log(`[MESSAGE] Text message from ${nickname}: "${filteredText.substring(0, 50)}${filteredText.length > 50 ? '...' : ''}"`);
       } else if (message.type === 'image') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
+        const isAdmin = info.adminUser && info.adminUser.role === 'admin';
+        
+        // Validate admin style metadata
+        let adminStyleMeta = null;
+        if (message.adminStyleMeta && isAdmin) {
+          adminStyleMeta = {
+            displayName: (message.adminStyleMeta.displayName || nickname).substring(0, 100),
+            color: message.adminStyleMeta.color || 'inherit',
+            scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
+            fontWeight: message.adminStyleMeta.fontWeight || 'normal'
+          };
+        }
 
         const chatMessage = {
           type: 'image',
@@ -1238,7 +1266,9 @@ wss.on('connection', async (ws, req) => {
           filename: message.filename,
           mime: message.mime,
           size: message.size,
-          caption: message.caption || ''
+          caption: message.caption || '',
+          isAdmin: isAdmin,
+          ...(adminStyleMeta ? { adminStyleMeta } : {})
         };
 
         // Send ACK to sender immediately
@@ -1265,6 +1295,18 @@ wss.on('connection', async (ws, req) => {
       } else if (message.type === 'audio') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
         const caption = message.caption || '';
+        const isAdmin = info.adminUser && info.adminUser.role === 'admin';
+        
+        // Validate admin style metadata
+        let adminStyleMeta = null;
+        if (message.adminStyleMeta && isAdmin) {
+          adminStyleMeta = {
+            displayName: (message.adminStyleMeta.displayName || nickname).substring(0, 100),
+            color: message.adminStyleMeta.color || 'inherit',
+            scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
+            fontWeight: message.adminStyleMeta.fontWeight || 'normal'
+          };
+        }
 
         const chatMessage = {
           type: 'audio',
@@ -1273,7 +1315,9 @@ wss.on('connection', async (ws, req) => {
           nickname,
           timestamp: message.timestamp || Date.now(),
           url: message.url,
-          caption: caption
+          caption: caption,
+          isAdmin: isAdmin,
+          ...(adminStyleMeta ? { adminStyleMeta } : {})
         };
 
         // Send ACK to sender immediately
@@ -1299,6 +1343,18 @@ wss.on('connection', async (ws, req) => {
         console.log(`[MESSAGE] Audio from ${nickname}: ${message.url} (caption: "${caption.substring(0, 50)}")`);
       } else if (message.type === 'video') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
+        const isAdmin = info.adminUser && info.adminUser.role === 'admin';
+        
+        // Validate admin style metadata
+        let adminStyleMeta = null;
+        if (message.adminStyleMeta && isAdmin) {
+          adminStyleMeta = {
+            displayName: (message.adminStyleMeta.displayName || nickname).substring(0, 100),
+            color: message.adminStyleMeta.color || 'inherit',
+            scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
+            fontWeight: message.adminStyleMeta.fontWeight || 'normal'
+          };
+        }
 
         const chatMessage = {
           type: 'video',
@@ -1310,7 +1366,9 @@ wss.on('connection', async (ws, req) => {
           filename: message.filename,
           mime: message.mime,
           size: message.size,
-          caption: message.caption || ''
+          caption: message.caption || '',
+          isAdmin: isAdmin,
+          ...(adminStyleMeta ? { adminStyleMeta } : {})
         };
 
         // Send ACK to sender immediately
@@ -1336,6 +1394,18 @@ wss.on('connection', async (ws, req) => {
         console.log(`[MESSAGE] Video from ${nickname}: ${message.filename} (${message.size} bytes)`);
       } else if (message.type === 'file') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
+        const isAdmin = info.adminUser && info.adminUser.role === 'admin';
+        
+        // Validate admin style metadata
+        let adminStyleMeta = null;
+        if (message.adminStyleMeta && isAdmin) {
+          adminStyleMeta = {
+            displayName: (message.adminStyleMeta.displayName || nickname).substring(0, 100),
+            color: message.adminStyleMeta.color || 'inherit',
+            scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
+            fontWeight: message.adminStyleMeta.fontWeight || 'normal'
+          };
+        }
 
         const chatMessage = {
           type: 'file',
@@ -1346,7 +1416,9 @@ wss.on('connection', async (ws, req) => {
           url: message.url,
           filename: message.filename,
           mime: message.mime,
-          size: message.size
+          size: message.size,
+          isAdmin: isAdmin,
+          ...(adminStyleMeta ? { adminStyleMeta } : {})
         };
 
         // Send ACK to sender immediately

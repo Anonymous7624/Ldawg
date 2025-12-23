@@ -582,6 +582,38 @@
       flex-direction: column;
       gap: 10px;
     }
+    
+    /* Admin sender mode section styling */
+    #adminSenderModeSection {
+      display: none;
+    }
+    
+    #adminSenderMode,
+    #adminCustomNameInput {
+      padding: 10px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      font-size: 14px;
+      background: white;
+      color: #333;
+    }
+    
+    body.dark-mode #adminSenderMode,
+    body.dark-mode #adminCustomNameInput {
+      background: rgba(255, 255, 255, 0.1);
+      color: white;
+      border-color: rgba(255, 255, 255, 0.3);
+    }
+    
+    #adminSenderMode option {
+      background: white;
+      color: #333;
+    }
+    
+    body.dark-mode #adminSenderMode option {
+      background: #2c3e50;
+      color: white;
+    }
 
     .photo-composer {
       display: none;
@@ -1862,6 +1894,42 @@
       color: gold;
       font-weight: 700;
     }
+    
+    /* NEW: Admin styled messages using CSS variables (from metadata) */
+    .message.admin-styled-message {
+      --admin-color: inherit;
+      --admin-scale: 1.0;
+      --admin-weight: normal;
+    }
+    
+    .message.admin-styled-message .nickname {
+      color: var(--admin-color, inherit);
+      font-size: calc(1em * var(--admin-scale, 1.0));
+      font-weight: var(--admin-weight, bold);
+    }
+    
+    .message.admin-styled-message[style*="--admin-color: gold"] {
+      background: rgba(255, 215, 0, 0.15) !important;
+      border-left: 3px solid gold !important;
+    }
+    
+    .message.admin-styled-message[style*="--admin-color: red"] {
+      background: rgba(220, 53, 69, 0.15) !important;
+      border-left: 3px solid #dc3545 !important;
+    }
+    
+    body.dark-mode .message.admin-styled-message .nickname {
+      /* Ensure readability in dark mode */
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
+    
+    body.dark-mode .message.admin-styled-message[style*="--admin-color: red"] {
+      border-left-color: #ff6b6b !important;
+    }
+    
+    body.dark-mode .message.admin-styled-message[style*="--admin-color: red"] .nickname {
+      color: #ff6b6b;
+    }
 
     @media (max-width: 768px) {
       .container {
@@ -1964,6 +2032,7 @@
         <!-- Audio Draft Composer - REMOVED (unified with media composer below) -->
 
         <div class="input-section">
+          <!-- Regular username input (shown when not admin) -->
           <input 
             type="text" 
             id="nickname" 
@@ -1971,6 +2040,24 @@
             maxlength="100"
             autocomplete="off"
           >
+          
+          <!-- Admin sender mode selector (shown when admin, replaces nickname input) -->
+          <div id="adminSenderModeSection" style="display: none;">
+            <select id="adminSenderMode" style="width: 100%; padding: 10px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px; font-size: 14px; background: white; margin-bottom: 8px;">
+              <option value="ldawg">Ldawg (gold, normal size)</option>
+              <option value="admin">ADMIN (gold, 150% size)</option>
+              <option value="announcement">SERVER/Announcement (red, 150% size)</option>
+              <option value="other">Other (type custom name)</option>
+            </select>
+            <input 
+              type="text" 
+              id="adminCustomNameInput" 
+              placeholder="Type custom display name..." 
+              maxlength="100"
+              autocomplete="off"
+              style="display: none; width: 100%; padding: 10px; border: 1px solid rgba(0,0,0,0.2); border-radius: 8px;"
+            >
+          </div>
           
           <!-- Media Composer Preview (unified for photos, videos, audio, files) -->
           <div id="photoComposer" class="photo-composer">
@@ -2892,7 +2979,19 @@
     function sendTypingStatus(isTyping) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
       
-      const nickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
+      let nickname = '';
+      if (currentAdminUser && currentAdminUser.role === 'admin') {
+        // Admin: get name from sender mode
+        const senderMode = document.getElementById('adminSenderMode').value;
+        if (senderMode === 'ldawg') nickname = 'Ldawg';
+        else if (senderMode === 'admin') nickname = 'ADMIN';
+        else if (senderMode === 'announcement') nickname = 'SERVER';
+        else if (senderMode === 'other') {
+          nickname = document.getElementById('adminCustomNameInput').value.trim() || 'Admin';
+        }
+      } else {
+        nickname = (document.getElementById('nickname').value.trim() || 'Anonymous').substring(0, 100);
+      }
       
       ws.send(JSON.stringify({
         type: 'typing',
@@ -3047,27 +3146,36 @@
         // Send initial presence
         sendPresence(isVisible);
         
-        // Send a ping to verify ACK path works
-        const pingId = generateUUID();
-        const pingMessage = {
-          type: 'ping',
-          id: pingId,
-          messageId: pingId,
-          timestamp: Date.now()
-        };
-        
-        console.log('[SELF-TEST] Sending ping with id=' + pingId);
-        pendingMessages.set(pingId, { type: 'ping', testPing: true });
-        
-        const pingTimeout = setTimeout(() => {
-          if (pendingMessages.has(pingId)) {
-            console.error('[SELF-TEST] ❌ FAILED - No ACK received for ping');
-            showStatus('Connected but ACK path not working', 'error');
-            pendingMessages.delete(pingId);
+        // Send a ping to verify ACK path works (with small delay to ensure connection is ready)
+        setTimeout(() => {
+          if (ws.readyState !== WebSocket.OPEN) {
+            console.log('[SELF-TEST] ⊘ Skipped - connection no longer open');
+            return;
           }
-        }, 3000);
-        
-        pendingMessages.get(pingId).timeout = pingTimeout;
+          
+          const pingId = generateUUID();
+          const pingMessage = {
+            type: 'ping',
+            id: pingId,
+            messageId: pingId,
+            timestamp: Date.now()
+          };
+          
+          console.log('[SELF-TEST] Sending ping with id=' + pingId);
+          pendingMessages.set(pingId, { type: 'ping', testPing: true });
+          
+          const pingTimeout = setTimeout(() => {
+            if (pendingMessages.has(pingId)) {
+              console.error('[SELF-TEST] ❌ FAILED - No ACK received for ping');
+              showStatus('Connected but ACK path not working', 'error');
+              pendingMessages.delete(pingId);
+            }
+          }, 5000); // Increased to 5 seconds
+          
+          pendingMessages.get(pingId).timeout = pingTimeout;
+          
+          ws.send(JSON.stringify(pingMessage));
+        }, 200); // 200ms delay to ensure connection is fully ready
         ws.send(JSON.stringify(pingMessage));
       };
 
@@ -3534,14 +3642,38 @@
         messageDiv.classList.add('message-failed');
       }
       
-      // Admin message styling
-      if (data.displayMode) {
+      // Admin message styling using metadata
+      if (data.adminStyleMeta) {
+        // Apply inline styles based on metadata
+        const { color, scale, fontWeight } = data.adminStyleMeta;
+        if (color && color !== 'inherit') {
+          messageDiv.style.setProperty('--admin-color', color);
+        }
+        if (scale && scale !== 1.0) {
+          messageDiv.style.setProperty('--admin-scale', scale);
+        }
+        if (fontWeight && fontWeight !== 'normal') {
+          messageDiv.style.setProperty('--admin-weight', fontWeight);
+        }
+        messageDiv.classList.add('admin-styled-message');
+      }
+      
+      // BACKWARD COMPATIBILITY: Support old displayMode format
+      if (data.displayMode && !data.adminStyleMeta) {
         if (data.displayMode === 'admin') {
-          messageDiv.classList.add('admin-style-admin');
+          messageDiv.style.setProperty('--admin-color', 'gold');
+          messageDiv.style.setProperty('--admin-scale', '1.5');
+          messageDiv.style.setProperty('--admin-weight', 'bold');
+          messageDiv.classList.add('admin-styled-message');
         } else if (data.displayMode === 'server') {
-          messageDiv.classList.add('admin-style-server');
+          messageDiv.style.setProperty('--admin-color', 'red');
+          messageDiv.style.setProperty('--admin-scale', '1.5');
+          messageDiv.style.setProperty('--admin-weight', 'bold');
+          messageDiv.classList.add('admin-styled-message');
         } else if (data.displayMode === 'custom') {
-          messageDiv.classList.add('admin-style-custom');
+          messageDiv.style.setProperty('--admin-color', 'gold');
+          messageDiv.style.setProperty('--admin-scale', '1.0');
+          messageDiv.classList.add('admin-styled-message');
         }
       }
       
@@ -3653,14 +3785,19 @@
           '- myClientId:', myClientId);
       }
 
-      // Determine display name based on admin mode
+      // Determine display name - prefer adminStyleMeta, fallback to old displayMode
       let displayName = data.nickname;
-      if (data.displayMode === 'admin') {
-        displayName = 'Admin';
-      } else if (data.displayMode === 'server') {
-        displayName = 'SERVER';
-      } else if (data.displayMode === 'custom' && data.displayNameOverride) {
-        displayName = data.displayNameOverride;
+      if (data.adminStyleMeta && data.adminStyleMeta.displayName) {
+        displayName = data.adminStyleMeta.displayName;
+      } else if (data.displayMode) {
+        // BACKWARD COMPATIBILITY: Support old displayMode format
+        if (data.displayMode === 'admin') {
+          displayName = 'ADMIN';
+        } else if (data.displayMode === 'server') {
+          displayName = 'SERVER';
+        } else if (data.displayMode === 'custom' && data.displayNameOverride) {
+          displayName = data.displayNameOverride;
+        }
       }
       
       messageDiv.innerHTML = `
@@ -4079,7 +4216,33 @@
         console.log('[SEND-LOCK] Lock auto-released');
       }, SEND_LOCK_DURATION);
 
-      const nickname = (nicknameInput.value.trim() || 'Anonymous').substring(0, 100);
+      // Determine nickname and admin styling metadata
+      let nickname = '';
+      let adminStyleMeta = null;
+      
+      if (currentAdminUser && currentAdminUser.role === 'admin') {
+        // Admin: use sender mode selector
+        const senderMode = document.getElementById('adminSenderMode').value;
+        
+        if (senderMode === 'ldawg') {
+          nickname = 'Ldawg';
+          adminStyleMeta = { displayName: 'Ldawg', color: 'gold', scale: 1.0, fontWeight: 'bold' };
+        } else if (senderMode === 'admin') {
+          nickname = 'ADMIN';
+          adminStyleMeta = { displayName: 'ADMIN', color: 'gold', scale: 1.5, fontWeight: 'bold' };
+        } else if (senderMode === 'announcement') {
+          nickname = 'SERVER';
+          adminStyleMeta = { displayName: 'SERVER', color: 'red', scale: 1.5, fontWeight: 'bold' };
+        } else if (senderMode === 'other') {
+          const customName = document.getElementById('adminCustomNameInput').value.trim();
+          nickname = customName || 'Admin';
+          adminStyleMeta = { displayName: nickname, color: 'inherit', scale: 1.0, fontWeight: 'normal' };
+        }
+      } else {
+        // Regular user: use nickname input
+        nickname = (nicknameInput.value.trim() || 'Anonymous').substring(0, 100);
+      }
+      
       const messageId = generateUUID();
       const timestamp = Date.now();
 
@@ -4122,7 +4285,9 @@
             caption: text || '',
             size: selectedFile.size,
             mime: selectedFile.type,
-            senderId: myClientId
+            senderId: myClientId,
+            // Include admin style metadata if present
+            ...(adminStyleMeta ? { adminStyleMeta } : {})
           };
           
           const msgElement = addMessage(optimisticData, true, messageId, 'sending');
@@ -4174,7 +4339,9 @@
               filename: result.filename || result.name,
               mime: result.mime,
               size: result.size,
-              caption: text || ''
+              caption: text || '',
+              // Include admin style metadata if present
+              ...(adminStyleMeta ? { adminStyleMeta } : {})
             };
             
             // Store retry data with uploaded URL
@@ -4235,25 +4402,6 @@
           // Text message with rich formatting
           console.log('[SEND] Sending text message with formatting');
           
-          // Check for admin display mode
-          let displayMode = null;
-          let displayNameOverride = null;
-          
-          if (currentAdminUser && currentAdminUser.role === 'admin') {
-            const modeSelect = document.getElementById('adminMessageMode');
-            if (modeSelect && modeSelect.value !== 'normal') {
-              displayMode = modeSelect.value;
-              
-              if (displayMode === 'custom') {
-                const customNameInput = document.getElementById('adminCustomName');
-                displayNameOverride = customNameInput ? customNameInput.value.trim() : null;
-                if (!displayNameOverride) {
-                  displayMode = null; // Reset if no custom name provided
-                }
-              }
-            }
-          }
-          
           const messageData = {
             type: 'text',
             id: messageId,
@@ -4263,8 +4411,8 @@
             html: html,
             text: text.substring(0, 1000),
             senderId: myClientId,
-            displayMode: displayMode,
-            displayNameOverride: displayNameOverride
+            // Include admin style metadata if present
+            ...(adminStyleMeta ? { adminStyleMeta } : {})
           };
           
           // REMOVED OPTIMISTIC ECHO: No longer show message locally before server confirms
@@ -5383,11 +5531,19 @@
         // Show admin panel in right sidebar
         document.getElementById('adminPanelNotAuth').style.display = 'none';
         document.getElementById('adminPanelAuth').style.display = 'block';
+        
+        // REPLACE nickname input with admin sender mode selector
+        document.getElementById('nickname').style.display = 'none';
+        document.getElementById('adminSenderModeSection').style.display = 'block';
       } else {
         document.getElementById('adminSettingsBtn').style.display = 'none';
         // Keep not-auth view
         document.getElementById('adminPanelNotAuth').style.display = 'block';
         document.getElementById('adminPanelAuth').style.display = 'none';
+        
+        // Show normal nickname input
+        document.getElementById('nickname').style.display = 'block';
+        document.getElementById('adminSenderModeSection').style.display = 'none';
       }
       
       // Reconnect WebSocket with token to update role
@@ -5403,6 +5559,11 @@
       // Reset admin panel to not-auth view
       document.getElementById('adminPanelNotAuth').style.display = 'block';
       document.getElementById('adminPanelAuth').style.display = 'none';
+      
+      // Show normal nickname input, hide admin sender mode
+      document.getElementById('nickname').style.display = 'block';
+      document.getElementById('adminSenderModeSection').style.display = 'none';
+      currentAdminUser = null;
     }
     
     function openSignInModal() {
@@ -5774,10 +5935,20 @@
       }));
     }
 
-    // Update message mode dropdown
+    // Update message mode dropdown (in admin panel - keep for backward compatibility)
     document.getElementById('adminMessageMode')?.addEventListener('change', (e) => {
       const customNameInput = document.getElementById('adminCustomName');
       if (e.target.value === 'custom') {
+        customNameInput.style.display = 'block';
+      } else {
+        customNameInput.style.display = 'none';
+      }
+    });
+    
+    // Update admin sender mode dropdown (replaces nickname input)
+    document.getElementById('adminSenderMode')?.addEventListener('change', (e) => {
+      const customNameInput = document.getElementById('adminCustomNameInput');
+      if (e.target.value === 'other') {
         customNameInput.style.display = 'block';
       } else {
         customNameInput.style.display = 'none';
