@@ -448,11 +448,16 @@ app.post('/account/change-username', authenticateToken, async (req, res) => {
 // POST /account/change-password - Change password (requires authentication)
 app.post('/account/change-password', authenticateToken, async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
+    const { currentPassword, newPassword, confirmPassword } = req.body;
 
     // Validation
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ error: 'Current password and new password are required' });
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({ error: 'Current password, new password, and confirm password are required' });
+    }
+
+    // Check if newPassword matches confirmPassword
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({ error: 'New password and confirm password do not match' });
     }
 
     if (newPassword.length < 6) {
@@ -462,7 +467,7 @@ app.post('/account/change-password', authenticateToken, async (req, res) => {
     // Fetch user with passHash (since authenticateToken excludes it)
     const userWithHash = await User.findById(req.user._id);
     if (!userWithHash) {
-      return res.status(401).json({ error: 'User not found' });
+      return res.status(404).json({ error: 'User not found' });
     }
 
     // Verify current password
@@ -478,11 +483,7 @@ app.post('/account/change-password', authenticateToken, async (req, res) => {
 
     console.log(`[ACCOUNT] Password changed for: ${req.user.email} (${req.user.username})`);
 
-    res.json({
-      ok: true,
-      success: true,
-      message: 'Password changed successfully'
-    });
+    res.json({ ok: true });
   } catch (error) {
     console.error('[ACCOUNT] Error changing password:', error);
     res.status(500).json({ error: 'Internal server error' });
