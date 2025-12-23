@@ -387,6 +387,17 @@ function sendModerationNotice(ws, profState, action, reason, foundWords = []) {
   console.log(`[MODERATION] Sent immediate notice to client: action=${action}, strikes=${profState.strikes}, muted=${notice.muted}`);
 }
 
+// Send message to specific client by ID
+function sendToClientId(targetClientId, payloadObj) {
+  for (const [ws, info] of clients) {
+    if (info.gcSid === targetClientId && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify(payloadObj));
+      return true;
+    }
+  }
+  return false;
+}
+
 // Broadcast message to all connected clients
 function broadcast(message) {
   const data = JSON.stringify(message);
@@ -979,27 +990,23 @@ wss.on('connection', async (ws, req) => {
 
         // Notify the banned user with admin_mute event and system message
         const durationLabel = formatDurationLabel(duration);
-        wss.clients.forEach(client => {
-          const clientInfo = clients.get(client);
-          if (clientInfo && clientInfo.gcSid === gcSid && client.readyState === WebSocket.OPEN) {
-            // Send admin_mute event (for status bar and input disabling)
-            client.send(JSON.stringify({
-              type: 'admin_mute',
-              until: banUntil,
-              seconds: Math.ceil(duration / 1000),
-              reason: banReason
-            }));
-            console.log(`[ADMIN-BAN] ✓ Sent mute notification to user`);
-            
-            // Send system message (for chat feed)
-            client.send(JSON.stringify({
-              type: 'system',
-              text: `Admin muted you for ${durationLabel}`,
-              timestamp: Date.now()
-            }));
-            console.log(`[ADMIN-BAN] ✓ Sent system message to user: "Admin muted you for ${durationLabel}"`);
-          }
+        
+        // Send admin_mute event (for status bar and input disabling)
+        const muteEventSent = sendToClientId(gcSid, {
+          type: 'admin_mute',
+          until: banUntil,
+          seconds: Math.ceil(duration / 1000),
+          reason: banReason
         });
+        
+        // Send system message (for chat feed) - must arrive even if user is muted
+        const systemMsgSent = sendToClientId(gcSid, {
+          type: 'system',
+          text: `Admin muted you for ${durationLabel}`,
+          timestamp: Date.now()
+        });
+        
+        console.log(`[ADMIN-BAN] Notification delivery: target=${gcSid.substring(0, 8)}... muteEvent=${muteEventSent} systemMsg=${systemMsgSent}`);
 
         // Send confirmation to admin
         ws.send(JSON.stringify({ 
