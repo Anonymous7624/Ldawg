@@ -80,6 +80,19 @@ mongoose.connect(MONGO_URI, {
 
 // User Model
 const userSchema = new mongoose.Schema({
+  fullName: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true,
+    match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  },
   username: {
     type: String,
     required: true,
@@ -89,9 +102,19 @@ const userSchema = new mongoose.Schema({
     maxlength: 30,
     match: /^[a-zA-Z0-9_]+$/
   },
-  password: {
+  passHash: {
     type: String,
     required: true
+  },
+  role: {
+    type: String,
+    enum: ['admin', 'moderator', 'client'],
+    default: 'client',
+    required: true
+  },
+  referralCode: {
+    type: String,
+    default: null
   },
   fakeNumber: {
     type: String,
@@ -130,7 +153,7 @@ async function authenticateToken(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = await User.findById(decoded.userId).select('-password');
+    const user = await User.findById(decoded.userId).select('-passHash');
     
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
@@ -167,13 +190,19 @@ app.get('/', (req, res) => {
 });
 
 // POST /auth/signup - Create new user
+// Future requirements: fullName, @bmchsd.org email, username check, password confirmation, optional referral code
 app.post('/auth/signup', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { fullName, email, username, password, referralCode } = req.body;
 
     // Validation
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+    if (!fullName || !email || !username || !password) {
+      return res.status(400).json({ error: 'Full name, email, username, and password are required' });
+    }
+
+    // Email must end with @bmchsd.org
+    if (!email.toLowerCase().endsWith('@bmchsd.org')) {
+      return res.status(400).json({ error: 'Email must be a @bmchsd.org address' });
     }
 
     if (username.length < 3 || username.length > 30) {
@@ -188,9 +217,14 @@ app.post('/auth/signup', async (req, res) => {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ username });
-    if (existingUser) {
+    // Check if email or username already exists
+    const existingEmail = await User.findOne({ email: email.toLowerCase() });
+    if (existingEmail) {
+      return res.status(409).json({ error: 'Email already registered' });
+    }
+
+    const existingUsername = await User.findOne({ username });
+    if (existingUsername) {
       return res.status(409).json({ error: 'Username already taken' });
     }
 
@@ -211,10 +245,14 @@ app.post('/auth/signup', async (req, res) => {
       return res.status(500).json({ error: 'Failed to generate unique fake number' });
     }
 
-    // Create user
+    // Create user (default role: client)
     const user = new User({
+      fullName,
+      email: email.toLowerCase(),
       username,
-      password: hashedPassword,
+      passHash: hashedPassword,
+      role: 'client',
+      referralCode: referralCode || null,
       fakeNumber
     });
 
@@ -223,13 +261,16 @@ app.post('/auth/signup', async (req, res) => {
     // Generate JWT token
     const token = generateToken(user._id);
 
-    console.log(`[SIGNUP] New user created: ${username} (${fakeNumber})`);
+    console.log(`[SIGNUP] New user created: ${email} (${username}, ${fakeNumber})`);
 
     res.status(201).json({
       token,
       user: {
         id: user._id,
         username: user.username,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
         fakeNumber: user.fakeNumber
       }
     });
@@ -239,38 +280,41 @@ app.post('/auth/signup', async (req, res) => {
   }
 });
 
-// POST /auth/login - Authenticate user
+// POST /auth/login - Authenticate user (email-based)
 app.post('/auth/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { email, password } = req.body;
 
     // Validation
-    if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user
-    const user = await User.findOne({ username });
+    // Find user by email
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
-      return res.status(401).json({ error: 'Invalid username or password' });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     // Verify password with argon2
-    const validPassword = await argon2.verify(user.password, password);
+    const validPassword = await argon2.verify(user.passHash, password);
     if (!validPassword) {
-      return res.status(401).json({ error: 'Invalid username or password' });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     // Generate JWT token
     const token = generateToken(user._id);
 
-    console.log(`[LOGIN] User logged in: ${username}`);
+    console.log(`[LOGIN] User logged in: ${user.email} (${user.username})`);
 
     res.json({
       token,
       user: {
         id: user._id,
         username: user.username,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role,
         fakeNumber: user.fakeNumber
       }
     });
@@ -287,6 +331,9 @@ app.get('/me', authenticateToken, async (req, res) => {
       user: {
         id: req.user._id,
         username: req.user.username,
+        email: req.user.email,
+        fullName: req.user.fullName,
+        role: req.user.role,
         fakeNumber: req.user.fakeNumber,
         createdAt: req.user.createdAt
       }
