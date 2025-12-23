@@ -56,6 +56,24 @@ function makeUUID() {
   return crypto.randomBytes(16).toString('hex');
 }
 
+// Format duration in milliseconds to readable label
+function formatDurationLabel(durationMs) {
+  const seconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days >= 1) {
+    return days === 1 ? '1 day' : `${days} days`;
+  } else if (hours >= 1) {
+    return hours === 1 ? '1 hour' : `${hours} hours`;
+  } else if (minutes >= 1) {
+    return minutes === 1 ? '1 minute' : `${minutes} minutes`;
+  } else {
+    return seconds === 1 ? '1 second' : `${seconds} seconds`;
+  }
+}
+
 // Load banned words from file
 function loadBannedWords() {
   try {
@@ -959,10 +977,12 @@ wss.on('connection', async (ws, req) => {
           }
         }
 
-        // Notify the banned user with admin_mute event
+        // Notify the banned user with admin_mute event and system message
+        const durationLabel = formatDurationLabel(duration);
         wss.clients.forEach(client => {
           const clientInfo = clients.get(client);
           if (clientInfo && clientInfo.gcSid === gcSid && client.readyState === WebSocket.OPEN) {
+            // Send admin_mute event (for status bar and input disabling)
             client.send(JSON.stringify({
               type: 'admin_mute',
               until: banUntil,
@@ -970,6 +990,14 @@ wss.on('connection', async (ws, req) => {
               reason: banReason
             }));
             console.log(`[ADMIN-BAN] ✓ Sent mute notification to user`);
+            
+            // Send system message (for chat feed)
+            client.send(JSON.stringify({
+              type: 'system',
+              text: `Admin muted you for ${durationLabel}`,
+              timestamp: Date.now()
+            }));
+            console.log(`[ADMIN-BAN] ✓ Sent system message to user: "Admin muted you for ${durationLabel}"`);
           }
         });
 
