@@ -330,17 +330,32 @@ function broadcast(message) {
   return recipientCount;
 }
 
-// Broadcast online count
+// Broadcast online count with role information
 function broadcastOnlineCount() {
   let count = 0;
+  const onlineUsers = [];
+  
   for (const [, info] of clients) {
-    if (info.presenceOnline) count++;
+    if (info.presenceOnline) {
+      count++;
+      // Include role and username in online users list
+      onlineUsers.push({
+        name: info.username || 'Guest',
+        role: info.role || 'guest'
+      });
+    }
   }
-  const payload = JSON.stringify({ type: 'online', count });
+  
+  const payload = JSON.stringify({ 
+    type: 'online', 
+    count: count,
+    users: onlineUsers // Add users array with role information
+  });
+  
   for (const [ws] of clients) {
     if (ws.readyState === ws.OPEN) ws.send(payload);
   }
-  console.log(`[ONLINE] Broadcasting count: ${count}`);
+  console.log(`[ONLINE] Broadcasting count: ${count}, users with roles: ${onlineUsers.length}`);
 }
 
 // Rate limiting with escalating bans
@@ -559,30 +574,51 @@ wss.on('connection', async (ws, req) => {
     console.log(`[CONNECT] Client has gc_sid: ${gcSid.substring(0, 8)}...`);
   }
   
-  // Parse token from query string
-  let token = queryParams.token;
+  // Parse token from query string (auth token for role verification)
+  let authToken = queryParams.token;
+  let authenticatedUser = null;
+  let userRole = 'guest';
+  let username = null;
   
-  // Check for admin token (private_token)
+  // Verify auth token if provided
+  if (authToken) {
+    console.log(`[AUTH] Verifying auth token: ${authToken.substring(0, 8)}...`);
+    authenticatedUser = await verifyAdminToken(authToken);
+    if (authenticatedUser) {
+      userRole = authenticatedUser.role || 'client';
+      username = authenticatedUser.username;
+      console.log(`[AUTH] User authenticated: ${username} (${userRole})`);
+      adminSessions.set(authToken, authenticatedUser);
+    } else {
+      console.log(`[AUTH] Failed to verify auth token, treating as guest`);
+    }
+  }
+  
+  // Check for admin token (backward compatibility for adminToken param)
   const adminToken = queryParams.adminToken;
   let adminUser = null;
   
-  if (adminToken) {
+  if (adminToken && !authenticatedUser) {
     console.log(`[ADMIN] Verifying admin token: ${adminToken.substring(0, 8)}...`);
     adminUser = await verifyAdminToken(adminToken);
     if (adminUser) {
       console.log(`[ADMIN] Admin authenticated: ${adminUser.username} (${adminUser.role})`);
       adminSessions.set(adminToken, adminUser);
+      authenticatedUser = adminUser;
+      userRole = adminUser.role || 'admin';
+      username = adminUser.username;
     } else {
       console.log(`[ADMIN] Failed to verify admin token`);
     }
   }
   
-  // If no token provided, generate one
-  if (!token) {
-    token = makeUUID();
-    console.log(`[CONNECT] No token provided, generated: ${token}`);
-  } else {
-    console.log(`[CONNECT] Client provided token: ${token}`);
+  // Generate session token for rate limiting (separate from auth token)
+  let token = makeUUID();
+  console.log(`[CONNECT] Generated session token: ${token.substring(0, 8)}...`);
+  
+  // Ensure adminUser is set if we have an authenticated admin/moderator
+  if (authenticatedUser && (userRole === 'admin' || userRole === 'moderator')) {
+    adminUser = authenticatedUser;
   }
   
   // Load profanity state from cookies if present
@@ -617,7 +653,9 @@ wss.on('connection', async (ws, req) => {
     gcSid,
     presenceOnline: true,   // default true until told otherwise
     adminUser: adminUser,   // admin user info if authenticated
-    adminToken: adminToken  // admin token for subsequent requests
+    adminToken: adminToken,  // admin token for subsequent requests
+    role: userRole,         // user role (admin/moderator/client/guest)
+    username: username      // authenticated username or null for guests
   });
 
   // Get or create client state (persistent by token)
