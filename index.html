@@ -5761,6 +5761,14 @@
       const submitBtn = document.getElementById('signInSubmitBtn');
       const errorDiv = document.getElementById('authError');
       
+      // EMERGENCY: Block blacklisted emails
+      const emailBlacklist = ['jusbarkan@gmail.com'];
+      if (emailBlacklist.includes(email.toLowerCase().trim())) {
+        errorDiv.textContent = 'This email address is currently blacklisted. Please contact support.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      
       // Disable submit button
       submitBtn.disabled = true;
       submitBtn.textContent = 'Signing in...';
