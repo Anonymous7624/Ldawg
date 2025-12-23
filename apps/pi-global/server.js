@@ -705,15 +705,19 @@ wss.on('connection', async (ws, req) => {
     const items = await getRecentMessages(MAX_MESSAGES);
     ws.send(JSON.stringify({
       type: 'history',
-      items: items
+      items: items,
+      success: true
     }));
     console.log(`[HISTORY] Sent ${items.length} messages to ${connectionId} from DB`);
   } catch (error) {
-    console.error(`[HISTORY] Error loading history for ${connectionId}:`, error);
-    // Send empty history on error
+    console.error(`[HISTORY] ❌ Error loading history for ${connectionId}:`, error);
+    console.error(`[HISTORY] Stack:`, error.stack);
+    // Send error indicator so frontend can show appropriate message
     ws.send(JSON.stringify({
       type: 'history',
-      items: []
+      items: [],
+      success: false,
+      error: 'Failed to load message history'
     }));
   }
 

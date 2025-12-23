@@ -3270,11 +3270,25 @@
           setOnlineCount(data.count, data.users);
         } else if (data.type === 'history') {
           console.log('[WS] History received with', data.items.length, 'items');
-          displayHistory(data.items);
-          // BUG FIX #3: Ensure delete buttons are refreshed after history loads
-          // This handles the case where myClientId was restored from session storage
-          // but messages from history need their delete buttons added retroactively
-          setTimeout(() => refreshDeleteButtons(), 100);
+          
+          // Check if history loaded successfully
+          if (data.success === false) {
+            console.error('[WS] ❌ Server reported history load failure:', data.error);
+            addSystemMessage('⚠️ Failed to load chat history from database', 'error');
+          } else if (!data.items || !Array.isArray(data.items)) {
+            console.error('[WS] ❌ Invalid history format received');
+            addSystemMessage('⚠️ Failed to load chat history (invalid format)', 'error');
+          } else if (data.items.length === 0) {
+            console.log('[WS] ℹ️ No message history available (empty chat)');
+            // Don't show error for empty history - this is normal for new chats
+          } else {
+            console.log('[WS] ✓ Successfully loaded', data.items.length, 'messages from history');
+            displayHistory(data.items);
+            // BUG FIX #3: Ensure delete buttons are refreshed after history loads
+            // This handles the case where myClientId was restored from session storage
+            // but messages from history need their delete buttons added retroactively
+            setTimeout(() => refreshDeleteButtons(), 100);
+          }
         } else if (data.type === 'delete') {
           if (DEBUG_DELETE) {
             console.log('========================================');
@@ -3564,14 +3578,49 @@
     // ========================================
     
     function displayHistory(items) {
-      const messagesDiv = document.getElementById('messages');
-      messagesDiv.innerHTML = '';
-      // Clear the deduplication map when clearing history
-      renderedMessages.clear();
-      
-      const displayItems = items.slice(-100);
-      displayItems.forEach(item => addMessage(item, false));
-      scrollToBottom();
+      try {
+        if (!items || !Array.isArray(items)) {
+          console.error('[HISTORY] ❌ Invalid items array:', items);
+          return;
+        }
+        
+        const messagesDiv = document.getElementById('messages');
+        if (!messagesDiv) {
+          console.error('[HISTORY] ❌ Messages div not found');
+          return;
+        }
+        
+        messagesDiv.innerHTML = '';
+        // Clear the deduplication map when clearing history
+        renderedMessages.clear();
+        
+        console.log('[HISTORY] 📜 Displaying', items.length, 'messages from history');
+        
+        const displayItems = items.slice(-100);
+        let successCount = 0;
+        let errorCount = 0;
+        
+        displayItems.forEach((item, index) => {
+          try {
+            addMessage(item, false);
+            successCount++;
+          } catch (itemError) {
+            errorCount++;
+            console.error(`[HISTORY] ❌ Error rendering message ${index}:`, itemError, item);
+          }
+        });
+        
+        console.log(`[HISTORY] ✓ Rendered ${successCount} messages (${errorCount} errors)`);
+        
+        if (errorCount > 0) {
+          addSystemMessage(`⚠️ Some messages failed to load (${errorCount}/${displayItems.length})`, 'warning');
+        }
+        
+        scrollToBottom();
+      } catch (error) {
+        console.error('[HISTORY] ❌ Fatal error displaying history:', error);
+        addSystemMessage('⚠️ Failed to display chat history', 'error');
+      }
     }
 
     function addMessage(data, scroll = true, messageId = null, status = 'sent') {

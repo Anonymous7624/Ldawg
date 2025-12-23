@@ -19,10 +19,18 @@ function initDb() {
         console.warn('[DB] ⚠️  WARNING: DB_PATH environment variable not set, using default');
       }
       
+      // Ensure the directory exists before creating the database file
+      const dbDir = path.dirname(dbPath);
+      if (!fs.existsSync(dbDir)) {
+        console.log(`[DB] Creating database directory: ${dbDir}`);
+        fs.mkdirSync(dbDir, { recursive: true });
+      }
+      
       // Log the resolved DB path prominently
       console.log('========================================');
       console.log('[DB] DATABASE CONFIGURATION');
       console.log('[DB] Resolved DB path:', dbPath);
+      console.log('[DB] DB directory:', dbDir);
       console.log('[DB] DB_PATH env var:', process.env.DB_PATH || '(not set)');
       console.log('[DB] File exists:', fs.existsSync(dbPath) ? 'YES' : 'NO (will be created)');
       console.log('========================================');
@@ -46,6 +54,7 @@ function initDb() {
           mime TEXT,
           size INTEGER,
           caption TEXT,
+          isAdmin INTEGER DEFAULT 0,
           adminStyleMeta TEXT
         )
       `);
@@ -54,6 +63,21 @@ function initDb() {
       db.exec(`
         CREATE INDEX IF NOT EXISTS idx_timestamp ON messages(timestamp DESC)
       `);
+      
+      // Migration: Add isAdmin column if it doesn't exist (for existing databases)
+      try {
+        const columnsStmt = db.prepare("PRAGMA table_info(messages)");
+        const columns = columnsStmt.all();
+        const hasIsAdmin = columns.some(col => col.name === 'isAdmin');
+        
+        if (!hasIsAdmin) {
+          console.log('[DB] Running migration: Adding isAdmin column');
+          db.exec('ALTER TABLE messages ADD COLUMN isAdmin INTEGER DEFAULT 0');
+          console.log('[DB] Migration complete: isAdmin column added');
+        }
+      } catch (migrationError) {
+        console.warn('[DB] Migration check failed (non-fatal):', migrationError.message);
+      }
       
       // Get count of messages in DB
       const countStmt = db.prepare('SELECT COUNT(*) as count FROM messages');
@@ -92,14 +116,14 @@ function saveMessage(msg) {
       
       const stmt = db.prepare(`
         INSERT OR REPLACE INTO messages 
-        (id, type, senderId, senderClientId, nickname, timestamp, text, html, url, filename, storedFilename, mime, size, caption, adminStyleMeta)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, type, senderId, senderClientId, nickname, timestamp, text, html, url, filename, storedFilename, mime, size, caption, isAdmin, adminStyleMeta)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       // Serialize adminStyleMeta to JSON if present
       const adminStyleMetaJson = msg.adminStyleMeta ? JSON.stringify(msg.adminStyleMeta) : null;
       
-      stmt.run(
+      const result = stmt.run(
         msg.id,
         msg.type,
         msg.senderId,
@@ -114,10 +138,17 @@ function saveMessage(msg) {
         msg.mime || null,
         msg.size || null,
         msg.caption || null,
+        msg.isAdmin ? 1 : 0,
         adminStyleMetaJson
       );
       
-      console.log(`[DB] Saved message: id=${msg.id}, type=${msg.type}`);
+      console.log(`[DB] ✓ Saved message: id=${msg.id}, type=${msg.type}, changes=${result.changes}`);
+      
+      // Verify the message was saved by counting total messages
+      const countStmt = db.prepare('SELECT COUNT(*) as count FROM messages');
+      const { count } = countStmt.get();
+      console.log(`[DB] Total messages in database: ${count}`);
+      
       resolve();
     } catch (error) {
       console.error('[DB] Save error:', error);
@@ -170,6 +201,10 @@ function getRecentMessages(limit) {
         if (row.size) msg.size = row.size;
         if (row.caption) msg.caption = row.caption;
         
+        // Restore isAdmin flag (stored as INTEGER 0 or 1)
+        // Always set this field, not just when truthy, to preserve false values
+        msg.isAdmin = Boolean(row.isAdmin);
+        
         // Deserialize adminStyleMeta if present
         if (row.adminStyleMeta) {
           try {
@@ -182,7 +217,15 @@ function getRecentMessages(limit) {
         return msg;
       });
       
-      console.log(`[DB] Retrieved ${messages.length} messages (limit=${limit})`);
+      console.log(`[DB] ✓ Retrieved ${messages.length} messages from database (limit=${limit})`);
+      
+      // Log first and last message timestamps for debugging
+      if (messages.length > 0) {
+        const firstMsg = messages[0];
+        const lastMsg = messages[messages.length - 1];
+        console.log(`[DB] History range: ${new Date(firstMsg.timestamp).toISOString()} to ${new Date(lastMsg.timestamp).toISOString()}`);
+      }
+      
       resolve(messages);
     } catch (error) {
       console.error('[DB] Retrieve error:', error);
