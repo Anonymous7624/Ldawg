@@ -650,11 +650,17 @@ wss.on('connection', async (ws, req) => {
   const cookies = parseCookies(req.headers.cookie);
   let gcSid = cookies.gc_sid;
   
-  // If no gc_sid cookie, generate one
+  // CRITICAL: Try query param if cookie not present (for cross-origin/subdomain WS connections)
+  if (!gcSid && queryParams.gcSid) {
+    gcSid = queryParams.gcSid;
+    console.log(`[CONNECT] Using gc_sid from query param: ${gcSid.substring(0, 8)}...`);
+  }
+  
+  // If no gc_sid from cookie or query param, generate one
   if (!gcSid) {
     gcSid = makeUUID();
-    console.log(`[CONNECT] No gc_sid cookie, generated: ${gcSid.substring(0, 8)}...`);
-  } else {
+    console.log(`[CONNECT] No gc_sid cookie or query param, generated: ${gcSid.substring(0, 8)}...`);
+  } else if (cookies.gc_sid) {
     console.log(`[CONNECT] Client has gc_sid: ${gcSid.substring(0, 8)}...`);
   }
   
@@ -764,7 +770,7 @@ wss.on('connection', async (ws, req) => {
   if (adminBan && now() < adminBan.bannedUntil) {
     const remainingMs = adminBan.bannedUntil - now();
     const remainingSeconds = Math.ceil(remainingMs / 1000);
-    console.log(`[ADMIN-BAN] User ${gcSid.substring(0, 8)}... is muted, sending mute event (${remainingSeconds}s remaining)`);
+    console.log(`[ADMIN-MUTE-PERSIST] ✓ User persistentKey=${gcSid.substring(0, 6)}... IS MUTED (${remainingSeconds}s remaining)`);
     
     // Send admin_mute event to lock UI immediately
     ws.send(JSON.stringify({
@@ -785,7 +791,9 @@ wss.on('connection', async (ws, req) => {
     // Ban expired, remove it
     adminBans.delete(gcSid);
     saveServerState();
-    console.log(`[ADMIN-BAN] Ban expired for gcSid ${gcSid.substring(0, 8)}... on reconnect`);
+    console.log(`[ADMIN-MUTE-PERSIST] Ban expired for persistentKey=${gcSid.substring(0, 6)}... on reconnect`);
+  } else {
+    console.log(`[ADMIN-MUTE-PERSIST] User persistentKey=${gcSid.substring(0, 6)}... NOT MUTED`);
   }
 
   // Send chat history from database
@@ -1052,8 +1060,9 @@ wss.on('connection', async (ws, req) => {
         // Save state to persist bans
         saveServerState();
         
-        // ADMIN_MUTE applied log
-        console.log(`[ADMIN_MUTE] applied to clientId=${gcSid.substring(0, 8)}... until=${new Date(banUntil).toISOString()} by=${info.adminUser.username}`);
+        // ADMIN_MUTE applied log with persistent key
+        const durationSec = Math.ceil(duration / 1000);
+        console.log(`[ADMIN-MUTE-APPLY] ✓ Admin ${info.adminUser.username} muted persistentKey=${gcSid.substring(0, 6)}... for ${durationSec}s`);
 
         // Delete message if requested
         if (deleteMessage && message.messageId) {
@@ -1158,8 +1167,9 @@ wss.on('connection', async (ws, req) => {
         // Save state to persist bans
         saveServerState();
         
-        // MOD_MUTE applied log
-        console.log(`[MOD_MUTE] applied to clientId=${gcSid.substring(0, 8)}... until=${new Date(banUntil).toISOString()} by=${info.adminUser.username}`);
+        // MOD_MUTE applied log with persistent key
+        const durationSec = Math.ceil(duration / 1000);
+        console.log(`[MOD-MUTE-APPLY] ✓ Moderator ${info.adminUser.username} muted persistentKey=${gcSid.substring(0, 6)}... for ${durationSec}s`);
 
         // Delete message if requested
         if (deleteMessage && message.messageId) {
@@ -1316,9 +1326,9 @@ wss.on('connection', async (ws, req) => {
         // Check admin ban/mute
         const adminBan = adminBans.get(info.gcSid);
         if (adminBan && now() < adminBan.bannedUntil) {
-          const remainingSeconds = Math.ceil((adminBan.bannedUntil - now()) / 1000);
           const remainingMs = adminBan.bannedUntil - now();
-          console.log(`[ADMIN-BAN] Message blocked: user is admin-muted for ${remainingSeconds}s more`);
+          const remainingSeconds = Math.ceil(remainingMs / 1000);
+          console.log(`[ADMIN-MUTE-BLOCK] ✗ Message BLOCKED for persistentKey=${info.gcSid.substring(0, 6)}... (${remainingMs}ms remaining)`);
           ws.send(JSON.stringify({ 
             type: 'admin_mute',
             until: adminBan.bannedUntil,
@@ -1331,7 +1341,7 @@ wss.on('connection', async (ws, req) => {
           // Ban expired, remove it
           adminBans.delete(info.gcSid);
           saveServerState();
-          console.log(`[ADMIN-BAN] Ban expired for gcSid ${info.gcSid.substring(0, 8)}...`);
+          console.log(`[ADMIN-MUTE-BLOCK] Ban expired for persistentKey=${info.gcSid.substring(0, 6)}...`);
         }
 
         // CRITICAL: Check mute status FIRST before any other processing

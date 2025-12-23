@@ -3156,6 +3156,14 @@
         console.log('[CONNECT] Including auth token for role verification');
       }
       
+      // CRITICAL: Send gc_sid in URL to ensure admin/mod mutes persist across reloads
+      // Cookies may not be sent to WebSocket on cross-origin/subdomain connections
+      const gcSid = getCookie('gc_sid');
+      if (gcSid) {
+        params.append('gcSid', gcSid);
+        console.log('[CONNECT] Including gc_sid for persistent identity:', gcSid.substring(0, 8) + '...');
+      }
+      
       // Build final URL
       if (params.toString()) {
         wsUrl += '?' + params.toString();
