@@ -3487,6 +3487,9 @@
           const messagesDiv = document.getElementById('messages');
           messagesDiv.innerHTML = '';
           showToast('All messages have been deleted by ' + data.wipedBy, 'error');
+        } else if (data.type === 'system') {
+          // System message (e.g., admin mute notification)
+          addSystemMessage(data.text || 'System notification', 'warning');
         } else if (data.type === 'admin_delete_success') {
           showToast('Message deleted', 'success');
         } else if (data.type === 'admin_ban_success') {
