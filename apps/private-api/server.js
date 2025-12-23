@@ -344,6 +344,129 @@ app.get('/me', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /verify-token - Verify JWT token and return user info (for Pi server)
+app.post('/verify-token', async (req, res) => {
+  try {
+    const { token } = req.body;
+
+    if (!token) {
+      return res.status(400).json({ error: 'Token required' });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.userId).select('-passHash');
+    
+    if (!user) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    res.json({
+      valid: true,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        fullName: user.fullName,
+        role: user.role
+      }
+    });
+  } catch (error) {
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ valid: false, error: 'Token expired' });
+    }
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ valid: false, error: 'Invalid token' });
+    }
+    console.error('[VERIFY-TOKEN] Error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /account/change-username - Change username (requires authentication)
+app.post('/account/change-username', authenticateToken, async (req, res) => {
+  try {
+    const { newUsername } = req.body;
+
+    // Validation
+    if (!newUsername) {
+      return res.status(400).json({ error: 'New username is required' });
+    }
+
+    if (newUsername.length < 3 || newUsername.length > 30) {
+      return res.status(400).json({ error: 'Username must be between 3 and 30 characters' });
+    }
+
+    if (!/^[a-zA-Z0-9_]+$/.test(newUsername)) {
+      return res.status(400).json({ error: 'Username can only contain letters, numbers, and underscores' });
+    }
+
+    // Check if username is already taken
+    const existingUsername = await User.findOne({ username: newUsername });
+    if (existingUsername && existingUsername._id.toString() !== req.user._id.toString()) {
+      return res.status(409).json({ error: 'Username already taken' });
+    }
+
+    // Update username
+    const oldUsername = req.user.username;
+    req.user.username = newUsername;
+    await req.user.save();
+
+    console.log(`[ACCOUNT] Username changed: ${oldUsername} -> ${newUsername} (${req.user.email})`);
+
+    res.json({
+      success: true,
+      user: {
+        id: req.user._id,
+        username: req.user.username,
+        email: req.user.email,
+        fullName: req.user.fullName,
+        role: req.user.role,
+        fakeNumber: req.user.fakeNumber
+      }
+    });
+  } catch (error) {
+    console.error('[ACCOUNT] Error changing username:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /account/change-password - Change password (requires authentication)
+app.post('/account/change-password', authenticateToken, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    // Validation
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    // Verify current password
+    const validPassword = await argon2.verify(req.user.passHash, currentPassword);
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+
+    // Hash new password
+    const hashedPassword = await argon2.hash(newPassword);
+    req.user.passHash = hashedPassword;
+    await req.user.save();
+
+    console.log(`[ACCOUNT] Password changed for: ${req.user.email} (${req.user.username})`);
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+  } catch (error) {
+    console.error('[ACCOUNT] Error changing password:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
@@ -370,5 +493,8 @@ app.listen(PORT, () => {
   console.log('  POST /auth/signup');
   console.log('  POST /auth/login');
   console.log('  GET  /me');
+  console.log('  POST /verify-token');
+  console.log('  POST /account/change-username');
+  console.log('  POST /account/change-password');
   console.log('========================================');
 });

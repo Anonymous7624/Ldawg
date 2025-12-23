@@ -31,8 +31,8 @@
     .container {
       display: flex;
       height: 100vh;
-      max-width: 1400px;
-      margin: 0 auto;
+      max-width: 100%;
+      margin: 0;
     }
 
     .main-content {
@@ -52,6 +52,51 @@
       display: flex;
       flex-direction: column;
       gap: 20px;
+      transition: width 0.3s ease, padding 0.3s ease;
+      position: relative;
+    }
+
+    .left-sidebar.collapsed {
+      width: 60px;
+      padding: 20px 10px;
+    }
+
+    .left-sidebar.collapsed .conversation-list,
+    .left-sidebar.collapsed .auth-section,
+    .left-sidebar.collapsed h2 {
+      display: none;
+    }
+
+    .sidebar-toggle {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.1);
+      border: none;
+      width: 30px;
+      height: 30px;
+      border-radius: 50%;
+      cursor: pointer;
+      font-size: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      z-index: 100;
+    }
+
+    body.dark-mode .sidebar-toggle {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+
+    .sidebar-toggle:hover {
+      background: rgba(0, 0, 0, 0.2);
+      transform: scale(1.1);
+    }
+
+    body.dark-mode .sidebar-toggle:hover {
+      background: rgba(255, 255, 255, 0.3);
     }
 
     body.dark-mode .left-sidebar {
@@ -1483,6 +1528,271 @@
       to { opacity: 0.7; }
     }
 
+    /* Admin panel styles */
+    .admin-panel {
+      position: fixed;
+      top: 0;
+      right: -400px;
+      width: 400px;
+      height: 100vh;
+      background: white;
+      box-shadow: -4px 0 20px rgba(0, 0, 0, 0.2);
+      transition: right 0.3s ease;
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    body.dark-mode .admin-panel {
+      background: #001a33;
+      box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
+    }
+
+    .admin-panel.open {
+      right: 0;
+    }
+
+    .admin-panel-header {
+      padding: 20px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    body.dark-mode .admin-panel-header {
+      border-bottom-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .admin-panel-header h2 {
+      margin: 0;
+      font-size: 20px;
+    }
+
+    .admin-panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .admin-section {
+      padding: 16px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.05);
+    }
+
+    body.dark-mode .admin-section {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .admin-section h3 {
+      margin: 0 0 12px 0;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .admin-button {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      margin-bottom: 8px;
+    }
+
+    .admin-button.danger {
+      background: #dc3545;
+      color: white;
+    }
+
+    .admin-button.danger:hover {
+      background: #c82333;
+    }
+
+    .admin-button.warning {
+      background: #ffc107;
+      color: #000;
+    }
+
+    .admin-button.warning:hover {
+      background: #e0a800;
+    }
+
+    .admin-button.primary {
+      background: #007bff;
+      color: white;
+    }
+
+    .admin-button.primary:hover {
+      background: #0056b3;
+    }
+
+    .admin-toggle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 6px;
+      margin-bottom: 8px;
+    }
+
+    body.dark-mode .admin-toggle {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .toggle-switch {
+      width: 50px;
+      height: 26px;
+      background: #ccc;
+      border-radius: 13px;
+      position: relative;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .toggle-switch.active {
+      background: #22c55e;
+    }
+
+    .toggle-switch::after {
+      content: '';
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      background: white;
+      top: 3px;
+      left: 3px;
+      transition: left 0.2s ease;
+    }
+
+    .toggle-switch.active::after {
+      left: 27px;
+    }
+
+    .admin-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      background: rgba(255, 193, 7, 0.3);
+      border: 1px solid rgba(255, 193, 7, 0.6);
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #856404;
+      margin-left: 8px;
+    }
+
+    body.dark-mode .admin-badge {
+      background: rgba(255, 193, 7, 0.2);
+      color: #ffc107;
+    }
+
+    .report-item {
+      padding: 12px;
+      background: rgba(0, 0, 0, 0.03);
+      border-radius: 6px;
+      margin-bottom: 12px;
+      border-left: 3px solid #dc3545;
+    }
+
+    body.dark-mode .report-item {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .report-message {
+      font-size: 13px;
+      margin-bottom: 8px;
+      padding: 8px;
+      background: rgba(0, 0, 0, 0.05);
+      border-radius: 4px;
+    }
+
+    body.dark-mode .report-message {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .report-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 8px;
+    }
+
+    .report-actions button {
+      flex: 1;
+      padding: 6px 12px;
+      font-size: 12px;
+    }
+
+    /* Admin message menu */
+    .admin-message-menu {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: rgba(0, 0, 0, 0.7);
+      border-radius: 4px;
+      padding: 4px;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      z-index: 10;
+    }
+
+    .message:hover .admin-message-menu {
+      opacity: 1;
+    }
+
+    .admin-message-menu button {
+      background: transparent;
+      border: none;
+      color: white;
+      padding: 4px 8px;
+      cursor: pointer;
+      font-size: 12px;
+      border-radius: 3px;
+    }
+
+    .admin-message-menu button:hover {
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Admin message styling */
+    .message.admin-style-admin {
+      background: rgba(255, 215, 0, 0.3) !important;
+      border-left: 4px solid gold !important;
+    }
+
+    .message.admin-style-admin .message-content {
+      font-size: 150%;
+      font-weight: 600;
+      color: gold;
+    }
+
+    .message.admin-style-server {
+      background: rgba(220, 53, 69, 0.3) !important;
+      border-left: 4px solid #dc3545 !important;
+    }
+
+    .message.admin-style-server .message-content {
+      font-size: 150%;
+      font-weight: 600;
+      color: #dc3545;
+    }
+
+    body.dark-mode .message.admin-style-server .message-content {
+      color: #ff6b6b;
+    }
+
+    .message.admin-style-custom .nickname {
+      color: gold;
+      font-weight: 700;
+    }
+
     @media (max-width: 768px) {
       .container {
         flex-direction: column;
@@ -1498,13 +1808,22 @@
       body.dark-mode .sidebar {
         border-top-color: rgba(255, 255, 255, 0.2);
       }
+
+      .admin-panel {
+        width: 100%;
+        right: -100%;
+      }
     }
   </style>
 </head>
 <body class="light-mode">
   <div class="container">
     <!-- Left Sidebar for Conversations -->
-    <div class="left-sidebar">
+    <div class="left-sidebar" id="leftSidebar">
+      <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle sidebar">
+        <span id="sidebarToggleIcon">◀</span>
+      </button>
+      
       <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px;">Chats</h2>
       
       <div class="conversation-list">
@@ -1528,7 +1847,13 @@
           <p><strong>Signed in as:</strong></p>
           <p id="userDisplayName">Username (role)</p>
         </div>
-        <button class="auth-button secondary" onclick="logout()">Log out</button>
+        <div class="auth-buttons">
+          <button class="auth-button secondary" onclick="logout()">Log out</button>
+          <button class="auth-button primary" id="adminSettingsBtn" style="display: none;" onclick="openAdminSettings()">Settings</button>
+        </div>
+        <button class="auth-button primary" id="adminPanelBtn" style="display: none; margin-top: 8px;" onclick="toggleAdminPanel()">
+          Admin Panel
+        </button>
       </div>
     </div>
 
@@ -2566,9 +2891,16 @@
         wsUrl += `&clientId=${encodeURIComponent(myClientId)}`;
       }
       
+      // Add admin token if user is logged in
+      const adminToken = localStorage.getItem('private_token');
+      if (adminToken) {
+        wsUrl += `&adminToken=${encodeURIComponent(adminToken)}`;
+        console.log('[CONNECT] Including admin token');
+      }
+      
       console.log('========================================');
       console.log('[CONNECT] Attempting WebSocket connection');
-      console.log('[CONNECT] URL:', wsUrl);
+      console.log('[CONNECT] URL:', wsUrl.replace(/adminToken=[^&]+/, 'adminToken=***'));
       console.log('[CONNECT] Token:', clientToken);
       console.log('[CONNECT] myClientId:', myClientId || '(none - will get new one)');
       console.log('========================================');
@@ -2648,6 +2980,34 @@
               showProfanityMuteMessage(muteUntil, data.profanityStrikes);
               disableInputs(true);
             }
+          }
+          
+          // Handle admin user info
+          if (data.adminUser) {
+            currentAdminUser = data.adminUser;
+            console.log('[ADMIN] Authenticated as:', currentAdminUser.username, '(', currentAdminUser.role, ')');
+          }
+          
+          // Handle chat lock status
+          if (data.chatLocked !== undefined) {
+            const toggle = document.getElementById('chatLockToggle');
+            if (toggle) {
+              if (data.chatLocked) {
+                toggle.classList.add('active');
+              } else {
+                toggle.classList.remove('active');
+              }
+            }
+            
+            // Show banner if locked
+            if (data.chatLocked) {
+              showStatusMessage('Chat is currently locked by admin', 'chat_locked');
+            }
+          }
+          
+          // Handle reports (admin only)
+          if (data.reports && currentAdminUser && currentAdminUser.role === 'admin') {
+            updateReportsList(data.reports);
           }
           
           refreshDeleteButtons();
@@ -2795,6 +3155,63 @@
             ...data,
             action: 'blocked_name'
           });
+        } else if (data.type === 'admin_banned') {
+          // Admin ban
+          showStatusMessage(`You have been banned by admin for ${data.seconds} seconds`, 'error');
+          disableInputs(true);
+          setTimeout(() => {
+            disableInputs(false);
+            hideStatusMessage();
+          }, data.seconds * 1000);
+        } else if (data.type === 'chat_lock_changed') {
+          // Chat lock changed
+          const toggle = document.getElementById('chatLockToggle');
+          if (toggle) {
+            if (data.locked) {
+              toggle.classList.add('active');
+            } else {
+              toggle.classList.remove('active');
+            }
+          }
+          
+          if (data.locked) {
+            showStatusMessage('Chat has been locked by ' + data.lockedBy, 'chat_locked');
+            if (!currentAdminUser || currentAdminUser.role !== 'admin') {
+              disableInputs(true);
+            }
+          } else {
+            hideStatusMessage();
+            disableInputs(false);
+          }
+        } else if (data.type === 'chat_locked') {
+          // Attempt to send message while chat is locked
+          showStatusMessage('Chat is currently locked by admin', 'error');
+        } else if (data.type === 'chat_wiped') {
+          // All messages wiped
+          const messagesDiv = document.getElementById('messages');
+          messagesDiv.innerHTML = '';
+          showToast('All messages have been deleted by ' + data.wipedBy, 'error');
+        } else if (data.type === 'new_report') {
+          // New report received (admin only)
+          if (currentAdminUser && currentAdminUser.role === 'admin') {
+            currentReports.push(data.report);
+            updateReportsList(currentReports);
+            showToast('New report received', 'warning');
+          }
+        } else if (data.type === 'report_dismissed') {
+          // Report dismissed (admin only)
+          if (currentAdminUser && currentAdminUser.role === 'admin') {
+            currentReports = currentReports.filter(r => r.id !== data.reportId);
+            updateReportsList(currentReports);
+          }
+        } else if (data.type === 'report_success') {
+          showToast('Report submitted', 'success');
+        } else if (data.type === 'admin_delete_success') {
+          showToast('Message deleted', 'success');
+        } else if (data.type === 'admin_ban_success') {
+          showToast('User banned', 'success');
+        } else if (data.type === 'admin_wipe_success') {
+          showToast('All data wiped', 'success');
         }
       };
 
@@ -2985,6 +3402,17 @@
         messageDiv.classList.add('message-failed');
       }
       
+      // Admin message styling
+      if (data.displayMode) {
+        if (data.displayMode === 'admin') {
+          messageDiv.classList.add('admin-style-admin');
+        } else if (data.displayMode === 'server') {
+          messageDiv.classList.add('admin-style-server');
+        } else if (data.displayMode === 'custom') {
+          messageDiv.classList.add('admin-style-custom');
+        }
+      }
+      
       if (msgId) {
         messageDiv.setAttribute('data-msg-id', msgId);
         // Track this message in our rendered map
@@ -2993,6 +3421,11 @@
       
       if (data.senderId) {
         messageDiv.setAttribute('data-sender-id', data.senderId);
+      }
+      
+      // Store gcSid if available for admin actions
+      if (data.gcSid) {
+        messageDiv.setAttribute('data-gc-sid', data.gcSid);
       }
 
       const timestamp = new Date(data.timestamp).toLocaleString();
@@ -3088,9 +3521,19 @@
           '- myClientId:', myClientId);
       }
 
+      // Determine display name based on admin mode
+      let displayName = data.nickname;
+      if (data.displayMode === 'admin') {
+        displayName = 'Admin';
+      } else if (data.displayMode === 'server') {
+        displayName = 'SERVER';
+      } else if (data.displayMode === 'custom' && data.displayNameOverride) {
+        displayName = data.displayNameOverride;
+      }
+      
       messageDiv.innerHTML = `
         <div class="message-header">
-          <span class="nickname">${escapeHtml(data.nickname)}</span>
+          <span class="nickname">${escapeHtml(displayName)}</span>
           <span class="timestamp">${timestamp}</span>
         </div>
         ${content}
@@ -3099,6 +3542,33 @@
       `;
 
       messagesDiv.appendChild(messageDiv);
+      
+      // Add admin menu or report button
+      if (currentAdminUser && currentAdminUser.role === 'admin') {
+        // Add admin message menu
+        const menu = document.createElement('div');
+        menu.className = 'admin-message-menu';
+        const gcSid = data.gcSid || data.senderId;
+        menu.innerHTML = `
+          <button onclick="adminDeleteMessage('${data.id}')">Delete</button>
+          <button onclick="openBanModal('${gcSid}', '${data.id}')">Ban</button>
+        `;
+        messageDiv.appendChild(menu);
+      } else if (!isOwnMessage && data.type === 'text') {
+        // Add report button for non-admin users (but not on own messages)
+        const reportBtn = document.createElement('button');
+        reportBtn.className = 'admin-message-menu';
+        reportBtn.innerHTML = `<button onclick="reportMessage('${data.id}', '${escapeHtml(data.text || '').replace(/'/g, '\\\'').substring(0, 100)}', '${data.senderId}', '${escapeHtml(data.nickname)}')">Report</button>`;
+        reportBtn.style.opacity = '0';
+        reportBtn.style.transition = 'opacity 0.2s ease';
+        messageDiv.appendChild(reportBtn);
+        messageDiv.addEventListener('mouseenter', () => {
+          reportBtn.style.opacity = '1';
+        });
+        messageDiv.addEventListener('mouseleave', () => {
+          reportBtn.style.opacity = '0';
+        });
+      }
       
       if (data.type === 'image') {
         const imgId = 'img-' + (msgId || Math.random().toString(36).substr(2, 9));
@@ -3633,6 +4103,25 @@
           // Text message with rich formatting
           console.log('[SEND] Sending text message with formatting');
           
+          // Check for admin display mode
+          let displayMode = null;
+          let displayNameOverride = null;
+          
+          if (currentAdminUser && currentAdminUser.role === 'admin') {
+            const modeSelect = document.getElementById('adminMessageMode');
+            if (modeSelect && modeSelect.value !== 'normal') {
+              displayMode = modeSelect.value;
+              
+              if (displayMode === 'custom') {
+                const customNameInput = document.getElementById('adminCustomName');
+                displayNameOverride = customNameInput ? customNameInput.value.trim() : null;
+                if (!displayNameOverride) {
+                  displayMode = null; // Reset if no custom name provided
+                }
+              }
+            }
+          }
+          
           const messageData = {
             type: 'text',
             id: messageId,
@@ -3641,7 +4130,9 @@
             timestamp,
             html: html,
             text: text.substring(0, 1000),
-            senderId: myClientId
+            senderId: myClientId,
+            displayMode: displayMode,
+            displayNameOverride: displayNameOverride
           };
           
           // REMOVED OPTIMISTIC ECHO: No longer show message locally before server confirms
@@ -4634,6 +5125,92 @@
     });
   </script>
 
+  <!-- Admin Panel -->
+  <div class="admin-panel" id="adminPanel">
+    <div class="admin-panel-header">
+      <h2>Admin Panel</h2>
+      <button class="modal-close" onclick="toggleAdminPanel()" style="position: static; margin: 0;">×</button>
+    </div>
+    <div class="admin-panel-content">
+      <!-- Chat Controls -->
+      <div class="admin-section">
+        <h3>Chat Controls</h3>
+        <div class="admin-toggle">
+          <span>Lock Chat (admins only)</span>
+          <div class="toggle-switch" id="chatLockToggle" onclick="toggleChatLock()"></div>
+        </div>
+        <button class="admin-button danger" onclick="confirmWipeData()">Delete All Chats & Uploads</button>
+      </div>
+
+      <!-- Message Composer Mode (Admin Only) -->
+      <div class="admin-section">
+        <h3>Message Display Mode</h3>
+        <select id="adminMessageMode" class="toolbar-select" style="width: 100%; margin-bottom: 8px;">
+          <option value="normal">Normal</option>
+          <option value="admin">Admin (150% GOLD)</option>
+          <option value="server">SERVER (150% RED)</option>
+          <option value="custom">Custom (GOLD)</option>
+        </select>
+        <input type="text" id="adminCustomName" placeholder="Custom display name" style="width: 100%; display: none;" />
+      </div>
+
+      <!-- Reports -->
+      <div class="admin-section">
+        <h3>Reports <span id="reportCount" class="admin-badge">0</span></h3>
+        <div id="reportsList"></div>
+        <p id="noReports" style="opacity: 0.6; font-size: 13px; text-align: center;">No reports</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings Modal (Admin) -->
+  <div class="modal" id="settingsModal">
+    <div class="modal-content auth-modal-content">
+      <button class="modal-close" onclick="closeSettingsModal()">×</button>
+      <h2>Settings</h2>
+      <div class="auth-form">
+        <div id="settingsError" class="auth-error" style="display: none;"></div>
+        <div id="settingsSuccess" class="auth-error" style="display: none; background: rgba(34, 197, 94, 0.1); border-color: rgba(34, 197, 94, 0.3); color: #22c55e;"></div>
+        
+        <label>
+          <strong>Change Username</strong>
+          <input type="text" id="newUsername" placeholder="New username" />
+        </label>
+        <button class="auth-button primary" onclick="changeUsername()">Update Username</button>
+        
+        <hr style="border: none; border-top: 1px solid rgba(0,0,0,0.1); margin: 16px 0;" />
+        
+        <label>
+          <strong>Change Password</strong>
+          <input type="password" id="currentPassword" placeholder="Current password" />
+        </label>
+        <label>
+          <input type="password" id="newPassword" placeholder="New password (min 6 chars)" />
+        </label>
+        <button class="auth-button primary" onclick="changePassword()">Update Password</button>
+        
+        <button class="auth-button" onclick="closeSettingsModal()" style="margin-top: 16px;">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Ban Duration Modal -->
+  <div class="modal" id="banModal">
+    <div class="modal-content auth-modal-content">
+      <button class="modal-close" onclick="closeBanModal()">×</button>
+      <h2>Ban User</h2>
+      <div class="auth-form">
+        <p style="margin-bottom: 16px;">Select ban duration:</p>
+        <button class="admin-button warning" onclick="executeBan(30000)">30 seconds</button>
+        <button class="admin-button warning" onclick="executeBan(60000)">1 minute</button>
+        <button class="admin-button warning" onclick="executeBan(600000)">10 minutes</button>
+        <button class="admin-button warning" onclick="executeBan(3600000)">1 hour</button>
+        <button class="admin-button danger" onclick="executeBan(86400000)">1 day</button>
+        <button class="auth-button" onclick="closeBanModal()" style="margin-top: 8px;">Cancel</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Sign-in Modal -->
   <div class="modal" id="signInModal">
     <div class="modal-content auth-modal-content">
@@ -4701,9 +5278,19 @@
     }
     
     function showLoggedInState(user) {
+      currentAdminUser = user;
       document.getElementById('authSection').style.display = 'none';
       document.getElementById('userInfoSection').style.display = 'block';
       document.getElementById('userDisplayName').textContent = `${user.username} (${user.role})`;
+      
+      // Show admin UI elements if user is admin
+      if (user.role === 'admin') {
+        document.getElementById('adminPanelBtn').style.display = 'block';
+        document.getElementById('adminSettingsBtn').style.display = 'block';
+      } else {
+        document.getElementById('adminPanelBtn').style.display = 'none';
+        document.getElementById('adminSettingsBtn').style.display = 'none';
+      }
     }
     
     function showLoggedOutState() {
@@ -4782,10 +5369,324 @@
       console.log('Global Chat selected (already active)');
     }
     
+    // Sidebar toggle
+    function toggleSidebar() {
+      const sidebar = document.getElementById('leftSidebar');
+      const icon = document.getElementById('sidebarToggleIcon');
+      sidebar.classList.toggle('collapsed');
+      icon.textContent = sidebar.classList.contains('collapsed') ? '▶' : '◀';
+    }
+
+    // Admin panel functions
+    let currentAdminUser = null;
+    let currentReports = [];
+    let pendingBanData = null;
+
+    function toggleAdminPanel() {
+      const panel = document.getElementById('adminPanel');
+      panel.classList.toggle('open');
+    }
+
+    function toggleChatLock() {
+      if (!currentAdminUser || currentAdminUser.role !== 'admin') return;
+      
+      const toggle = document.getElementById('chatLockToggle');
+      const isLocked = toggle.classList.contains('active');
+      const newState = !isLocked;
+      
+      // Send to server
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: 'admin_lock_chat',
+          locked: newState
+        }));
+        
+        // Update UI immediately
+        if (newState) {
+          toggle.classList.add('active');
+        } else {
+          toggle.classList.remove('active');
+        }
+      }
+    }
+
+    function confirmWipeData() {
+      if (!currentAdminUser || currentAdminUser.role !== 'admin') return;
+      
+      if (confirm('⚠️ WARNING: This will DELETE ALL messages and uploaded files!\n\nThis action CANNOT be undone.\n\nAre you absolutely sure?')) {
+        if (confirm('Please confirm one more time: Delete EVERYTHING?')) {
+          wipeAllData();
+        }
+      }
+    }
+
+    function wipeAllData() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      
+      ws.send(JSON.stringify({
+        type: 'admin_wipe_data'
+      }));
+    }
+
+    function openAdminSettings() {
+      document.getElementById('settingsModal').classList.add('active');
+      document.getElementById('settingsError').style.display = 'none';
+      document.getElementById('settingsSuccess').style.display = 'none';
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settingsModal').classList.remove('active');
+    }
+
+    async function changeUsername() {
+      const newUsername = document.getElementById('newUsername').value.trim();
+      const errorDiv = document.getElementById('settingsError');
+      const successDiv = document.getElementById('settingsSuccess');
+      
+      errorDiv.style.display = 'none';
+      successDiv.style.display = 'none';
+      
+      if (!newUsername) {
+        errorDiv.textContent = 'Please enter a new username';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      
+      try {
+        const token = localStorage.getItem('private_token');
+        const response = await fetch(`${PRIVATE_API_BASE}/account/change-username`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ newUsername })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to change username');
+        }
+        
+        // Update stored user info
+        localStorage.setItem('private_user', JSON.stringify(data.user));
+        document.getElementById('userDisplayName').textContent = `${data.user.username} (${data.user.role})`;
+        currentAdminUser = data.user;
+        
+        successDiv.textContent = 'Username updated successfully!';
+        successDiv.style.display = 'block';
+        document.getElementById('newUsername').value = '';
+      } catch (error) {
+        errorDiv.textContent = error.message;
+        errorDiv.style.display = 'block';
+      }
+    }
+
+    async function changePassword() {
+      const currentPassword = document.getElementById('currentPassword').value;
+      const newPassword = document.getElementById('newPassword').value;
+      const errorDiv = document.getElementById('settingsError');
+      const successDiv = document.getElementById('settingsSuccess');
+      
+      errorDiv.style.display = 'none';
+      successDiv.style.display = 'none';
+      
+      if (!currentPassword || !newPassword) {
+        errorDiv.textContent = 'Please fill in both password fields';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      
+      if (newPassword.length < 6) {
+        errorDiv.textContent = 'New password must be at least 6 characters';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      
+      try {
+        const token = localStorage.getItem('private_token');
+        const response = await fetch(`${PRIVATE_API_BASE}/account/change-password`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ currentPassword, newPassword })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to change password');
+        }
+        
+        successDiv.textContent = 'Password changed successfully!';
+        successDiv.style.display = 'block';
+        document.getElementById('currentPassword').value = '';
+        document.getElementById('newPassword').value = '';
+      } catch (error) {
+        errorDiv.textContent = error.message;
+        errorDiv.style.display = 'block';
+      }
+    }
+
+    // Ban modal functions
+    function openBanModal(gcSid, messageId) {
+      pendingBanData = { gcSid, messageId };
+      document.getElementById('banModal').classList.add('active');
+    }
+
+    function closeBanModal() {
+      document.getElementById('banModal').classList.remove('active');
+      pendingBanData = null;
+    }
+
+    function executeBan(duration) {
+      if (!pendingBanData || !ws || ws.readyState !== WebSocket.OPEN) {
+        closeBanModal();
+        return;
+      }
+      
+      ws.send(JSON.stringify({
+        type: 'admin_ban',
+        gcSid: pendingBanData.gcSid,
+        duration: duration,
+        deleteMessage: true,
+        messageId: pendingBanData.messageId
+      }));
+      
+      closeBanModal();
+      showToast('User banned', 'success');
+    }
+
+    // Report functions
+    function reportMessage(messageId, messageText, messageSender, messageNickname) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      
+      const reason = prompt('Why are you reporting this message? (optional)');
+      
+      ws.send(JSON.stringify({
+        type: 'report_message',
+        messageId: messageId,
+        reason: reason || 'No reason provided',
+        reporterNickname: localStorage.getItem('nickname') || 'Anonymous'
+      }));
+      
+      showToast('Report submitted', 'success');
+    }
+
+    function updateReportsList(reports) {
+      currentReports = reports;
+      const reportsList = document.getElementById('reportsList');
+      const noReports = document.getElementById('noReports');
+      const reportCount = document.getElementById('reportCount');
+      
+      reportCount.textContent = reports.length;
+      
+      if (reports.length === 0) {
+        reportsList.innerHTML = '';
+        noReports.style.display = 'block';
+      } else {
+        noReports.style.display = 'none';
+        reportsList.innerHTML = reports.map(report => `
+          <div class="report-item">
+            <div style="font-size: 12px; opacity: 0.7; margin-bottom: 4px;">
+              Reported by ${report.reporterNickname} • ${new Date(report.timestamp).toLocaleTimeString()}
+            </div>
+            <div class="report-message">
+              <strong>${report.messageNickname}:</strong> ${report.messageText.substring(0, 100)}
+            </div>
+            <div style="font-size: 12px; opacity: 0.7; margin-top: 4px;">
+              Reason: ${report.reason}
+            </div>
+            <div class="report-actions">
+              <button class="admin-button" style="background: #6c757d; color: white;" onclick="dismissReport('${report.id}')">Dismiss</button>
+              <button class="admin-button danger" onclick="deleteFromReport('${report.id}', '${report.messageId}')">Delete Msg</button>
+              <button class="admin-button warning" onclick="banFromReport('${report.id}', '${report.messageSender}', '${report.messageId}')">Ban User</button>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
+
+    function dismissReport(reportId) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      
+      ws.send(JSON.stringify({
+        type: 'admin_dismiss_report',
+        reportId: reportId
+      }));
+    }
+
+    function deleteFromReport(reportId, messageId) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      
+      ws.send(JSON.stringify({
+        type: 'admin_delete',
+        messageId: messageId
+      }));
+      
+      // Also dismiss the report
+      dismissReport(reportId);
+    }
+
+    function banFromReport(reportId, gcSid, messageId) {
+      // Dismiss report first
+      dismissReport(reportId);
+      // Open ban modal
+      openBanModal(gcSid, messageId);
+    }
+
+    // Admin message menu
+    function addAdminMessageMenu(messageDiv, messageData) {
+      if (!currentAdminUser || currentAdminUser.role !== 'admin') return;
+      
+      const menu = document.createElement('div');
+      menu.className = 'admin-message-menu';
+      menu.innerHTML = `
+        <button onclick="adminDeleteMessage('${messageData.id}')">Delete</button>
+        <button onclick="openBanModal('${messageData.gcSid || messageData.senderId}', '${messageData.id}')">Ban</button>
+      `;
+      messageDiv.appendChild(menu);
+    }
+
+    function adminDeleteMessage(messageId) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!confirm('Delete this message for everyone?')) return;
+      
+      ws.send(JSON.stringify({
+        type: 'admin_delete',
+        messageId: messageId
+      }));
+    }
+
+    // Update message mode dropdown
+    document.getElementById('adminMessageMode')?.addEventListener('change', (e) => {
+      const customNameInput = document.getElementById('adminCustomName');
+      if (e.target.value === 'custom') {
+        customNameInput.style.display = 'block';
+      } else {
+        customNameInput.style.display = 'none';
+      }
+    });
+    
     // Close modal when clicking outside
     document.getElementById('signInModal').addEventListener('click', (e) => {
       if (e.target === document.getElementById('signInModal')) {
         closeSignInModal();
+      }
+    });
+    
+    document.getElementById('settingsModal')?.addEventListener('click', (e) => {
+      if (e.target === document.getElementById('settingsModal')) {
+        closeSettingsModal();
+      }
+    });
+    
+    document.getElementById('banModal')?.addEventListener('click', (e) => {
+      if (e.target === document.getElementById('banModal')) {
+        closeBanModal();
       }
     });
   </script>
