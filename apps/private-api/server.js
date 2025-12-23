@@ -54,7 +54,7 @@ const corsOptions = {
       callback(new Error('Not allowed by CORS'));
     }
   },
-  methods: ['GET', 'POST', 'OPTIONS'],
+  methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 };
@@ -144,6 +144,55 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
+// Report Model
+const reportSchema = new mongoose.Schema({
+  reportedMessageId: {
+    type: String,
+    required: true,
+    index: true
+  },
+  reportedSenderClientId: {
+    type: String,
+    required: true,
+    index: true
+  },
+  reporterClientId: {
+    type: String,
+    required: true,
+    index: true
+  },
+  messageText: {
+    type: String,
+    required: true
+  },
+  messageTimestamp: {
+    type: Number,
+    required: true
+  },
+  reportTimestamp: {
+    type: Date,
+    default: Date.now,
+    index: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+    index: true
+  },
+  room: {
+    type: String,
+    default: 'global'
+  }
+});
+
+// TTL index to auto-delete reports after 20 minutes
+reportSchema.index({ createdAt: 1 }, { expireAfterSeconds: 1200 });
+
+const Report = mongoose.model('Report', reportSchema);
+
+// Rate limiting storage for reports
+const reportRateLimits = new Map(); // reporterClientId -> lastReportTime
+
 // Utility: Generate fake phone number
 function generateFakeNumber() {
   const areaCode = Math.floor(Math.random() * 900) + 100;
@@ -199,7 +248,12 @@ app.get('/', (req, res) => {
       health: 'GET /health',
       signup: 'POST /auth/signup',
       login: 'POST /auth/login',
-      me: 'GET /me'
+      me: 'GET /me',
+      reports: {
+        create: 'POST /reports/create',
+        list: 'GET /reports/list',
+        delete: 'DELETE /reports/:id'
+      }
     }
   });
 });
@@ -490,6 +544,133 @@ app.post('/account/change-password', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /reports/create - Create a message report
+app.post('/reports/create', async (req, res) => {
+  try {
+    const { reportedMessageId, reportedSenderClientId, reporterClientId, messageText, messageTimestamp } = req.body;
+
+    // Validation
+    if (!reportedMessageId || !reportedSenderClientId || !reporterClientId || !messageText || !messageTimestamp) {
+      return res.status(400).json({ error: 'All fields are required: reportedMessageId, reportedSenderClientId, reporterClientId, messageText, messageTimestamp' });
+    }
+
+    // Rate limiting: 1 report per 60 seconds per reporterClientId
+    const now = Date.now();
+    const lastReportTime = reportRateLimits.get(reporterClientId);
+    
+    if (lastReportTime) {
+      const timeSinceLastReport = now - lastReportTime;
+      if (timeSinceLastReport < 60000) {
+        const retryAfterSec = Math.ceil((60000 - timeSinceLastReport) / 1000);
+        console.log(`[REPORTS] Rate limit hit for ${reporterClientId}, retry in ${retryAfterSec}s`);
+        return res.status(429).json({ 
+          error: 'RATE_LIMIT', 
+          retryAfterSec: retryAfterSec 
+        });
+      }
+    }
+
+    // Deduplication: check if same reporter reported same message in last 20 minutes
+    const existingReport = await Report.findOne({
+      reporterClientId: reporterClientId,
+      reportedMessageId: reportedMessageId,
+      createdAt: { $gte: new Date(now - 20 * 60 * 1000) }
+    });
+
+    if (existingReport) {
+      console.log(`[REPORTS] Duplicate report rejected for message ${reportedMessageId} by ${reporterClientId}`);
+      return res.status(409).json({ error: 'DUPLICATE_REPORT' });
+    }
+
+    // Create report
+    const report = new Report({
+      reportedMessageId,
+      reportedSenderClientId,
+      reporterClientId,
+      messageText: messageText.substring(0, 1000),
+      messageTimestamp,
+      reportTimestamp: new Date(),
+      createdAt: new Date(),
+      room: 'global'
+    });
+
+    await report.save();
+
+    // Update rate limit tracking
+    reportRateLimits.set(reporterClientId, now);
+
+    console.log(`[REPORTS] Report created: ${report._id} for message ${reportedMessageId}`);
+
+    res.status(201).json({ 
+      ok: true,
+      reportId: report._id 
+    });
+  } catch (error) {
+    console.error('[REPORTS] Error creating report:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// GET /reports/list - Get recent reports (admin-only)
+app.get('/reports/list', authenticateToken, async (req, res) => {
+  try {
+    // Verify admin role
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    // Get the 10 most recent reports that haven't expired
+    const reports = await Report.find()
+      .sort({ reportTimestamp: -1 })
+      .limit(10)
+      .lean();
+
+    console.log(`[REPORTS] Admin ${req.user.username} fetched ${reports.length} reports`);
+
+    res.json({ 
+      reports: reports.map(r => ({
+        id: r._id,
+        reportedMessageId: r.reportedMessageId,
+        reportedSenderClientId: r.reportedSenderClientId,
+        reporterClientId: r.reporterClientId,
+        messageText: r.messageText,
+        messageTimestamp: r.messageTimestamp,
+        reportTimestamp: r.reportTimestamp,
+        room: r.room
+      }))
+    });
+  } catch (error) {
+    console.error('[REPORTS] Error listing reports:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// DELETE /reports/:id - Delete a report (admin-only)
+app.delete('/reports/:id', authenticateToken, async (req, res) => {
+  try {
+    // Verify admin role
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+
+    const reportId = req.params.id;
+
+    const result = await Report.deleteOne({ _id: reportId });
+
+    if (result.deletedCount === 0) {
+      console.log(`[REPORTS] Report ${reportId} not found`);
+      return res.status(404).json({ error: 'Report not found' });
+    }
+
+    console.log(`[REPORTS] Admin ${req.user.username} deleted report ${reportId}`);
+
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('[REPORTS] Error deleting report:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
@@ -519,5 +700,8 @@ app.listen(PORT, () => {
   console.log('  POST /verify-token');
   console.log('  POST /account/change-username');
   console.log('  POST /account/change-password');
+  console.log('  POST /reports/create');
+  console.log('  GET  /reports/list');
+  console.log('  DELETE /reports/:id');
   console.log('========================================');
 });

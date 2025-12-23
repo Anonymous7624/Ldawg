@@ -175,7 +175,6 @@ const adminSessions = new Map(); // token -> { username, role, email }
 const STATE_FILE = path.join(__dirname, 'state.json');
 let serverState = {
   chatLocked: false,
-  reports: [], // { id, messageId, messageText, messageSender, messageTimestamp, reporterId, reporterNickname, reason, timestamp }
   adminBans: {} // { gcSid: { bannedUntil, bannedBy, reason } }
 };
 
@@ -189,7 +188,6 @@ function loadServerState() {
       // Merge with defaults
       serverState = {
         chatLocked: loadedState.chatLocked || false,
-        reports: loadedState.reports || [],
         adminBans: loadedState.adminBans || {}
       };
       
@@ -202,7 +200,7 @@ function loadServerState() {
         }
       }
       
-      console.log(`[STATE] Loaded state from file: chatLocked=${serverState.chatLocked}, reports=${serverState.reports.length}, activeBans=${adminBans.size}`);
+      console.log(`[STATE] Loaded state from file: chatLocked=${serverState.chatLocked}, activeBans=${adminBans.size}`);
     }
   } catch (error) {
     console.error('[STATE] Error loading state:', error.message);
@@ -223,7 +221,7 @@ function saveServerState() {
     serverState.adminBans = adminBansObj;
     
     fs.writeFileSync(STATE_FILE, JSON.stringify(serverState, null, 2), 'utf-8');
-    console.log(`[STATE] Saved state to file: chatLocked=${serverState.chatLocked}, reports=${serverState.reports.length}, bans=${Object.keys(adminBansObj).length}`);
+    console.log(`[STATE] Saved state to file: chatLocked=${serverState.chatLocked}, bans=${Object.keys(adminBansObj).length}`);
   } catch (error) {
     console.error('[STATE] Error saving state:', error.message);
   }
@@ -699,8 +697,7 @@ wss.on('connection', async (ws, req) => {
     profanityMuted: isProfanityMuted(profState),
     muteUntil: profState.muteUntil > now() ? profState.muteUntil : undefined,
     adminUser: adminUser, // Send admin user info if authenticated
-    chatLocked: serverState.chatLocked, // Send chat lock status
-    reports: adminUser && adminUser.role === 'admin' ? serverState.reports : undefined // Send reports to admins
+    chatLocked: serverState.chatLocked // Send chat lock status
   }));
 
   // Send chat history from database
@@ -1031,94 +1028,6 @@ wss.on('connection', async (ws, req) => {
             error: error.message 
           }));
         }
-
-        return;
-      }
-
-      // Handle report message
-      if (message.type === "report_message") {
-        const { messageId, reason } = message;
-        if (!messageId) {
-          console.log(`[REPORT] ❌ No messageId provided`);
-          return;
-        }
-
-        try {
-          // Get the message from database
-          const allMessages = await getRecentMessages(MAX_MESSAGES);
-          const reportedMessage = allMessages.find(m => m.id === messageId);
-          
-          if (!reportedMessage) {
-            console.log(`[REPORT] ❌ Message not found`);
-            return;
-          }
-
-          // Create report
-          const report = {
-            id: crypto.randomBytes(8).toString('hex'),
-            messageId: reportedMessage.id,
-            messageText: reportedMessage.text || reportedMessage.caption || '(media)',
-            messageSender: reportedMessage.senderClientId || reportedMessage.senderId, // Use senderClientId for ban targeting
-            messageNickname: reportedMessage.nickname,
-            messageTimestamp: reportedMessage.timestamp,
-            reporterId: info.gcSid,
-            reporterNickname: message.reporterNickname || 'Anonymous',
-            reason: reason || 'No reason provided',
-            timestamp: now()
-          };
-
-          serverState.reports.push(report);
-          saveServerState();
-          console.log(`[REPORT] Report created: ${report.id} for message ${messageId}`);
-
-          // Notify all admins
-          wss.clients.forEach(client => {
-            const clientInfo = clients.get(client);
-            if (clientInfo && clientInfo.adminUser && clientInfo.adminUser.role === 'admin' && client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify({
-                type: 'new_report',
-                report: report
-              }));
-            }
-          });
-
-          // Send confirmation to reporter
-          ws.send(JSON.stringify({ type: 'report_success' }));
-        } catch (error) {
-          console.error(`[REPORT] Error:`, error);
-          ws.send(JSON.stringify({ type: 'report_error', error: error.message }));
-        }
-
-        return;
-      }
-
-      // Handle admin dismiss report
-      if (message.type === "admin_dismiss_report") {
-        if (!info.adminUser || info.adminUser.role !== 'admin') {
-          console.log(`[ADMIN-REPORT] ❌ Unauthorized: not admin`);
-          return;
-        }
-
-        const { reportId } = message;
-        if (!reportId) {
-          console.log(`[ADMIN-REPORT] ❌ No reportId provided`);
-          return;
-        }
-
-        serverState.reports = serverState.reports.filter(r => r.id !== reportId);
-        saveServerState();
-        console.log(`[ADMIN-REPORT] Admin ${info.adminUser.username} dismissed report ${reportId}`);
-
-        // Notify all admins
-        wss.clients.forEach(client => {
-          const clientInfo = clients.get(client);
-          if (clientInfo && clientInfo.adminUser && clientInfo.adminUser.role === 'admin' && client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({
-              type: 'report_dismissed',
-              reportId: reportId
-            }));
-          }
-        });
 
         return;
       }

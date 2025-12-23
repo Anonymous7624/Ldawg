@@ -3265,10 +3265,6 @@
           }
           
           // Handle reports (admin only)
-          if (data.reports && currentAdminUser && currentAdminUser.role === 'admin') {
-            updateReportsList(data.reports);
-          }
-          
           refreshDeleteButtons();
         } else if (data.type === 'online') {
           setOnlineCount(data.count, data.users);
@@ -3477,21 +3473,6 @@
           const messagesDiv = document.getElementById('messages');
           messagesDiv.innerHTML = '';
           showToast('All messages have been deleted by ' + data.wipedBy, 'error');
-        } else if (data.type === 'new_report') {
-          // New report received (admin only)
-          if (currentAdminUser && currentAdminUser.role === 'admin') {
-            currentReports.push(data.report);
-            updateReportsList(currentReports);
-            showToast('New report received', 'warning');
-          }
-        } else if (data.type === 'report_dismissed') {
-          // Report dismissed (admin only)
-          if (currentAdminUser && currentAdminUser.role === 'admin') {
-            currentReports = currentReports.filter(r => r.id !== data.reportId);
-            updateReportsList(currentReports);
-          }
-        } else if (data.type === 'report_success') {
-          showToast('Report submitted', 'success');
         } else if (data.type === 'admin_delete_success') {
           showToast('Message deleted', 'success');
         } else if (data.type === 'admin_ban_success') {
@@ -3733,7 +3714,12 @@
         messageDiv.setAttribute('data-sender-id', data.senderId);
       }
       
-      // Store gcSid if available for admin actions
+      // Store senderClientId (cookie-based stable ID) for reports and admin actions
+      if (data.senderClientId) {
+        messageDiv.setAttribute('data-sender-client-id', data.senderClientId);
+      }
+      
+      // Store gcSid if available for admin actions (backward compatibility)
       if (data.gcSid) {
         messageDiv.setAttribute('data-gc-sid', data.gcSid);
       }
@@ -3869,11 +3855,13 @@
           <button onclick="openBanModal('${senderClientId}', '${data.id}')">Ban</button>
         `;
         messageDiv.appendChild(menu);
-      } else if (!isOwnMessage && data.type === 'text') {
+      } else if (!isOwnMessage) {
         // Add report button for non-admin users (but not on own messages)
+        // Allow reporting any message type
+        const messageText = data.text || data.caption || `[${data.type}]`;
         const reportBtn = document.createElement('button');
         reportBtn.className = 'admin-message-menu';
-        reportBtn.innerHTML = `<button onclick="reportMessage('${data.id}', '${escapeHtml(data.text || '').replace(/'/g, '\\\'').substring(0, 100)}', '${data.senderId}', '${escapeHtml(data.nickname)}')">Report</button>`;
+        reportBtn.innerHTML = `<button onclick="reportMessage('${data.id}', '${escapeHtml(messageText).replace(/'/g, '\\\'').substring(0, 100)}', '${data.senderId}', '${escapeHtml(data.nickname)}')">Report</button>`;
         reportBtn.style.opacity = '0';
         reportBtn.style.transition = 'opacity 0.2s ease';
         messageDiv.appendChild(reportBtn);
@@ -5585,6 +5573,15 @@
         if (user.role === 'admin') {
           document.getElementById('nickname').style.display = 'none';
           document.getElementById('adminSenderModeSection').style.display = 'block';
+          
+          // Fetch reports for admin
+          fetchAdminReports();
+          
+          // Auto-refresh reports every 10 seconds
+          if (window.reportsRefreshInterval) {
+            clearInterval(window.reportsRefreshInterval);
+          }
+          window.reportsRefreshInterval = setInterval(fetchAdminReports, 10000);
         } else {
           document.getElementById('nickname').style.display = 'block';
           document.getElementById('adminSenderModeSection').style.display = 'none';
@@ -5598,6 +5595,11 @@
         // Show normal nickname input
         document.getElementById('nickname').style.display = 'block';
         document.getElementById('adminSenderModeSection').style.display = 'none';
+        
+        // Clear reports refresh interval if not admin
+        if (window.reportsRefreshInterval) {
+          clearInterval(window.reportsRefreshInterval);
+        }
       }
       
       // Reconnect WebSocket with token to update role
@@ -5618,6 +5620,11 @@
       document.getElementById('nickname').style.display = 'block';
       document.getElementById('adminSenderModeSection').style.display = 'none';
       currentAdminUser = null;
+      
+      // Clear reports refresh interval
+      if (window.reportsRefreshInterval) {
+        clearInterval(window.reportsRefreshInterval);
+      }
     }
     
     function openSignInModal() {
@@ -5889,21 +5896,113 @@
     }
 
     // Report functions
-    function reportMessage(messageId, messageText, messageSender, messageNickname) {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    async function reportMessage(messageId, messageText, messageSender, messageNickname) {
+      // Get reporter's client ID from gc_sid cookie
+      const reporterClientId = getCookie('gc_sid');
+      if (!reporterClientId) {
+        showToast('Unable to submit report: missing client ID', 'error');
+        return;
+      }
       
-      const reason = prompt('Why are you reporting this message? (optional)');
+      // Get the message element to extract all needed data
+      const messageElement = document.querySelector(`[data-msg-id="${messageId}"]`);
+      if (!messageElement) {
+        showToast('Unable to find message', 'error');
+        return;
+      }
       
-      ws.send(JSON.stringify({
-        type: 'report_message',
-        messageId: messageId,
-        reason: reason || 'No reason provided',
-        reporterNickname: localStorage.getItem('nickname') || 'Anonymous'
-      }));
+      // Extract senderClientId from message element
+      // Try senderClientId first (cookie-based stable ID), fallback to senderId
+      let senderClientId = messageElement.getAttribute('data-sender-client-id');
+      if (!senderClientId) {
+        senderClientId = messageElement.getAttribute('data-sender-id');
+      }
       
-      showToast('Report submitted', 'success');
+      if (!senderClientId) {
+        showToast('Unable to report: missing sender information', 'error');
+        return;
+      }
+      
+      // Get timestamp from DOM
+      let messageTimestamp = Date.now(); // fallback to now
+      const timestampText = messageElement.querySelector('.timestamp')?.textContent;
+      try {
+        if (timestampText) {
+          messageTimestamp = new Date(timestampText).getTime();
+        }
+      } catch (e) {
+        console.error('[REPORT] Error parsing timestamp:', e);
+        // Use current time as fallback
+      }
+      
+      try {
+        const response = await fetch(`${PRIVATE_API_BASE}/reports/create`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            reportedMessageId: messageId,
+            reportedSenderClientId: senderClientId,
+            reporterClientId: reporterClientId,
+            messageText: messageText.substring(0, 1000),
+            messageTimestamp: messageTimestamp
+          })
+        });
+        
+        if (response.status === 429) {
+          const data = await response.json();
+          showToast(`You can report again in ${data.retryAfterSec} seconds`, 'error');
+          return;
+        }
+        
+        if (response.status === 409) {
+          showToast('You already reported this message', 'warning');
+          return;
+        }
+        
+        if (!response.ok) {
+          throw new Error('Failed to submit report');
+        }
+        
+        showToast('Report submitted', 'success');
+        
+        // Refresh admin reports if user is admin
+        if (currentAdminUser && currentAdminUser.role === 'admin') {
+          await fetchAdminReports();
+        }
+      } catch (error) {
+        console.error('[REPORT] Error submitting report:', error);
+        showToast('Failed to submit report', 'error');
+      }
     }
 
+    async function fetchAdminReports() {
+      if (!currentAdminUser || currentAdminUser.role !== 'admin') return;
+      
+      try {
+        const authToken = localStorage.getItem('private_token');
+        if (!authToken) return;
+        
+        const response = await fetch(`${PRIVATE_API_BASE}/reports/list`, {
+          method: 'GET',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch reports');
+        }
+        
+        const data = await response.json();
+        updateReportsList(data.reports || []);
+      } catch (error) {
+        console.error('[REPORTS] Error fetching reports:', error);
+      }
+    }
+    
     function updateReportsList(reports) {
       currentReports = reports;
       const reportsList = document.getElementById('reportsList');
@@ -5917,53 +6016,98 @@
         noReports.style.display = 'block';
       } else {
         noReports.style.display = 'none';
-        reportsList.innerHTML = reports.map(report => `
-          <div class="report-item">
-            <div style="font-size: 12px; opacity: 0.7; margin-bottom: 4px;">
-              Reported by ${report.reporterNickname} • ${new Date(report.timestamp).toLocaleTimeString()}
+        reportsList.innerHTML = reports.map(report => {
+          const reportTime = new Date(report.reportTimestamp);
+          const messageTime = new Date(report.messageTimestamp);
+          return `
+            <div class="report-item">
+              <div style="font-size: 12px; opacity: 0.7; margin-bottom: 4px;">
+                Reported: ${reportTime.toLocaleString()}
+              </div>
+              <div class="report-message">
+                <strong>Sender ID:</strong> ${report.reportedSenderClientId.substring(0, 8)}...<br>
+                <strong>Message:</strong> ${escapeHtml(report.messageText.substring(0, 100))}${report.messageText.length > 100 ? '...' : ''}
+              </div>
+              <div style="font-size: 12px; opacity: 0.7; margin-top: 4px;">
+                Original: ${messageTime.toLocaleString()}
+              </div>
+              <div class="report-actions">
+                <button class="admin-button danger" onclick="deleteMessageFromReport('${report.id}', '${report.reportedMessageId}')">Delete Message</button>
+                <select onchange="banUserFromReport('${report.id}', '${report.reportedSenderClientId}', this.value)" style="padding: 6px; border-radius: 4px; border: 1px solid rgba(0,0,0,0.2); background: rgba(255,193,7,0.2); color: inherit; font-size: 13px;">
+                  <option value="">Ban User...</option>
+                  <option value="30000">30 seconds</option>
+                  <option value="60000">1 minute</option>
+                  <option value="600000">10 minutes</option>
+                  <option value="3600000">1 hour</option>
+                  <option value="86400000">1 day</option>
+                </select>
+                <button class="admin-button" style="background: #6c757d; color: white;" onclick="dismissReport('${report.id}')">Delete Report</button>
+              </div>
             </div>
-            <div class="report-message">
-              <strong>${report.messageNickname}:</strong> ${report.messageText.substring(0, 100)}
-            </div>
-            <div style="font-size: 12px; opacity: 0.7; margin-top: 4px;">
-              Reason: ${report.reason}
-            </div>
-            <div class="report-actions">
-              <button class="admin-button" style="background: #6c757d; color: white;" onclick="dismissReport('${report.id}')">Dismiss</button>
-              <button class="admin-button danger" onclick="deleteFromReport('${report.id}', '${report.messageId}')">Delete Msg</button>
-              <button class="admin-button warning" onclick="banFromReport('${report.id}', '${report.messageSender}', '${report.messageId}')">Ban User</button>
-            </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       }
     }
 
-    function dismissReport(reportId) {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    async function dismissReport(reportId) {
+      if (!currentAdminUser || currentAdminUser.role !== 'admin') return;
       
-      ws.send(JSON.stringify({
-        type: 'admin_dismiss_report',
-        reportId: reportId
-      }));
+      try {
+        const authToken = localStorage.getItem('private_token');
+        if (!authToken) return;
+        
+        const response = await fetch(`${PRIVATE_API_BASE}/reports/${reportId}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json'
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to delete report');
+        }
+        
+        showToast('Report deleted', 'success');
+        await fetchAdminReports();
+      } catch (error) {
+        console.error('[REPORTS] Error deleting report:', error);
+        showToast('Failed to delete report', 'error');
+      }
     }
 
-    function deleteFromReport(reportId, messageId) {
+    async function deleteMessageFromReport(reportId, messageId) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!currentAdminUser || currentAdminUser.role !== 'admin') return;
       
+      // Delete message via WebSocket
       ws.send(JSON.stringify({
         type: 'admin_delete',
         messageId: messageId
       }));
       
-      // Also dismiss the report
-      dismissReport(reportId);
+      // Also delete the report
+      await dismissReport(reportId);
     }
 
-    function banFromReport(reportId, gcSid, messageId) {
-      // Dismiss report first
-      dismissReport(reportId);
-      // Open ban modal
-      openBanModal(gcSid, messageId);
+    async function banUserFromReport(reportId, gcSid, durationStr) {
+      if (!durationStr || durationStr === '') return;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (!currentAdminUser || currentAdminUser.role !== 'admin') return;
+      
+      const duration = parseInt(durationStr, 10);
+      
+      // Ban user via WebSocket
+      ws.send(JSON.stringify({
+        type: 'admin_ban',
+        gcSid: gcSid,
+        duration: duration
+      }));
+      
+      showToast(`User banned for ${Math.ceil(duration / 1000)} seconds`, 'success');
+      
+      // Also delete the report
+      await dismissReport(reportId);
     }
 
     // Admin message menu
