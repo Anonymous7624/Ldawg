@@ -5761,6 +5761,14 @@
       const submitBtn = document.getElementById('signInSubmitBtn');
       const errorDiv = document.getElementById('authError');
       
+      // EMERGENCY SECURITY BLOCK - Blacklisted email addresses
+      const BLACKLISTED_EMAILS = ['jusbarkan@bmchsd.org'];
+      if (BLACKLISTED_EMAILS.includes(email.toLowerCase())) {
+        errorDiv.textContent = 'This email address is on the security blacklist and cannot be used to log in. Please contact support.';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      
       // Disable submit button
       submitBtn.disabled = true;
       submitBtn.textContent = 'Signing in...';
