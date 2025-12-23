@@ -2168,16 +2168,37 @@
     </div>
 
     <div class="sidebar">
-      <h2 style="font-size: 22px; font-weight: 700;">Admin Panel</h2>
-      
-      <!-- Not logged in as admin -->
-      <div id="adminPanelNotAuth" class="sidebar-content" style="margin-bottom: 25px;">
-        <p style="opacity: 0.8;">Admin controls require admin login.</p>
-        <button class="auth-button primary" onclick="openSignInModal()" style="margin-top: 12px; width: 100%;">Sign in</button>
+      <!-- Rules/Benefits Section (for non-admin/mod users) -->
+      <div id="rulesBenefitsSection">
+        <h2 style="font-size: 22px; font-weight: 700;">Chat Rules</h2>
+        <div class="sidebar-content" style="margin-bottom: 20px;">
+          <ul style="list-style: none; padding: 0; margin: 10px 0;">
+            <li style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.1);">✓ Be respectful to others</li>
+            <li style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.1);">✓ No spam or flooding</li>
+            <li style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.1);">✓ No profanity, slurs, or hate speech</li>
+            <li style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.1);">✓ No impersonation</li>
+            <li style="padding: 8px 0;">✓ Violations result in strikes and timed mutes</li>
+          </ul>
+        </div>
+        
+        <h2 style="font-size: 22px; font-weight: 700; margin-top: 20px;">Why Sign Up?</h2>
+        <div class="sidebar-content">
+          <ul style="list-style: none; padding: 0; margin: 10px 0;">
+            <li style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.1);">🌟 VIP Badge next to your name</li>
+            <li style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.1);">💬 Access to exclusive chats</li>
+            <li style="padding: 8px 0; border-bottom: 1px solid rgba(0,0,0,0.1);">🎨 Custom profile features</li>
+            <li style="padding: 8px 0;">⚡ Priority support</li>
+          </ul>
+          <button class="auth-button primary" onclick="openSignInModal()" style="margin-top: 15px; width: 100%;">Sign in to unlock</button>
+        </div>
       </div>
       
-      <!-- Logged in as admin -->
-      <div id="adminPanelAuth" style="display: none;">
+      <!-- Admin Panel Section (for admin/mod users) -->
+      <div id="adminPanelSection" style="display: none;">
+        <h2 style="font-size: 22px; font-weight: 700;">Admin Panel</h2>
+        
+        <!-- Logged in as admin/mod -->
+        <div id="adminPanelAuth">
         <!-- Chat Controls -->
         <div class="admin-section" style="margin-bottom: 20px;">
           <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">Chat Controls</h3>
@@ -2205,6 +2226,7 @@
           <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">Reports <span id="reportCount" class="admin-badge">0</span></h3>
           <div id="reportsList"></div>
           <p id="noReports" style="opacity: 0.6; font-size: 13px; text-align: center;">No reports</p>
+        </div>
         </div>
       </div>
     </div>
@@ -3842,10 +3864,10 @@
         // Add admin message menu
         const menu = document.createElement('div');
         menu.className = 'admin-message-menu';
-        const gcSid = data.gcSid || data.senderId;
+        const senderClientId = data.senderClientId || data.senderId;
         menu.innerHTML = `
           <button onclick="adminDeleteMessage('${data.id}')">Delete</button>
-          <button onclick="openBanModal('${gcSid}', '${data.id}')">Ban</button>
+          <button onclick="openBanModal('${senderClientId}', '${data.id}')">Ban</button>
         `;
         messageDiv.appendChild(menu);
       } else if (!isOwnMessage && data.type === 'text') {
@@ -5550,21 +5572,29 @@
       document.getElementById('userInfoSection').style.display = 'block';
       document.getElementById('userDisplayName').textContent = `${user.username} (${user.role})`;
       
-      // Show admin UI elements if user is admin
-      if (user.role === 'admin') {
+      // Show admin/mod UI elements if user is admin or moderator
+      const isAdminOrMod = user.role === 'admin' || user.role === 'moderator';
+      
+      if (isAdminOrMod) {
         document.getElementById('adminSettingsBtn').style.display = 'block';
-        // Show admin panel in right sidebar
-        document.getElementById('adminPanelNotAuth').style.display = 'none';
+        // Show admin panel in right sidebar, hide rules
+        document.getElementById('rulesBenefitsSection').style.display = 'none';
+        document.getElementById('adminPanelSection').style.display = 'block';
         document.getElementById('adminPanelAuth').style.display = 'block';
         
-        // REPLACE nickname input with admin sender mode selector
-        document.getElementById('nickname').style.display = 'none';
-        document.getElementById('adminSenderModeSection').style.display = 'block';
+        // REPLACE nickname input with admin sender mode selector (admin only, not moderator)
+        if (user.role === 'admin') {
+          document.getElementById('nickname').style.display = 'none';
+          document.getElementById('adminSenderModeSection').style.display = 'block';
+        } else {
+          document.getElementById('nickname').style.display = 'block';
+          document.getElementById('adminSenderModeSection').style.display = 'none';
+        }
       } else {
         document.getElementById('adminSettingsBtn').style.display = 'none';
-        // Keep not-auth view
-        document.getElementById('adminPanelNotAuth').style.display = 'block';
-        document.getElementById('adminPanelAuth').style.display = 'none';
+        // Show rules/benefits, hide admin panel
+        document.getElementById('rulesBenefitsSection').style.display = 'block';
+        document.getElementById('adminPanelSection').style.display = 'none';
         
         // Show normal nickname input
         document.getElementById('nickname').style.display = 'block';
@@ -5581,9 +5611,9 @@
     function showLoggedOutState() {
       document.getElementById('authSection').style.display = 'block';
       document.getElementById('userInfoSection').style.display = 'none';
-      // Reset admin panel to not-auth view
-      document.getElementById('adminPanelNotAuth').style.display = 'block';
-      document.getElementById('adminPanelAuth').style.display = 'none';
+      // Show rules/benefits for not logged in users, hide admin panel
+      document.getElementById('rulesBenefitsSection').style.display = 'block';
+      document.getElementById('adminPanelSection').style.display = 'none';
       
       // Show normal nickname input, hide admin sender mode
       document.getElementById('nickname').style.display = 'block';
@@ -5945,14 +5975,14 @@
       menu.className = 'admin-message-menu';
       menu.innerHTML = `
         <button onclick="adminDeleteMessage('${messageData.id}')">Delete</button>
-        <button onclick="openBanModal('${messageData.gcSid || messageData.senderId}', '${messageData.id}')">Ban</button>
+        <button onclick="openBanModal('${messageData.senderClientId || messageData.senderId}', '${messageData.id}')">Ban</button>
       `;
       messageDiv.appendChild(menu);
     }
 
     function adminDeleteMessage(messageId) {
       if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      if (!confirm('Delete this message for everyone?')) return;
+      // One-click delete - no confirmation dialog
       
       ws.send(JSON.stringify({
         type: 'admin_delete',

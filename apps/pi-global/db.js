@@ -35,6 +35,7 @@ function initDb() {
           id TEXT PRIMARY KEY,
           type TEXT NOT NULL,
           senderId TEXT NOT NULL,
+          senderClientId TEXT,
           nickname TEXT,
           timestamp INTEGER NOT NULL,
           text TEXT,
@@ -44,7 +45,8 @@ function initDb() {
           storedFilename TEXT,
           mime TEXT,
           size INTEGER,
-          caption TEXT
+          caption TEXT,
+          adminStyleMeta TEXT
         )
       `);
       
@@ -90,14 +92,18 @@ function saveMessage(msg) {
       
       const stmt = db.prepare(`
         INSERT OR REPLACE INTO messages 
-        (id, type, senderId, nickname, timestamp, text, html, url, filename, storedFilename, mime, size, caption)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, type, senderId, senderClientId, nickname, timestamp, text, html, url, filename, storedFilename, mime, size, caption, adminStyleMeta)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
+      
+      // Serialize adminStyleMeta to JSON if present
+      const adminStyleMetaJson = msg.adminStyleMeta ? JSON.stringify(msg.adminStyleMeta) : null;
       
       stmt.run(
         msg.id,
         msg.type,
         msg.senderId,
+        msg.senderClientId || null,
         msg.nickname || null,
         msg.timestamp || Date.now(),
         msg.text || null,
@@ -107,7 +113,8 @@ function saveMessage(msg) {
         storedFilename,
         msg.mime || null,
         msg.size || null,
-        msg.caption || null
+        msg.caption || null,
+        adminStyleMetaJson
       );
       
       console.log(`[DB] Saved message: id=${msg.id}, type=${msg.type}`);
@@ -153,6 +160,7 @@ function getRecentMessages(limit) {
         };
         
         // Add optional fields if present
+        if (row.senderClientId) msg.senderClientId = row.senderClientId;
         if (row.nickname) msg.nickname = row.nickname;
         if (row.text) msg.text = row.text;
         if (row.html) msg.html = row.html;
@@ -161,6 +169,15 @@ function getRecentMessages(limit) {
         if (row.mime) msg.mime = row.mime;
         if (row.size) msg.size = row.size;
         if (row.caption) msg.caption = row.caption;
+        
+        // Deserialize adminStyleMeta if present
+        if (row.adminStyleMeta) {
+          try {
+            msg.adminStyleMeta = JSON.parse(row.adminStyleMeta);
+          } catch (e) {
+            console.error('[DB] Error parsing adminStyleMeta:', e);
+          }
+        }
         
         return msg;
       });
