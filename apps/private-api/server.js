@@ -26,6 +26,9 @@ if (!JWT_SECRET) {
   process.exit(1);
 }
 
+// Trust proxy for Cloudflare (required for rate limiting)
+app.set('trust proxy', 1);
+
 // Middleware
 app.use(helmet()); // Security headers
 app.use(express.json()); // Parse JSON bodies
@@ -84,9 +87,25 @@ app.use('/auth/', authLimiter);
 mongoose.connect(MONGO_URI, {
   serverSelectionTimeoutMS: 5000
 })
-  .then(() => {
+  .then(async () => {
     console.log('[MONGODB] ✓ Connected to MongoDB');
     console.log('[MONGODB] Database:', mongoose.connection.name);
+    
+    // Ensure indexes exist (safe to call even if already exist)
+    try {
+      await Report.collection.createIndex({ createdAt: 1 }, { expireAfterSeconds: 1200 });
+      console.log('[MONGODB] ✓ TTL index on reports.createdAt created/verified');
+    } catch (err) {
+      console.log('[MONGODB] TTL index already exists or error:', err.message);
+    }
+    
+    try {
+      await Report.collection.createIndex({ reportTimestamp: -1 });
+      await Report.collection.createIndex({ reporterClientId: 1, reportedMessageId: 1 });
+      console.log('[MONGODB] ✓ Report indexes created/verified');
+    } catch (err) {
+      console.log('[MONGODB] Report indexes already exist or error:', err.message);
+    }
   })
   .catch(err => {
     console.error('[MONGODB] ❌ Connection error:', err.message);
@@ -189,9 +208,6 @@ const reportSchema = new mongoose.Schema({
 reportSchema.index({ createdAt: 1 }, { expireAfterSeconds: 1200 });
 
 const Report = mongoose.model('Report', reportSchema);
-
-// Rate limiting storage for reports
-const reportRateLimits = new Map(); // reporterClientId -> lastReportTime
 
 // Utility: Generate fake phone number
 function generateFakeNumber() {
@@ -554,12 +570,15 @@ app.post('/reports/create', async (req, res) => {
       return res.status(400).json({ error: 'All fields are required: reportedMessageId, reportedSenderClientId, reporterClientId, messageText, messageTimestamp' });
     }
 
-    // Rate limiting: 1 report per 60 seconds per reporterClientId
     const now = Date.now();
-    const lastReportTime = reportRateLimits.get(reporterClientId);
-    
-    if (lastReportTime) {
-      const timeSinceLastReport = now - lastReportTime;
+
+    // Rate limiting: 1 report per 60 seconds per reporterClientId (DB-based)
+    const lastReport = await Report.findOne({ 
+      reporterClientId: reporterClientId 
+    }).sort({ reportTimestamp: -1 }).limit(1);
+
+    if (lastReport) {
+      const timeSinceLastReport = now - lastReport.reportTimestamp.getTime();
       if (timeSinceLastReport < 60000) {
         const retryAfterSec = Math.ceil((60000 - timeSinceLastReport) / 1000);
         console.log(`[REPORTS] Rate limit hit for ${reporterClientId}, retry in ${retryAfterSec}s`);
@@ -582,22 +601,22 @@ app.post('/reports/create', async (req, res) => {
       return res.status(409).json({ error: 'DUPLICATE_REPORT' });
     }
 
+    // Convert messageTimestamp to Date if needed
+    const msgTimestamp = typeof messageTimestamp === 'number' ? messageTimestamp : new Date(messageTimestamp).getTime();
+
     // Create report
     const report = new Report({
       reportedMessageId,
       reportedSenderClientId,
       reporterClientId,
       messageText: messageText.substring(0, 1000),
-      messageTimestamp,
+      messageTimestamp: msgTimestamp,
       reportTimestamp: new Date(),
       createdAt: new Date(),
       room: 'global'
     });
 
     await report.save();
-
-    // Update rate limit tracking
-    reportRateLimits.set(reporterClientId, now);
 
     console.log(`[REPORTS] Report created: ${report._id} for message ${reportedMessageId}`);
 
