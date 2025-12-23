@@ -60,12 +60,22 @@
     .left-sidebar.collapsed {
       width: 60px;
       padding: 50px 10px 20px 10px;
+      overflow: hidden;
     }
 
     .left-sidebar.collapsed .conversation-list,
     .left-sidebar.collapsed .auth-section,
-    .left-sidebar.collapsed h2 {
-      display: none;
+    .left-sidebar.collapsed h2,
+    .left-sidebar.collapsed .online-section {
+      display: none !important;
+    }
+    
+    .left-sidebar.collapsed .sidebar-toggle {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      right: auto;
     }
 
     .sidebar-toggle {
@@ -139,6 +149,39 @@
 
     .conversation-item.active {
       background: rgba(0, 123, 255, 0.2);
+    }
+
+    .online-section {
+      padding: 12px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.03);
+      margin-bottom: 12px;
+      font-size: 13px;
+    }
+
+    body.dark-mode .online-section {
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .online-section h3 {
+      font-size: 13px;
+      font-weight: 600;
+      margin: 0 0 8px 0;
+      opacity: 0.7;
+    }
+
+    .online-user {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 0;
+    }
+
+    .online-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #22c55e;
     }
 
     .auth-section {
@@ -1566,20 +1609,9 @@
       to { opacity: 0.7; }
     }
 
-    /* Admin panel styles */
+    /* Admin panel styles - Hidden (now using inline admin panel in right sidebar) */
     .admin-panel {
-      position: fixed;
-      top: 0;
-      right: -400px;
-      width: 400px;
-      height: 100vh;
-      background: white;
-      box-shadow: -4px 0 20px rgba(0, 0, 0, 0.2);
-      transition: right 0.3s ease;
-      z-index: 2000;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
+      display: none !important;
     }
 
     body.dark-mode .admin-panel {
@@ -1870,6 +1902,18 @@
         </div>
       </div>
 
+      <!-- Online Moderators Section -->
+      <div class="online-section" id="moderatorsOnlineSection" style="display: none;">
+        <h3>Moderators Online:</h3>
+        <div id="moderatorsList"></div>
+      </div>
+
+      <!-- Online Admin Section -->
+      <div class="online-section" id="adminOnlineSection" style="display: none;">
+        <h3>Admin Online:</h3>
+        <div id="adminList"></div>
+      </div>
+
       <!-- Auth Section -->
       <div class="auth-section" id="authSection">
         <p>Sign up or log in to access more chats</p>
@@ -1889,9 +1933,6 @@
           <button class="auth-button secondary" onclick="logout()">Log out</button>
           <button class="auth-button primary" id="adminSettingsBtn" style="display: none;" onclick="openAdminSettings()">Settings</button>
         </div>
-        <button class="auth-button primary" id="adminPanelBtn" style="display: none; margin-top: 8px;" onclick="toggleAdminPanel()">
-          Admin Panel
-        </button>
       </div>
     </div>
 
@@ -2040,27 +2081,44 @@
     </div>
 
     <div class="sidebar">
-      <h2 style="font-size: 22px; font-weight: 700;">Rules</h2>
-      <div class="sidebar-content" style="margin-bottom: 25px;">
-        <p><strong>No profanity, slurs, or hate speech.</strong></p>
-        <p><strong>No impersonation.</strong></p>
-        <p><strong>No spamming.</strong> More than 4 messages per 10 seconds triggers a strike for a mute.</p>
-        <p style="margin-top: 10px;"><em>Violations result in strikes and timed mutes.</em></p>
+      <h2 style="font-size: 22px; font-weight: 700;">Admin Panel</h2>
+      
+      <!-- Not logged in as admin -->
+      <div id="adminPanelNotAuth" class="sidebar-content" style="margin-bottom: 25px;">
+        <p style="opacity: 0.8;">Admin controls require admin login.</p>
+        <button class="auth-button primary" onclick="openSignInModal()" style="margin-top: 12px; width: 100%;">Sign in</button>
       </div>
       
-      <h2 style="font-size: 22px; font-weight: 700;">Features</h2>
-      <div class="sidebar-content">
-        <ul style="list-style: disc; padding-left: 20px; line-height: 2;">
-          <li>No moderators or login needed</li>
-          <li>Rich text formatting + emojis</li>
-          <li>Photo and GIF uploads</li>
-          <li>Video messages (up to 10MB)</li>
-          <li>Voice messages (up to 30s)</li>
-          <li>Delete your own messages</li>
-          <li>Typing indicators</li>
-          <li>Online users count</li>
-          <li>Dark Mode</li>
-        </ul>
+      <!-- Logged in as admin -->
+      <div id="adminPanelAuth" style="display: none;">
+        <!-- Chat Controls -->
+        <div class="admin-section" style="margin-bottom: 20px;">
+          <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">Chat Controls</h3>
+          <div class="admin-toggle">
+            <span>Lock Chat (admins only)</span>
+            <div class="toggle-switch" id="chatLockToggle" onclick="toggleChatLock()"></div>
+          </div>
+          <button class="admin-button danger" onclick="confirmWipeData()" style="margin-top: 12px;">Delete All Chats & Uploads</button>
+        </div>
+
+        <!-- Message Composer Mode (Admin Only) -->
+        <div class="admin-section" style="margin-bottom: 20px;">
+          <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">Message Display Mode</h3>
+          <select id="adminMessageMode" class="toolbar-select" style="width: 100%; margin-bottom: 8px;">
+            <option value="normal">Normal</option>
+            <option value="admin">Admin (150% GOLD)</option>
+            <option value="server">SERVER (150% RED)</option>
+            <option value="custom">Custom (GOLD)</option>
+          </select>
+          <input type="text" id="adminCustomName" placeholder="Custom display name" style="width: 100%; padding: 8px; border: 1px solid rgba(0,0,0,0.2); border-radius: 4px; display: none;" />
+        </div>
+
+        <!-- Reports -->
+        <div class="admin-section" style="margin-bottom: 20px;">
+          <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">Reports <span id="reportCount" class="admin-badge">0</span></h3>
+          <div id="reportsList"></div>
+          <p id="noReports" style="opacity: 0.6; font-size: 13px; text-align: center;">No reports</p>
+        </div>
       </div>
     </div>
   </div>
@@ -2913,9 +2971,39 @@
     window.addEventListener("focus", () => sendPresence(true));
     window.addEventListener("blur", () => sendPresence(false));
 
-    // Online count display
-    function setOnlineCount(n) {
+    // Online count display with role information
+    function setOnlineCount(n, users) {
       document.getElementById("onlineCount").textContent = `Online: ${n}`;
+      
+      // Update moderators and admin online sections if users array is provided
+      if (users && Array.isArray(users)) {
+        const moderators = users.filter(u => u.role === 'moderator');
+        const admins = users.filter(u => u.role === 'admin');
+        
+        // Update moderators section
+        const modSection = document.getElementById('moderatorsOnlineSection');
+        const modList = document.getElementById('moderatorsList');
+        if (moderators.length > 0) {
+          modList.innerHTML = moderators.map(mod => 
+            `<div class="online-user"><span class="online-dot"></span>${mod.name}</div>`
+          ).join('');
+          modSection.style.display = 'block';
+        } else {
+          modSection.style.display = 'none';
+        }
+        
+        // Update admin section
+        const adminSection = document.getElementById('adminOnlineSection');
+        const adminList = document.getElementById('adminList');
+        if (admins.length > 0) {
+          adminList.innerHTML = admins.map(admin => 
+            `<div class="online-user"><span class="online-dot"></span>${admin.name}</div>`
+          ).join('');
+          adminSection.style.display = 'block';
+        } else {
+          adminSection.style.display = 'none';
+        }
+      }
     }
 
     // ========================================
@@ -2923,23 +3011,29 @@
     // ========================================
     
     function connect() {
-      // Construct WebSocket URL with token and preserved clientId if it exists
-      let wsUrl = `${WS_BASE_URL}?token=${encodeURIComponent(clientToken)}`;
+      // Construct WebSocket URL with preserved clientId if it exists
+      let wsUrl = WS_BASE_URL;
+      const params = new URLSearchParams();
+      
       if (myClientId) {
-        wsUrl += `&clientId=${encodeURIComponent(myClientId)}`;
+        params.append('clientId', myClientId);
       }
       
-      // Add admin token if user is logged in
-      const adminToken = localStorage.getItem('private_token');
-      if (adminToken) {
-        wsUrl += `&adminToken=${encodeURIComponent(adminToken)}`;
-        console.log('[CONNECT] Including admin token');
+      // Add auth token if user is logged in (for role verification)
+      const authToken = localStorage.getItem('private_token');
+      if (authToken) {
+        params.append('token', authToken);
+        console.log('[CONNECT] Including auth token for role verification');
+      }
+      
+      // Build final URL
+      if (params.toString()) {
+        wsUrl += '?' + params.toString();
       }
       
       console.log('========================================');
       console.log('[CONNECT] Attempting WebSocket connection');
-      console.log('[CONNECT] URL:', wsUrl.replace(/adminToken=[^&]+/, 'adminToken=***'));
-      console.log('[CONNECT] Token:', clientToken);
+      console.log('[CONNECT] URL:', wsUrl.replace(/token=[^&]+/, 'token=***'));
       console.log('[CONNECT] myClientId:', myClientId || '(none - will get new one)');
       console.log('========================================');
       ws = new WebSocket(wsUrl);
@@ -3050,7 +3144,7 @@
           
           refreshDeleteButtons();
         } else if (data.type === 'online') {
-          setOnlineCount(data.count);
+          setOnlineCount(data.count, data.users);
         } else if (data.type === 'history') {
           console.log('[WS] History received with', data.items.length, 'items');
           displayHistory(data.items);
@@ -5163,44 +5257,6 @@
     });
   </script>
 
-  <!-- Admin Panel -->
-  <div class="admin-panel" id="adminPanel">
-    <div class="admin-panel-header">
-      <h2>Admin Panel</h2>
-      <button class="modal-close" onclick="toggleAdminPanel()" style="position: static; margin: 0;">×</button>
-    </div>
-    <div class="admin-panel-content">
-      <!-- Chat Controls -->
-      <div class="admin-section">
-        <h3>Chat Controls</h3>
-        <div class="admin-toggle">
-          <span>Lock Chat (admins only)</span>
-          <div class="toggle-switch" id="chatLockToggle" onclick="toggleChatLock()"></div>
-        </div>
-        <button class="admin-button danger" onclick="confirmWipeData()">Delete All Chats & Uploads</button>
-      </div>
-
-      <!-- Message Composer Mode (Admin Only) -->
-      <div class="admin-section">
-        <h3>Message Display Mode</h3>
-        <select id="adminMessageMode" class="toolbar-select" style="width: 100%; margin-bottom: 8px;">
-          <option value="normal">Normal</option>
-          <option value="admin">Admin (150% GOLD)</option>
-          <option value="server">SERVER (150% RED)</option>
-          <option value="custom">Custom (GOLD)</option>
-        </select>
-        <input type="text" id="adminCustomName" placeholder="Custom display name" style="width: 100%; display: none;" />
-      </div>
-
-      <!-- Reports -->
-      <div class="admin-section">
-        <h3>Reports <span id="reportCount" class="admin-badge">0</span></h3>
-        <div id="reportsList"></div>
-        <p id="noReports" style="opacity: 0.6; font-size: 13px; text-align: center;">No reports</p>
-      </div>
-    </div>
-  </div>
-
   <!-- Settings Modal (Admin) -->
   <div class="modal" id="settingsModal">
     <div class="modal-content auth-modal-content">
@@ -5315,7 +5371,7 @@
       }
     }
     
-    function showLoggedInState(user) {
+    function showLoggedInState(user, reconnectWS = false) {
       currentAdminUser = user;
       document.getElementById('authSection').style.display = 'none';
       document.getElementById('userInfoSection').style.display = 'block';
@@ -5323,17 +5379,30 @@
       
       // Show admin UI elements if user is admin
       if (user.role === 'admin') {
-        document.getElementById('adminPanelBtn').style.display = 'block';
         document.getElementById('adminSettingsBtn').style.display = 'block';
+        // Show admin panel in right sidebar
+        document.getElementById('adminPanelNotAuth').style.display = 'none';
+        document.getElementById('adminPanelAuth').style.display = 'block';
       } else {
-        document.getElementById('adminPanelBtn').style.display = 'none';
         document.getElementById('adminSettingsBtn').style.display = 'none';
+        // Keep not-auth view
+        document.getElementById('adminPanelNotAuth').style.display = 'block';
+        document.getElementById('adminPanelAuth').style.display = 'none';
+      }
+      
+      // Reconnect WebSocket with token to update role
+      if (reconnectWS && ws) {
+        ws.close();
+        setTimeout(() => connect(), 500);
       }
     }
     
     function showLoggedOutState() {
       document.getElementById('authSection').style.display = 'block';
       document.getElementById('userInfoSection').style.display = 'none';
+      // Reset admin panel to not-auth view
+      document.getElementById('adminPanelNotAuth').style.display = 'block';
+      document.getElementById('adminPanelAuth').style.display = 'none';
     }
     
     function openSignInModal() {
@@ -5380,8 +5449,8 @@
         localStorage.setItem('private_token', data.token);
         localStorage.setItem('private_user', JSON.stringify(data.user));
         
-        // Update UI
-        showLoggedInState(data.user);
+        // Update UI and reconnect WebSocket with token
+        showLoggedInState(data.user, true);
         closeSignInModal();
         
         console.log('Signed in successfully:', data.user.username);
@@ -5400,6 +5469,12 @@
       localStorage.removeItem('private_user');
       showLoggedOutState();
       console.log('Logged out successfully');
+      
+      // Reconnect WebSocket without token to update role to guest
+      if (ws) {
+        ws.close();
+        setTimeout(() => connect(), 500);
+      }
     }
     
     function selectGlobalChat() {
