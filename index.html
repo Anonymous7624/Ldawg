@@ -43,6 +43,134 @@
       min-width: 0;
     }
 
+    /* Left sidebar for conversations */
+    .left-sidebar {
+      width: 280px;
+      padding: 20px;
+      border-right: 1px solid rgba(0, 0, 0, 0.1);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    body.dark-mode .left-sidebar {
+      border-right-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .conversation-list {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .conversation-item {
+      padding: 12px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s ease;
+      font-weight: 500;
+      background: rgba(0, 0, 0, 0.05);
+    }
+
+    body.dark-mode .conversation-item {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .conversation-item:hover {
+      background: rgba(0, 0, 0, 0.1);
+    }
+
+    body.dark-mode .conversation-item:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    .conversation-item.active {
+      background: rgba(0, 123, 255, 0.2);
+    }
+
+    .auth-section {
+      padding: 16px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.05);
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    body.dark-mode .auth-section {
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .auth-section p {
+      font-size: 13px;
+      text-align: center;
+      margin: 0;
+      opacity: 0.8;
+    }
+
+    .auth-buttons {
+      display: flex;
+      gap: 8px;
+    }
+
+    .auth-button {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+
+    .auth-button.primary {
+      background: #007bff;
+      color: white;
+    }
+
+    .auth-button.primary:hover {
+      background: #0056b3;
+    }
+
+    .auth-button:disabled {
+      background: rgba(0, 0, 0, 0.2);
+      color: rgba(0, 0, 0, 0.4);
+      cursor: not-allowed;
+    }
+
+    body.dark-mode .auth-button:disabled {
+      background: rgba(255, 255, 255, 0.2);
+      color: rgba(255, 255, 255, 0.4);
+    }
+
+    .user-info {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .user-info p {
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .user-info strong {
+      font-weight: 600;
+    }
+
+    .auth-button.secondary {
+      background: rgba(220, 53, 69, 0.9);
+      color: white;
+    }
+
+    .auth-button.secondary:hover {
+      background: rgba(220, 53, 69, 1);
+    }
+
+    /* Right sidebar (existing - Rules/Features) */
     .sidebar {
       width: 300px;
       padding: 20px;
@@ -947,6 +1075,107 @@
       background: #003366;
     }
 
+    /* Sign-in modal specific styles */
+    .auth-modal-content {
+      max-width: 400px;
+      width: 90%;
+    }
+
+    .auth-modal-content h2 {
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .auth-form {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .auth-form label {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-weight: 500;
+      font-size: 14px;
+    }
+
+    .auth-form input {
+      padding: 12px;
+      border: 1px solid rgba(0, 0, 0, 0.2);
+      border-radius: 6px;
+      font-size: 14px;
+      transition: border 0.2s ease;
+    }
+
+    body.dark-mode .auth-form input {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.3);
+      color: white;
+    }
+
+    .auth-form input:focus {
+      outline: none;
+      border-color: #007bff;
+    }
+
+    .auth-form-buttons {
+      display: flex;
+      gap: 12px;
+      margin-top: 8px;
+    }
+
+    .auth-form button {
+      flex: 1;
+      padding: 12px;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .auth-form button[type="submit"] {
+      background: #007bff;
+      color: white;
+    }
+
+    .auth-form button[type="submit"]:hover {
+      background: #0056b3;
+    }
+
+    .auth-form button[type="button"] {
+      background: rgba(0, 0, 0, 0.1);
+    }
+
+    body.dark-mode .auth-form button[type="button"] {
+      background: rgba(255, 255, 255, 0.2);
+      color: white;
+    }
+
+    .auth-form button[type="button"]:hover {
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    body.dark-mode .auth-form button[type="button"]:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    .auth-error {
+      padding: 12px;
+      background: rgba(220, 53, 69, 0.1);
+      border: 1px solid rgba(220, 53, 69, 0.3);
+      border-radius: 6px;
+      color: #dc3545;
+      font-size: 14px;
+      text-align: center;
+    }
+
+    body.dark-mode .auth-error {
+      background: rgba(220, 53, 69, 0.2);
+      border-color: rgba(220, 53, 69, 0.5);
+    }
+
     .modal-close {
       position: absolute;
       top: 15px;
@@ -1274,6 +1503,35 @@
 </head>
 <body class="light-mode">
   <div class="container">
+    <!-- Left Sidebar for Conversations -->
+    <div class="left-sidebar">
+      <h2 style="font-size: 20px; font-weight: 700; margin-bottom: 12px;">Chats</h2>
+      
+      <div class="conversation-list">
+        <div class="conversation-item active" onclick="selectGlobalChat()">
+          Global Chat
+        </div>
+      </div>
+
+      <!-- Auth Section -->
+      <div class="auth-section" id="authSection">
+        <p>Sign up or log in to access more chats</p>
+        <div class="auth-buttons">
+          <button class="auth-button" disabled>Sign up</button>
+          <button class="auth-button primary" onclick="openSignInModal()">Sign in</button>
+        </div>
+      </div>
+
+      <!-- Logged-in User Info (hidden by default) -->
+      <div class="auth-section" id="userInfoSection" style="display: none;">
+        <div class="user-info">
+          <p><strong>Signed in as:</strong></p>
+          <p id="userDisplayName">Username (role)</p>
+        </div>
+        <button class="auth-button secondary" onclick="logout()">Log out</button>
+      </div>
+    </div>
+
     <div class="main-content">
       <div class="header">
         <div style="display: flex; align-items: center; gap: 15px;">
@@ -4372,6 +4630,162 @@
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
+      }
+    });
+  </script>
+
+  <!-- Sign-in Modal -->
+  <div class="modal" id="signInModal">
+    <div class="modal-content auth-modal-content">
+      <h2>Sign In</h2>
+      <form class="auth-form" id="signInForm" onsubmit="handleSignIn(event)">
+        <div id="authError" class="auth-error" style="display: none;"></div>
+        
+        <label>
+          Email
+          <input type="email" id="signInEmail" required placeholder="you@bmchsd.org" autocomplete="email">
+        </label>
+        
+        <label>
+          Password
+          <input type="password" id="signInPassword" required placeholder="Enter your password" autocomplete="current-password">
+        </label>
+        
+        <div class="auth-form-buttons">
+          <button type="button" onclick="closeSignInModal()">Cancel</button>
+          <button type="submit" id="signInSubmitBtn">Sign In</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    // ===========================
+    // Authentication System
+    // ===========================
+    
+    const PRIVATE_API_BASE = 'https://api.simplechatroom.com';
+    
+    // Check session on page load
+    window.addEventListener('DOMContentLoaded', checkSession);
+    
+    async function checkSession() {
+      const token = localStorage.getItem('private_token');
+      const user = localStorage.getItem('private_user');
+      
+      if (!token) {
+        showLoggedOutState();
+        return;
+      }
+      
+      try {
+        const response = await fetch(`${PRIVATE_API_BASE}/me`, {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Session expired');
+        }
+        
+        const data = await response.json();
+        localStorage.setItem('private_user', JSON.stringify(data.user));
+        showLoggedInState(data.user);
+      } catch (error) {
+        console.error('Session check failed:', error);
+        localStorage.removeItem('private_token');
+        localStorage.removeItem('private_user');
+        showLoggedOutState();
+      }
+    }
+    
+    function showLoggedInState(user) {
+      document.getElementById('authSection').style.display = 'none';
+      document.getElementById('userInfoSection').style.display = 'block';
+      document.getElementById('userDisplayName').textContent = `${user.username} (${user.role})`;
+    }
+    
+    function showLoggedOutState() {
+      document.getElementById('authSection').style.display = 'block';
+      document.getElementById('userInfoSection').style.display = 'none';
+    }
+    
+    function openSignInModal() {
+      document.getElementById('signInModal').classList.add('active');
+      document.getElementById('authError').style.display = 'none';
+      document.getElementById('signInEmail').value = '';
+      document.getElementById('signInPassword').value = '';
+      document.getElementById('signInEmail').focus();
+    }
+    
+    function closeSignInModal() {
+      document.getElementById('signInModal').classList.remove('active');
+    }
+    
+    async function handleSignIn(event) {
+      event.preventDefault();
+      
+      const email = document.getElementById('signInEmail').value;
+      const password = document.getElementById('signInPassword').value;
+      const submitBtn = document.getElementById('signInSubmitBtn');
+      const errorDiv = document.getElementById('authError');
+      
+      // Disable submit button
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Signing in...';
+      errorDiv.style.display = 'none';
+      
+      try {
+        const response = await fetch(`${PRIVATE_API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ email, password })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          throw new Error(data.error || 'Login failed');
+        }
+        
+        // Store token and user info
+        localStorage.setItem('private_token', data.token);
+        localStorage.setItem('private_user', JSON.stringify(data.user));
+        
+        // Update UI
+        showLoggedInState(data.user);
+        closeSignInModal();
+        
+        console.log('Signed in successfully:', data.user.username);
+      } catch (error) {
+        console.error('Sign in error:', error);
+        errorDiv.textContent = error.message || 'Invalid email or password';
+        errorDiv.style.display = 'block';
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sign In';
+      }
+    }
+    
+    function logout() {
+      localStorage.removeItem('private_token');
+      localStorage.removeItem('private_user');
+      showLoggedOutState();
+      console.log('Logged out successfully');
+    }
+    
+    function selectGlobalChat() {
+      // For now, just log - global chat is already shown
+      console.log('Global Chat selected (already active)');
+    }
+    
+    // Close modal when clicking outside
+    document.getElementById('signInModal').addEventListener('click', (e) => {
+      if (e.target === document.getElementById('signInModal')) {
+        closeSignInModal();
       }
     });
   </script>
