@@ -758,6 +758,36 @@ wss.on('connection', async (ws, req) => {
     chatLocked: serverState.chatLocked // Send chat lock status
   }));
 
+  // CRITICAL FIX: Check if user is admin-muted on connection and send mute event
+  // This ensures mutes persist across reloads
+  const adminBan = adminBans.get(gcSid);
+  if (adminBan && now() < adminBan.bannedUntil) {
+    const remainingMs = adminBan.bannedUntil - now();
+    const remainingSeconds = Math.ceil(remainingMs / 1000);
+    console.log(`[ADMIN-BAN] User ${gcSid.substring(0, 8)}... is muted, sending mute event (${remainingSeconds}s remaining)`);
+    
+    // Send admin_mute event to lock UI immediately
+    ws.send(JSON.stringify({
+      type: 'admin_mute',
+      until: adminBan.bannedUntil,
+      seconds: remainingSeconds,
+      remainingMs: remainingMs,
+      reason: adminBan.reason || `Muted by admin (${remainingSeconds}s remaining)`
+    }));
+    
+    // Also send system message for visibility
+    ws.send(JSON.stringify({
+      type: 'system',
+      text: `You are muted for ${formatDurationLabel(remainingMs)}`,
+      timestamp: Date.now()
+    }));
+  } else if (adminBan) {
+    // Ban expired, remove it
+    adminBans.delete(gcSid);
+    saveServerState();
+    console.log(`[ADMIN-BAN] Ban expired for gcSid ${gcSid.substring(0, 8)}... on reconnect`);
+  }
+
   // Send chat history from database
   try {
     const items = await getRecentMessages(MAX_MESSAGES);
