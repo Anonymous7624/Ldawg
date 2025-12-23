@@ -43,6 +43,25 @@ function initDb() {
       
       db = new Database(dbPath);
       
+      // VERIFY SCHEMA: Check what columns exist in the messages table
+      console.log('[DB-SCHEMA] ========================================');
+      console.log('[DB-SCHEMA] Checking existing schema...');
+      try {
+        const columnsStmt = db.prepare("PRAGMA table_info(messages)");
+        const existingColumns = columnsStmt.all();
+        if (existingColumns.length > 0) {
+          console.log('[DB-SCHEMA] Table "messages" exists with columns:');
+          existingColumns.forEach(col => {
+            console.log(`[DB-SCHEMA]   - ${col.name} (${col.type}, pk=${col.pk}, notnull=${col.notnull}, dflt=${col.dflt_value})`);
+          });
+        } else {
+          console.log('[DB-SCHEMA] Table "messages" does not exist yet (will be created)');
+        }
+      } catch (schemaError) {
+        console.log('[DB-SCHEMA] Could not read schema (table may not exist yet):', schemaError.message);
+      }
+      console.log('[DB-SCHEMA] ========================================');
+      
       // Create messages table
       db.exec(`
         CREATE TABLE IF NOT EXISTS messages (
@@ -85,6 +104,16 @@ function initDb() {
         console.warn('[DB] Migration check failed (non-fatal):', migrationError.message);
       }
       
+      // VERIFY FINAL SCHEMA after migrations
+      console.log('[DB-SCHEMA] ========================================');
+      console.log('[DB-SCHEMA] Final schema after initialization:');
+      const finalColumnsStmt = db.prepare("PRAGMA table_info(messages)");
+      const finalColumns = finalColumnsStmt.all();
+      finalColumns.forEach(col => {
+        console.log(`[DB-SCHEMA]   - ${col.name} (${col.type})`);
+      });
+      console.log('[DB-SCHEMA] ========================================');
+      
       // Get count of messages in DB
       const countStmt = db.prepare('SELECT COUNT(*) as count FROM messages');
       const { count } = countStmt.get();
@@ -109,10 +138,38 @@ function initDb() {
 function saveMessage(msg) {
   return new Promise((resolve, reject) => {
     if (!db) {
-      return reject(new Error('Database not initialized'));
+      const error = new Error('Database not initialized');
+      console.error('[DB-INSERT] ❌ FATAL: Database not initialized');
+      return reject(error);
     }
     
     try {
+      // Validate required fields
+      if (!msg.id || typeof msg.id !== 'string') {
+        const error = new Error(`Invalid message ID: ${JSON.stringify(msg.id)}`);
+        console.error('[DB-INSERT] ❌ VALIDATION ERROR:', error.message);
+        console.error('[DB-INSERT] Message payload:', JSON.stringify(msg, null, 2));
+        return reject(error);
+      }
+      
+      if (!msg.type || typeof msg.type !== 'string') {
+        const error = new Error(`Invalid message type: ${JSON.stringify(msg.type)}`);
+        console.error('[DB-INSERT] ❌ VALIDATION ERROR:', error.message);
+        console.error('[DB-INSERT] Message payload:', JSON.stringify(msg, null, 2));
+        return reject(error);
+      }
+      
+      // Ensure timestamp is a valid integer
+      const timestamp = typeof msg.timestamp === 'number' ? msg.timestamp : Date.now();
+      
+      console.log(`[DB-INSERT] ========================================`);
+      console.log(`[DB-INSERT] Attempting to save message`);
+      console.log(`[DB-INSERT] id=${msg.id}`);
+      console.log(`[DB-INSERT] type=${msg.type}`);
+      console.log(`[DB-INSERT] senderId=${msg.senderId}`);
+      console.log(`[DB-INSERT] timestamp=${timestamp}`);
+      console.log(`[DB-INSERT] text=${msg.text ? msg.text.substring(0, 50) : 'null'}`);
+      
       // Extract filename from URL if present (for file/image/audio messages)
       let storedFilename = null;
       if (msg.url) {
@@ -135,7 +192,7 @@ function saveMessage(msg) {
         msg.senderId,
         msg.senderClientId || null,
         msg.nickname || null,
-        msg.timestamp || Date.now(),
+        timestamp,
         msg.text || null,
         msg.html || null,
         msg.url || null,
@@ -148,16 +205,30 @@ function saveMessage(msg) {
         adminStyleMetaJson
       );
       
-      console.log(`[DB] ✓ Saved message: id=${msg.id}, type=${msg.type}, changes=${result.changes}`);
+      console.log(`[DB-INSERT] ✓ INSERT successful: changes=${result.changes}`);
       
       // Verify the message was saved by counting total messages
       const countStmt = db.prepare('SELECT COUNT(*) as count FROM messages');
       const { count } = countStmt.get();
-      console.log(`[DB] Total messages in database: ${count}`);
+      console.log(`[DB-INSERT] ✓ COUNT after insert: ${count}`);
+      
+      // Verify the specific message exists
+      const verifyStmt = db.prepare('SELECT id, type, text FROM messages WHERE id = ?');
+      const savedMsg = verifyStmt.get(msg.id);
+      if (!savedMsg) {
+        const error = new Error(`VERIFY FAILED: Message ${msg.id} not found after insert!`);
+        console.error(`[DB-INSERT] ❌ ${error.message}`);
+        return reject(error);
+      }
+      console.log(`[DB-INSERT] ✓ VERIFY: Message ${msg.id} confirmed in database`);
+      console.log(`[DB-INSERT] ========================================`);
       
       resolve();
     } catch (error) {
-      console.error('[DB] Save error:', error);
+      console.error('[DB-INSERT] ❌ SQL ERROR:', error.message);
+      console.error('[DB-INSERT] ❌ Error stack:', error.stack);
+      console.error('[DB-INSERT] ❌ Message payload:', JSON.stringify(msg, null, 2));
+      console.error('[DB-INSERT] ========================================');
       reject(error);
     }
   });
@@ -379,11 +450,52 @@ function wipeAllMessages() {
   });
 }
 
+/**
+ * Get database info for debugging
+ * @returns {Promise<Object>} Database info including count, path, and latest message
+ */
+function getDatabaseInfo() {
+  return new Promise((resolve, reject) => {
+    if (!db) {
+      return reject(new Error('Database not initialized'));
+    }
+    
+    try {
+      const dbPath = process.env.DB_PATH || '/home/ldawg7624/chat-data/chat.db';
+      
+      // Get total count
+      const countStmt = db.prepare('SELECT COUNT(*) as count FROM messages');
+      const { count } = countStmt.get();
+      
+      // Get last message
+      const lastStmt = db.prepare('SELECT id, type, text, nickname, timestamp FROM messages ORDER BY timestamp DESC LIMIT 1');
+      const lastMessage = lastStmt.get();
+      
+      const info = {
+        dbPath,
+        count,
+        lastId: lastMessage ? lastMessage.id : null,
+        lastType: lastMessage ? lastMessage.type : null,
+        lastText: lastMessage ? (lastMessage.text || '(no text)').substring(0, 100) : null,
+        lastNickname: lastMessage ? lastMessage.nickname : null,
+        lastTimestamp: lastMessage ? lastMessage.timestamp : null,
+        lastTimestampFormatted: lastMessage ? new Date(lastMessage.timestamp).toISOString() : null
+      };
+      
+      resolve(info);
+    } catch (error) {
+      console.error('[DB] Error getting database info:', error);
+      reject(error);
+    }
+  });
+}
+
 module.exports = {
   initDb,
   saveMessage,
   getRecentMessages,
   deleteMessageById,
   pruneToLimit,
-  wipeAllMessages
+  wipeAllMessages,
+  getDatabaseInfo
 };
