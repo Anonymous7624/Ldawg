@@ -967,6 +967,16 @@
       color: white;
     }
 
+    .toolbar-select option {
+      background: white;
+      color: #333;
+    }
+
+    body.dark-mode .toolbar-select option {
+      background: #2c3e50;
+      color: white;
+    }
+
     .emoji-picker-container {
       position: relative;
       display: inline-block;
@@ -2209,18 +2219,6 @@
           <button class="admin-button danger" onclick="confirmWipeData()" style="margin-top: 12px;">Delete All Chats & Uploads</button>
         </div>
 
-        <!-- Message Composer Mode (Admin Only) -->
-        <div class="admin-section" style="margin-bottom: 20px;">
-          <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">Message Display Mode</h3>
-          <select id="adminMessageMode" class="toolbar-select" style="width: 100%; margin-bottom: 8px;">
-            <option value="normal">Normal</option>
-            <option value="admin">Admin (150% GOLD)</option>
-            <option value="server">SERVER (150% RED)</option>
-            <option value="custom">Custom (GOLD)</option>
-          </select>
-          <input type="text" id="adminCustomName" placeholder="Custom display name" style="width: 100%; padding: 8px; border: 1px solid rgba(0,0,0,0.2); border-radius: 4px; display: none;" />
-        </div>
-
         <!-- Reports -->
         <div class="admin-section" style="margin-bottom: 20px;">
           <h3 style="font-size: 16px; font-weight: 600; margin-bottom: 12px;">Reports <span id="reportCount" class="admin-badge">0</span></h3>
@@ -3198,7 +3196,6 @@
           
           ws.send(JSON.stringify(pingMessage));
         }, 200); // 200ms delay to ensure connection is fully ready
-        ws.send(JSON.stringify(pingMessage));
       };
 
       ws.onmessage = (event) => {
@@ -3455,11 +3452,13 @@
           }
           
           if (data.locked) {
+            addSystemMessage('Admin locked the chat', 'warning');
             showStatusMessage('Chat has been locked by ' + data.lockedBy, 'chat_locked');
             if (!currentAdminUser || currentAdminUser.role !== 'admin') {
               disableInputs(true);
             }
           } else {
+            addSystemMessage('Admin unlocked the chat', 'success');
             hideStatusMessage();
             disableInputs(false);
           }
