@@ -6,7 +6,7 @@ const fs = require('fs');
 const crypto = require('crypto');
 const url = require('url');
 const cookieParser = require('cookie-parser');
-const { initDb, saveMessage, getRecentMessages, deleteMessageById, pruneToLimit } = require('./db');
+const { initDb, saveMessage, getRecentMessages, deleteMessageById, pruneToLimit, wipeAllMessages } = require('./db');
 
 // Admin authentication
 const PRIVATE_API_URL = process.env.PRIVATE_API_URL || 'https://api.simplechatroom.com';
@@ -175,7 +175,8 @@ const adminSessions = new Map(); // token -> { username, role, email }
 const STATE_FILE = path.join(__dirname, 'state.json');
 let serverState = {
   chatLocked: false,
-  reports: [] // { id, messageId, messageText, messageSender, messageTimestamp, reporterId, reporterNickname, reason, timestamp }
+  reports: [], // { id, messageId, messageText, messageSender, messageTimestamp, reporterId, reporterNickname, reason, timestamp }
+  adminBans: {} // { gcSid: { bannedUntil, bannedBy, reason } }
 };
 
 // Load server state from file
@@ -183,8 +184,25 @@ function loadServerState() {
   try {
     if (fs.existsSync(STATE_FILE)) {
       const data = fs.readFileSync(STATE_FILE, 'utf-8');
-      serverState = JSON.parse(data);
-      console.log(`[STATE] Loaded state from file: chatLocked=${serverState.chatLocked}, reports=${serverState.reports.length}`);
+      const loadedState = JSON.parse(data);
+      
+      // Merge with defaults
+      serverState = {
+        chatLocked: loadedState.chatLocked || false,
+        reports: loadedState.reports || [],
+        adminBans: loadedState.adminBans || {}
+      };
+      
+      // Load admin bans into memory Map
+      adminBans.clear();
+      for (const [gcSid, banInfo] of Object.entries(serverState.adminBans)) {
+        // Only load bans that haven't expired
+        if (banInfo.bannedUntil > Date.now()) {
+          adminBans.set(gcSid, banInfo);
+        }
+      }
+      
+      console.log(`[STATE] Loaded state from file: chatLocked=${serverState.chatLocked}, reports=${serverState.reports.length}, activeBans=${adminBans.size}`);
     }
   } catch (error) {
     console.error('[STATE] Error loading state:', error.message);
@@ -194,8 +212,18 @@ function loadServerState() {
 // Save server state to file
 function saveServerState() {
   try {
+    // Convert adminBans Map to object for storage
+    const adminBansObj = {};
+    for (const [gcSid, banInfo] of adminBans.entries()) {
+      // Only save bans that haven't expired
+      if (banInfo.bannedUntil > Date.now()) {
+        adminBansObj[gcSid] = banInfo;
+      }
+    }
+    serverState.adminBans = adminBansObj;
+    
     fs.writeFileSync(STATE_FILE, JSON.stringify(serverState, null, 2), 'utf-8');
-    console.log(`[STATE] Saved state to file: chatLocked=${serverState.chatLocked}, reports=${serverState.reports.length}`);
+    console.log(`[STATE] Saved state to file: chatLocked=${serverState.chatLocked}, reports=${serverState.reports.length}, bans=${Object.keys(adminBansObj).length}`);
   } catch (error) {
     console.error('[STATE] Error saving state:', error.message);
   }
@@ -847,18 +875,36 @@ wss.on('connection', async (ws, req) => {
       if (message.type === "admin_ban") {
         if (!info.adminUser || info.adminUser.role !== 'admin') {
           console.log(`[ADMIN-BAN] ❌ Unauthorized: not admin`);
+          ws.send(JSON.stringify({ 
+            type: 'admin_ban_error', 
+            error: 'Unauthorized: Admin access required' 
+          }));
           return;
         }
 
         const { gcSid, duration, deleteMessage } = message;
         if (!gcSid || !duration) {
           console.log(`[ADMIN-BAN] ❌ Missing gcSid or duration`);
+          ws.send(JSON.stringify({ 
+            type: 'admin_ban_error', 
+            error: 'Missing required parameters' 
+          }));
           return;
         }
 
         // Apply ban
         const banUntil = now() + duration;
-        adminBans.set(gcSid, { bannedUntil: banUntil, bannedBy: info.adminUser.username });
+        const banReason = `Muted by admin for ${Math.ceil(duration / 1000)} seconds`;
+        adminBans.set(gcSid, { 
+          bannedUntil: banUntil, 
+          bannedBy: info.adminUser.username,
+          reason: banReason,
+          duration: duration
+        });
+        
+        // Save state to persist bans
+        saveServerState();
+        
         console.log(`[ADMIN-BAN] Admin ${info.adminUser.username} banned gcSid ${gcSid.substring(0, 8)}... for ${Math.ceil(duration / 1000)}s`);
 
         // Delete message if requested
@@ -872,21 +918,27 @@ wss.on('connection', async (ws, req) => {
           }
         }
 
-        // Notify the banned user
+        // Notify the banned user with admin_mute event
         wss.clients.forEach(client => {
           const clientInfo = clients.get(client);
           if (clientInfo && clientInfo.gcSid === gcSid && client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({
-              type: 'admin_banned',
-              bannedUntil: banUntil,
+              type: 'admin_mute',
+              until: banUntil,
               seconds: Math.ceil(duration / 1000),
-              reason: 'Banned by admin'
+              reason: banReason
             }));
+            console.log(`[ADMIN-BAN] ✓ Sent mute notification to user`);
           }
         });
 
         // Send confirmation to admin
-        ws.send(JSON.stringify({ type: 'admin_ban_success', gcSid: gcSid.substring(0, 8) }));
+        ws.send(JSON.stringify({ 
+          type: 'admin_ban_success',
+          ok: true,
+          gcSid: gcSid.substring(0, 8),
+          duration: Math.ceil(duration / 1000)
+        }));
         
         return;
       }
@@ -916,24 +968,25 @@ wss.on('connection', async (ws, req) => {
       if (message.type === "admin_wipe_data") {
         if (!info.adminUser || info.adminUser.role !== 'admin') {
           console.log(`[ADMIN-WIPE] ❌ Unauthorized: not admin`);
+          ws.send(JSON.stringify({ 
+            type: 'admin_wipe_error', 
+            error: 'Unauthorized: Admin access required' 
+          }));
           return;
         }
 
         console.log(`[ADMIN-WIPE] Admin ${info.adminUser.username} is wiping all chat data`);
 
         try {
-          // Delete all messages from database
-          const db = require('./db');
-          // We need to get the database instance and clear it
-          // For now, let's delete all recent messages
-          const allMessages = await getRecentMessages(999999);
-          for (const msg of allMessages) {
-            await deleteMessageById(msg.id);
-          }
+          // Delete all messages from database efficiently
+          const messageCount = await wipeAllMessages();
+          console.log(`[ADMIN-WIPE] ✓ Deleted ${messageCount} messages from database`);
 
           // Delete all uploaded files
+          let fileCount = 0;
           if (fs.existsSync(UPLOAD_DIR)) {
             const files = fs.readdirSync(UPLOAD_DIR);
+            fileCount = files.length;
             for (const file of files) {
               try {
                 fs.unlinkSync(path.join(UPLOAD_DIR, file));
@@ -941,10 +994,10 @@ wss.on('connection', async (ws, req) => {
                 console.error(`[ADMIN-WIPE] Error deleting file ${file}:`, err.message);
               }
             }
-            console.log(`[ADMIN-WIPE] ✓ Deleted ${files.length} uploaded files`);
+            console.log(`[ADMIN-WIPE] ✓ Deleted ${fileCount} uploaded files`);
           }
 
-          console.log(`[ADMIN-WIPE] ✓ Wiped all chat data`);
+          console.log(`[ADMIN-WIPE] ✓ Wiped all chat data: ${messageCount} messages, ${fileCount} files`);
 
           // Broadcast wipe event to all clients
           broadcast({
@@ -952,11 +1005,20 @@ wss.on('connection', async (ws, req) => {
             wipedBy: info.adminUser.username
           });
 
-          // Send confirmation to admin
-          ws.send(JSON.stringify({ type: 'admin_wipe_success' }));
+          // Send confirmation to admin with success details
+          ws.send(JSON.stringify({ 
+            type: 'admin_wipe_success',
+            ok: true,
+            messagesDeleted: messageCount,
+            filesDeleted: fileCount
+          }));
         } catch (error) {
           console.error(`[ADMIN-WIPE] Error:`, error);
-          ws.send(JSON.stringify({ type: 'admin_wipe_error', error: error.message }));
+          ws.send(JSON.stringify({ 
+            type: 'admin_wipe_error', 
+            ok: false,
+            error: error.message 
+          }));
         }
 
         return;
@@ -1056,27 +1118,37 @@ wss.on('connection', async (ws, req) => {
         // Check if chat is locked (only admin can send)
         if (serverState.chatLocked) {
           if (!info.adminUser || info.adminUser.role !== 'admin') {
-            console.log(`[CHAT-LOCKED] Message blocked: chat is locked`);
+            console.log(`[CHAT-LOCKED] Message blocked: chat is locked by admin`);
             ws.send(JSON.stringify({ 
-              type: 'chat_locked', 
-              message: 'Chat is currently locked by admin'
+              type: 'send_blocked',
+              reason: 'CHAT_LOCKED',
+              message: 'Chat is paused by admin'
             }));
             return;
+          } else {
+            console.log(`[CHAT-LOCKED] Admin ${info.adminUser.username} sending message (chat is locked for others)`);
           }
         }
 
-        // Check admin ban
+        // Check admin ban/mute
         const adminBan = adminBans.get(info.gcSid);
         if (adminBan && now() < adminBan.bannedUntil) {
           const remainingSeconds = Math.ceil((adminBan.bannedUntil - now()) / 1000);
-          console.log(`[ADMIN-BAN] Message blocked: user is admin-banned for ${remainingSeconds}s`);
+          const remainingMs = adminBan.bannedUntil - now();
+          console.log(`[ADMIN-BAN] Message blocked: user is admin-muted for ${remainingSeconds}s more`);
           ws.send(JSON.stringify({ 
-            type: 'admin_banned', 
-            bannedUntil: adminBan.bannedUntil,
+            type: 'admin_mute',
+            until: adminBan.bannedUntil,
             seconds: remainingSeconds,
-            reason: 'Banned by admin'
+            remainingMs: remainingMs,
+            reason: adminBan.reason || `Muted by admin (${remainingSeconds}s remaining)`
           }));
           return;
+        } else if (adminBan) {
+          // Ban expired, remove it
+          adminBans.delete(info.gcSid);
+          saveServerState();
+          console.log(`[ADMIN-BAN] Ban expired for gcSid ${info.gcSid.substring(0, 8)}...`);
         }
 
         // CRITICAL: Check mute status FIRST before any other processing

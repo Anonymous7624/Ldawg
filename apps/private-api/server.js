@@ -459,20 +459,27 @@ app.post('/account/change-password', authenticateToken, async (req, res) => {
       return res.status(400).json({ error: 'New password must be at least 6 characters' });
     }
 
+    // Fetch user with passHash (since authenticateToken excludes it)
+    const userWithHash = await User.findById(req.user._id);
+    if (!userWithHash) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
     // Verify current password
-    const validPassword = await argon2.verify(req.user.passHash, currentPassword);
+    const validPassword = await argon2.verify(userWithHash.passHash, currentPassword);
     if (!validPassword) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
 
     // Hash new password
     const hashedPassword = await argon2.hash(newPassword);
-    req.user.passHash = hashedPassword;
-    await req.user.save();
+    userWithHash.passHash = hashedPassword;
+    await userWithHash.save();
 
     console.log(`[ACCOUNT] Password changed for: ${req.user.email} (${req.user.username})`);
 
     res.json({
+      ok: true,
       success: true,
       message: 'Password changed successfully'
     });
@@ -501,7 +508,7 @@ app.listen(PORT, () => {
   console.log(`Port: ${PORT}`);
   console.log(`MongoDB: ${MONGO_URI.replace(/:[^:]*@/, ':***@')}`);
   console.log(`JWT Expiration: ${JWT_EXPIRES_IN}`);
-  console.log(`CORS Origins: ${corsOrigins.join(', ')}`);
+  console.log(`CORS Origins: ${Array.from(allowedOrigins).join(', ')}`);
   console.log('========================================');
   console.log('Available endpoints:');
   console.log('  GET  /health');
