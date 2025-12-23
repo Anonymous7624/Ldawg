@@ -3193,14 +3193,32 @@
             ...data,
             action: 'blocked_name'
           });
+        } else if (data.type === 'admin_mute') {
+          // Admin mute/ban
+          const seconds = data.seconds || Math.ceil((data.until - Date.now()) / 1000);
+          showStatusMessage(`Muted by admin for ${seconds} seconds`, 'error');
+          disableInputs(true);
+          
+          // Clear any existing timeout
+          if (window.adminMuteTimeout) {
+            clearTimeout(window.adminMuteTimeout);
+          }
+          
+          // Re-enable after mute expires
+          window.adminMuteTimeout = setTimeout(() => {
+            disableInputs(false);
+            hideStatusMessage();
+            showToast('Mute expired - you can chat again', 'success');
+          }, seconds * 1000);
         } else if (data.type === 'admin_banned') {
-          // Admin ban
-          showStatusMessage(`You have been banned by admin for ${data.seconds} seconds`, 'error');
+          // Legacy support - convert to admin_mute
+          const seconds = data.seconds || Math.ceil((data.bannedUntil - Date.now()) / 1000);
+          showStatusMessage(`Muted by admin for ${seconds} seconds`, 'error');
           disableInputs(true);
           setTimeout(() => {
             disableInputs(false);
             hideStatusMessage();
-          }, data.seconds * 1000);
+          }, seconds * 1000);
         } else if (data.type === 'chat_lock_changed') {
           // Chat lock changed
           const toggle = document.getElementById('chatLockToggle');
@@ -3221,8 +3239,15 @@
             hideStatusMessage();
             disableInputs(false);
           }
+        } else if (data.type === 'send_blocked') {
+          // Attempt to send message while blocked (chat locked, muted, etc)
+          if (data.reason === 'CHAT_LOCKED') {
+            showStatusMessage(data.message || 'Chat is paused by admin', 'error');
+          } else {
+            showStatusMessage(data.message || 'Your message was blocked', 'error');
+          }
         } else if (data.type === 'chat_locked') {
-          // Attempt to send message while chat is locked
+          // Legacy support - convert to send_blocked
           showStatusMessage('Chat is currently locked by admin', 'error');
         } else if (data.type === 'chat_wiped') {
           // All messages wiped

@@ -285,10 +285,39 @@ function pruneToLimit(limit) {
   });
 }
 
+/**
+ * Wipe all messages from the database
+ * @returns {Promise<number>} Number of messages deleted
+ */
+function wipeAllMessages() {
+  return new Promise((resolve, reject) => {
+    if (!db) {
+      return reject(new Error('Database not initialized'));
+    }
+    
+    try {
+      // Get count before wiping
+      const countStmt = db.prepare('SELECT COUNT(*) as count FROM messages');
+      const { count } = countStmt.get();
+      
+      // Delete all messages
+      const deleteStmt = db.prepare('DELETE FROM messages');
+      deleteStmt.run();
+      
+      console.log(`[DB] Wiped all messages: ${count} messages deleted`);
+      resolve(count);
+    } catch (error) {
+      console.error('[DB] Wipe error:', error);
+      reject(error);
+    }
+  });
+}
+
 module.exports = {
   initDb,
   saveMessage,
   getRecentMessages,
   deleteMessageById,
-  pruneToLimit
+  pruneToLimit,
+  wipeAllMessages
 };
