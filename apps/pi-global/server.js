@@ -892,6 +892,16 @@ wss.on('connection', async (ws, req) => {
           return;
         }
 
+        // Prevent admin from muting themselves
+        if (info.gcSid === gcSid) {
+          console.log(`[ADMIN-BAN] ❌ Admin ${info.adminUser.username} tried to mute themselves`);
+          ws.send(JSON.stringify({ 
+            type: 'admin_ban_error', 
+            error: 'Cannot mute yourself' 
+          }));
+          return;
+        }
+
         // Apply ban
         const banUntil = now() + duration;
         const banReason = `Muted by admin for ${Math.ceil(duration / 1000)} seconds`;
@@ -905,7 +915,8 @@ wss.on('connection', async (ws, req) => {
         // Save state to persist bans
         saveServerState();
         
-        console.log(`[ADMIN-BAN] Admin ${info.adminUser.username} banned gcSid ${gcSid.substring(0, 8)}... for ${Math.ceil(duration / 1000)}s`);
+        // ADMIN_MUTE applied log
+        console.log(`[ADMIN_MUTE] applied to clientId=${gcSid.substring(0, 8)}... until=${new Date(banUntil).toISOString()} by=${info.adminUser.username}`);
 
         // Delete message if requested
         if (deleteMessage && message.messageId) {
@@ -1047,7 +1058,7 @@ wss.on('connection', async (ws, req) => {
             id: crypto.randomBytes(8).toString('hex'),
             messageId: reportedMessage.id,
             messageText: reportedMessage.text || reportedMessage.caption || '(media)',
-            messageSender: reportedMessage.senderId,
+            messageSender: reportedMessage.senderClientId || reportedMessage.senderId, // Use senderClientId for ban targeting
             messageNickname: reportedMessage.nickname,
             messageTimestamp: reportedMessage.timestamp,
             reporterId: info.gcSid,
@@ -1240,7 +1251,7 @@ wss.on('connection', async (ws, req) => {
               scale: parseFloat(message.adminStyleMeta.scale) || 1.0,
               fontWeight: message.adminStyleMeta.fontWeight || 'normal'
             };
-            console.log(`[ADMIN-STYLE] Admin ${info.adminUser.username} using style:`, adminStyleMeta);
+            console.log(`[ADMIN-STYLE] Admin ${info.adminUser.username} using style: displayName="${adminStyleMeta.displayName}", color=${adminStyleMeta.color}, scale=${adminStyleMeta.scale}`);
           } else {
             // Non-admin tried to send style metadata - strip it
             console.log(`[SECURITY] Non-admin user tried to send admin style metadata - stripped`);
@@ -1283,6 +1294,7 @@ wss.on('connection', async (ws, req) => {
           type: 'text',
           id: msgId,
           senderId: info.clientId,
+          senderClientId: info.gcSid, // Cookie-based stable ID for ban targeting
           nickname,
           timestamp: message.timestamp || Date.now(),
           text: filteredText, // Use filtered text
@@ -1312,6 +1324,12 @@ wss.on('connection', async (ws, req) => {
         }
 
         broadcast(chatMessage);
+        
+        // Debug log for admin styled messages
+        if (adminStyleMeta) {
+          console.log(`[ADMIN-STYLE] broadcast message id=${msgId} styleKey=${adminStyleMeta.color}_${adminStyleMeta.scale}x displayName="${adminStyleMeta.displayName}"`);
+        }
+        
         console.log(`[MESSAGE] Text message from ${nickname}: "${filteredText.substring(0, 50)}${filteredText.length > 50 ? '...' : ''}"`);
       } else if (message.type === 'image') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
@@ -1332,6 +1350,7 @@ wss.on('connection', async (ws, req) => {
           type: 'image',
           id: msgId,
           senderId: info.clientId,
+          senderClientId: info.gcSid, // Cookie-based stable ID for ban targeting
           nickname,
           timestamp: message.timestamp || Date.now(),
           url: message.url,
@@ -1363,6 +1382,12 @@ wss.on('connection', async (ws, req) => {
         }
 
         broadcast(chatMessage);
+        
+        // Debug log for admin styled messages
+        if (adminStyleMeta) {
+          console.log(`[ADMIN-STYLE] broadcast message id=${msgId} styleKey=${adminStyleMeta.color}_${adminStyleMeta.scale}x displayName="${adminStyleMeta.displayName}"`);
+        }
+        
         console.log(`[MESSAGE] Image from ${nickname}: ${message.filename} (${message.size} bytes)`);
       } else if (message.type === 'audio') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
@@ -1384,6 +1409,7 @@ wss.on('connection', async (ws, req) => {
           type: 'audio',
           id: msgId,
           senderId: info.clientId,
+          senderClientId: info.gcSid, // Cookie-based stable ID for ban targeting
           nickname,
           timestamp: message.timestamp || Date.now(),
           url: message.url,
@@ -1412,6 +1438,12 @@ wss.on('connection', async (ws, req) => {
         }
 
         broadcast(chatMessage);
+        
+        // Debug log for admin styled messages
+        if (adminStyleMeta) {
+          console.log(`[ADMIN-STYLE] broadcast message id=${msgId} styleKey=${adminStyleMeta.color}_${adminStyleMeta.scale}x displayName="${adminStyleMeta.displayName}"`);
+        }
+        
         console.log(`[MESSAGE] Audio from ${nickname}: ${message.url} (caption: "${caption.substring(0, 50)}")`);
       } else if (message.type === 'video') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
@@ -1432,6 +1464,7 @@ wss.on('connection', async (ws, req) => {
           type: 'video',
           id: msgId,
           senderId: info.clientId,
+          senderClientId: info.gcSid, // Cookie-based stable ID for ban targeting
           nickname,
           timestamp: message.timestamp || Date.now(),
           url: message.url,
@@ -1463,6 +1496,12 @@ wss.on('connection', async (ws, req) => {
         }
 
         broadcast(chatMessage);
+        
+        // Debug log for admin styled messages
+        if (adminStyleMeta) {
+          console.log(`[ADMIN-STYLE] broadcast message id=${msgId} styleKey=${adminStyleMeta.color}_${adminStyleMeta.scale}x displayName="${adminStyleMeta.displayName}"`);
+        }
+        
         console.log(`[MESSAGE] Video from ${nickname}: ${message.filename} (${message.size} bytes)`);
       } else if (message.type === 'file') {
         const nickname = (message.nickname || 'Anonymous').substring(0, 100);
@@ -1483,6 +1522,7 @@ wss.on('connection', async (ws, req) => {
           type: 'file',
           id: msgId,
           senderId: info.clientId,
+          senderClientId: info.gcSid, // Cookie-based stable ID for ban targeting
           nickname,
           timestamp: message.timestamp || Date.now(),
           url: message.url,
@@ -1513,6 +1553,12 @@ wss.on('connection', async (ws, req) => {
         }
 
         broadcast(chatMessage);
+        
+        // Debug log for admin styled messages
+        if (adminStyleMeta) {
+          console.log(`[ADMIN-STYLE] broadcast message id=${msgId} styleKey=${adminStyleMeta.color}_${adminStyleMeta.scale}x displayName="${adminStyleMeta.displayName}"`);
+        }
+        
         console.log(`[MESSAGE] File from ${nickname}: ${message.filename} (${message.size} bytes)`);
       }
     } catch (error) {
