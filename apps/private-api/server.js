@@ -31,23 +31,38 @@ app.use(helmet()); // Security headers
 app.use(express.json()); // Parse JSON bodies
 
 // CORS configuration
-const corsOrigins = process.env.CORS_ORIGINS 
-  ? process.env.CORS_ORIGINS.split(',')
-  : ['https://ldawg7624.com', 'https://www.ldawg7624.com'];
+const allowedOrigins = new Set([
+  'https://simplechatroom.com',
+  'https://www.simplechatroom.com',
+  'https://ldawg7624.com',
+  'https://www.ldawg7624.com'
+]);
 
-app.use(cors({
+// Add any additional origins from environment variable
+if (process.env.CORS_ORIGINS) {
+  process.env.CORS_ORIGINS.split(',').forEach(origin => allowedOrigins.add(origin.trim()));
+}
+
+const corsOptions = {
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
-    if (corsOrigins.includes(origin)) {
+    if (allowedOrigins.has(origin)) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
     }
   },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
-}));
+};
+
+app.use(cors(corsOptions));
+
+// Handle preflight requests for all routes
+app.options('*', cors(corsOptions));
 
 // Rate limiting
 const limiter = rateLimit({
