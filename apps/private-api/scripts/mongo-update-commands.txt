@@ -1,0 +1,105 @@
+# MongoDB Direct Update Commands
+# Use these commands if you prefer to update the database directly via MongoDB shell
+
+# ==============================================================================
+# STEP 1: Generate the password hash
+# ==============================================================================
+
+# Run this Node.js command to generate the hash for Password/3285:
+cd /workspace/apps/private-api/scripts
+node generate-password-hash.js
+
+# Copy the hash output from above
+
+# ==============================================================================
+# STEP 2: Connect to MongoDB
+# ==============================================================================
+
+# Option A: If MongoDB is local
+mongosh "mongodb://appuser:YOUR_PASSWORD@127.0.0.1:27017/privatechat?authSource=privatechat"
+
+# Option B: If using older mongo client
+mongo "mongodb://appuser:YOUR_PASSWORD@127.0.0.1:27017/privatechat?authSource=privatechat"
+
+# ==============================================================================
+# STEP 3: Run these commands in MongoDB shell
+# ==============================================================================
+
+# Switch to the database
+use privatechat
+
+# FIRST: Check if the user exists
+db.users.findOne({ email: "jusbarkan@bmchsd.org" })
+
+# You should see output with the user's details. Note the _id, username, etc.
+
+# SECOND: Check if new email is already taken (should return null)
+db.users.findOne({ email: "newmoderator@bmchsd.org" })
+
+# If this returns a user, you'll need to delete it first or choose a different email
+
+# THIRD: Update the user
+# IMPORTANT: Replace YOUR_GENERATED_HASH_HERE with the actual hash from Step 1
+db.users.updateOne(
+  { email: "jusbarkan@bmchsd.org" },
+  {
+    $set: {
+      email: "newmoderator@bmchsd.org",
+      passHash: "YOUR_GENERATED_HASH_HERE"
+    }
+  }
+)
+
+# Expected output:
+# { acknowledged: true, matchedCount: 1, modifiedCount: 1 }
+
+# FOURTH: Verify the update
+db.users.findOne({ email: "newmoderator@bmchsd.org" })
+
+# You should see the user with the updated email and passHash
+
+# ==============================================================================
+# STEP 4: Exit MongoDB shell
+# ==============================================================================
+
+exit
+
+# ==============================================================================
+# Complete Example (all in one)
+# ==============================================================================
+
+# 1. Generate hash
+cd /workspace/apps/private-api/scripts && node generate-password-hash.js
+
+# 2. Connect and update (replace HASH_HERE with actual hash)
+mongosh "mongodb://appuser:PASSWORD@127.0.0.1:27017/privatechat?authSource=privatechat" --eval '
+use privatechat
+db.users.updateOne(
+  { email: "jusbarkan@bmchsd.org" },
+  {
+    $set: {
+      email: "newmoderator@bmchsd.org",
+      passHash: "HASH_HERE"
+    }
+  }
+)
+db.users.findOne({ email: "newmoderator@bmchsd.org" })
+'
+
+# ==============================================================================
+# Rollback (if needed)
+# ==============================================================================
+
+# To revert the change:
+mongosh "mongodb://appuser:PASSWORD@127.0.0.1:27017/privatechat?authSource=privatechat" --eval '
+use privatechat
+db.users.updateOne(
+  { email: "newmoderator@bmchsd.org" },
+  {
+    $set: {
+      email: "jusbarkan@bmchsd.org",
+      passHash: "ORIGINAL_HASH_HERE"
+    }
+  }
+)
+'
