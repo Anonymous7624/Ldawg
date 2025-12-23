@@ -11,12 +11,18 @@ let db = null;
 function initDb() {
   return new Promise((resolve, reject) => {
     try {
-      // Use DB_PATH environment variable or default to ./chat.db
-      const dbPath = process.env.DB_PATH || path.join(__dirname, 'chat.db');
+      // Use DB_PATH environment variable or PRODUCTION DEFAULT
+      const dbPath = process.env.DB_PATH || '/home/ldawg7624/chat-data/chat.db';
       
-      // FAIL LOUDLY if DB_PATH is not set in production
-      if (!process.env.DB_PATH) {
-        console.warn('[DB] ⚠️  WARNING: DB_PATH environment variable not set, using default');
+      // SAFETY CHECK: Refuse to start if using forbidden in-repo DB path
+      if (dbPath.includes('/apps/pi-global/chat.db')) {
+        console.error('========================================');
+        console.error('[DB] ❌ FATAL: FORBIDDEN DATABASE PATH!');
+        console.error(`[DB] Path: ${dbPath}`);
+        console.error('[DB] This is the in-repo path that causes data loss.');
+        console.error('[DB] Production path: /home/ldawg7624/chat-data/chat.db');
+        console.error('========================================');
+        throw new Error('Forbidden database path detected');
       }
       
       // Ensure the directory exists before creating the database file
@@ -315,7 +321,7 @@ function pruneToLimit(limit) {
       
       // Check which files should be deleted
       // Only delete files that are no longer referenced by ANY remaining message
-      const uploadsDir = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
+      const uploadsDir = process.env.UPLOAD_DIR || '/home/ldawg7624/chat-data/uploads';
       for (const filename of filenamesToCheck) {
         // Check if this filename is still referenced
         const checkStmt = db.prepare('SELECT COUNT(*) as count FROM messages WHERE storedFilename = ?');

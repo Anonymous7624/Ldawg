@@ -18,12 +18,23 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Environment-driven configuration
+// Environment-driven configuration with PRODUCTION DEFAULTS
 const PORT = parseInt(process.env.WS_PORT || '8080', 10);
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'chat.db');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || '/home/ldawg7624/chat-data/uploads';
+const DB_PATH = process.env.DB_PATH || '/home/ldawg7624/chat-data/chat.db';
 const MAX_MESSAGES = parseInt(process.env.MAX_MESSAGES || '600', 10);
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
+
+// SAFETY CHECK: Refuse to start if using forbidden in-repo DB path
+if (DB_PATH.includes('/apps/pi-global/chat.db')) {
+  console.error('========================================');
+  console.error('[FATAL] FORBIDDEN DATABASE PATH DETECTED!');
+  console.error(`[FATAL] DB_PATH: ${DB_PATH}`);
+  console.error('[FATAL] This path will cause data loss on git pulls.');
+  console.error('[FATAL] Set DB_PATH environment variable to: /home/ldawg7624/chat-data/chat.db');
+  console.error('========================================');
+  process.exit(1);
+}
 
 // Two-layer spam control configuration
 const RATE_LIMIT_MESSAGES = 4; // Max messages in sliding window (5th triggers strike)
@@ -1525,14 +1536,18 @@ async function main() {
       console.log(`Port: ${PORT}`);
       console.log(`WebSocket: ws://localhost:${PORT}`);
       console.log(`HTTP API: http://localhost:${PORT}`);
-      console.log(`Database: ${DB_PATH}`);
-      console.log(`Upload dir: ${UPLOAD_DIR}`);
-      console.log(`History limit: ${MAX_MESSAGES} messages`);
+      console.log(`========================================`);
+      console.log(`[PERSISTENCE] *** PRODUCTION PATHS ***`);
+      console.log(`[PERSISTENCE] Database: ${DB_PATH}`);
+      console.log(`[PERSISTENCE] Uploads:  ${UPLOAD_DIR}`);
+      console.log(`[PERSISTENCE] DB exists: ${fs.existsSync(DB_PATH) ? 'YES' : 'NO (will be created)'}`);
+      console.log(`[PERSISTENCE] Upload dir exists: ${fs.existsSync(UPLOAD_DIR) ? 'YES' : 'NO (created)'}`);
       console.log(`========================================`);
       console.log(`[CONFIG] Environment variables:`);
-      console.log(`  DB_PATH=${process.env.DB_PATH || '(default)'}`);
-      console.log(`  UPLOAD_DIR=${process.env.UPLOAD_DIR || '(default)'}`);
+      console.log(`  DB_PATH=${process.env.DB_PATH || '(using production default)'}`);
+      console.log(`  UPLOAD_DIR=${process.env.UPLOAD_DIR || '(using production default)'}`);
       console.log(`  MAX_MESSAGES=${process.env.MAX_MESSAGES || '(default)'}`);
+      console.log(`[CONFIG] History limit: ${MAX_MESSAGES} messages`);
       console.log(`========================================`);
     });
   } catch (error) {

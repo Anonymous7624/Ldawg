@@ -7,9 +7,9 @@ const { execFile } = require('child_process');
 
 const app = express();
 
-// Environment-driven configuration
+// Environment-driven configuration with PRODUCTION DEFAULTS
 const PORT = parseInt(process.env.UPLOAD_PORT || '8082', 10);
-const UPLOAD_DIR = process.env.UPLOAD_DIR || path.join(__dirname, 'uploads');
+const UPLOAD_DIR = process.env.UPLOAD_DIR || '/home/ldawg7624/chat-data/uploads';
 const UPLOAD_BASE_URL = process.env.UPLOAD_BASE_URL || 'https://upload.ldawg7624.com';
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB
 
