@@ -68,7 +68,6 @@ function initDb() {
           id TEXT PRIMARY KEY,
           type TEXT NOT NULL,
           senderId TEXT NOT NULL,
-          senderClientId TEXT,
           nickname TEXT,
           timestamp INTEGER NOT NULL,
           text TEXT,
@@ -79,8 +78,7 @@ function initDb() {
           mime TEXT,
           size INTEGER,
           caption TEXT,
-          isAdmin INTEGER DEFAULT 0,
-          adminStyleMeta TEXT
+          isAdmin INTEGER DEFAULT 0
         )
       `);
       
@@ -99,6 +97,21 @@ function initDb() {
           console.log('[DB] Running migration: Adding isAdmin column');
           db.exec('ALTER TABLE messages ADD COLUMN isAdmin INTEGER DEFAULT 0');
           console.log('[DB] Migration complete: isAdmin column added');
+        }
+      } catch (migrationError) {
+        console.warn('[DB] Migration check failed (non-fatal):', migrationError.message);
+      }
+      
+      // Migration: Add adminStyleMeta column if it doesn't exist (for admin styling persistence)
+      try {
+        const columnsStmt = db.prepare("PRAGMA table_info(messages)");
+        const columns = columnsStmt.all();
+        const hasAdminStyleMeta = columns.some(col => col.name === 'adminStyleMeta');
+        
+        if (!hasAdminStyleMeta) {
+          console.log('[DB] Running migration: Adding adminStyleMeta column');
+          db.exec('ALTER TABLE messages ADD COLUMN adminStyleMeta TEXT');
+          console.log('[DB] Migration complete: adminStyleMeta column added');
         }
       } catch (migrationError) {
         console.warn('[DB] Migration check failed (non-fatal):', migrationError.message);
@@ -144,7 +157,7 @@ function saveMessage(msg) {
     }
     
     try {
-      // Validate required fields
+      // Validate required fields with fallbacks
       if (!msg.id || typeof msg.id !== 'string') {
         const error = new Error(`Invalid message ID: ${JSON.stringify(msg.id)}`);
         console.error('[DB-INSERT] ❌ VALIDATION ERROR:', error.message);
@@ -152,21 +165,17 @@ function saveMessage(msg) {
         return reject(error);
       }
       
-      if (!msg.type || typeof msg.type !== 'string') {
-        const error = new Error(`Invalid message type: ${JSON.stringify(msg.type)}`);
-        console.error('[DB-INSERT] ❌ VALIDATION ERROR:', error.message);
-        console.error('[DB-INSERT] Message payload:', JSON.stringify(msg, null, 2));
-        return reject(error);
-      }
-      
-      // Ensure timestamp is a valid integer
-      const timestamp = typeof msg.timestamp === 'number' ? msg.timestamp : Date.now();
+      // Apply fallbacks for required fields
+      const type = msg.type || 'text';
+      const senderId = msg.senderId || 'unknown';
+      const timestamp = Number(msg.timestamp) || Date.now();
+      const isAdmin = msg.isAdmin ? 1 : 0;
       
       console.log(`[DB-INSERT] ========================================`);
       console.log(`[DB-INSERT] Attempting to save message`);
       console.log(`[DB-INSERT] id=${msg.id}`);
-      console.log(`[DB-INSERT] type=${msg.type}`);
-      console.log(`[DB-INSERT] senderId=${msg.senderId}`);
+      console.log(`[DB-INSERT] type=${type}`);
+      console.log(`[DB-INSERT] senderId=${senderId}`);
       console.log(`[DB-INSERT] timestamp=${timestamp}`);
       console.log(`[DB-INSERT] text=${msg.text ? msg.text.substring(0, 50) : 'null'}`);
       
@@ -179,8 +188,8 @@ function saveMessage(msg) {
       
       const stmt = db.prepare(`
         INSERT OR REPLACE INTO messages 
-        (id, type, senderId, senderClientId, nickname, timestamp, text, html, url, filename, storedFilename, mime, size, caption, isAdmin, adminStyleMeta)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (id, type, senderId, nickname, timestamp, text, html, url, filename, storedFilename, mime, size, caption, isAdmin, adminStyleMeta)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       
       // Serialize adminStyleMeta to JSON if present
@@ -188,9 +197,8 @@ function saveMessage(msg) {
       
       const result = stmt.run(
         msg.id,
-        msg.type,
-        msg.senderId,
-        msg.senderClientId || null,
+        type,
+        senderId,
         msg.nickname || null,
         timestamp,
         msg.text || null,
@@ -201,7 +209,7 @@ function saveMessage(msg) {
         msg.mime || null,
         msg.size || null,
         msg.caption || null,
-        msg.isAdmin ? 1 : 0,
+        isAdmin,
         adminStyleMetaJson
       );
       
@@ -268,7 +276,6 @@ function getRecentMessages(limit) {
         };
         
         // Add optional fields if present
-        if (row.senderClientId) msg.senderClientId = row.senderClientId;
         if (row.nickname) msg.nickname = row.nickname;
         if (row.text) msg.text = row.text;
         if (row.html) msg.html = row.html;
