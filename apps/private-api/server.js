@@ -712,6 +712,85 @@ app.delete('/reports/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /admin/emergency-user-action - Emergency user deletion/update (admin-only)
+app.post('/admin/emergency-user-action', authenticateToken, async (req, res) => {
+  try {
+    // Verify admin role
+    if (req.user.role !== 'admin' && req.user.role !== 'moderator') {
+      return res.status(403).json({ error: 'Admin or moderator access required' });
+    }
+
+    const { action, email, newEmail, newPassword } = req.body;
+
+    if (!action || !email) {
+      return res.status(400).json({ error: 'Action and email are required' });
+    }
+
+    // Find the user
+    const user = await User.findOne({ email: email.toLowerCase() });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    let result = {};
+
+    switch (action) {
+      case 'delete':
+        // Delete the user
+        await User.deleteOne({ _id: user._id });
+        console.log(`[ADMIN-EMERGENCY] User deleted: ${email} by ${req.user.username}`);
+        result = { ok: true, action: 'deleted', email: email };
+        break;
+
+      case 'update':
+        // Update email and/or password
+        if (newEmail) {
+          // Check if new email already exists
+          const existingEmail = await User.findOne({ email: newEmail.toLowerCase() });
+          if (existingEmail && existingEmail._id.toString() !== user._id.toString()) {
+            return res.status(409).json({ error: 'New email already in use' });
+          }
+          user.email = newEmail.toLowerCase();
+        }
+        
+        if (newPassword) {
+          const hashedPassword = await argon2.hash(newPassword);
+          user.passHash = hashedPassword;
+        }
+        
+        await user.save();
+        console.log(`[ADMIN-EMERGENCY] User updated: ${email} -> ${user.email} by ${req.user.username}`);
+        result = { 
+          ok: true, 
+          action: 'updated', 
+          oldEmail: email,
+          newEmail: user.email,
+          passwordChanged: !!newPassword
+        };
+        break;
+
+      case 'disable':
+        // Change password to random unguessable string to effectively disable login
+        const randomPassword = require('crypto').randomBytes(32).toString('hex');
+        const hashedRandom = await argon2.hash(randomPassword);
+        user.passHash = hashedRandom;
+        await user.save();
+        console.log(`[ADMIN-EMERGENCY] User login disabled: ${email} by ${req.user.username}`);
+        result = { ok: true, action: 'disabled', email: email };
+        break;
+
+      default:
+        return res.status(400).json({ error: 'Invalid action. Use: delete, update, or disable' });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('[ADMIN-EMERGENCY] Error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: 'Endpoint not found' });
@@ -744,5 +823,6 @@ app.listen(PORT, () => {
   console.log('  POST /reports/create');
   console.log('  GET  /reports/list');
   console.log('  DELETE /reports/:id');
+  console.log('  POST /admin/emergency-user-action');
   console.log('========================================');
 });
